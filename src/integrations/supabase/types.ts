@@ -14,7 +14,272 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      account_snapshots: {
+        Row: {
+          balance: number
+          created_at: string
+          daily_pnl: number
+          equity: number
+          free_margin: number
+          id: string
+          margin: number
+          mode: string
+          open_positions: number
+        }
+        Insert: {
+          balance: number
+          created_at?: string
+          daily_pnl?: number
+          equity: number
+          free_margin?: number
+          id?: string
+          margin?: number
+          mode?: string
+          open_positions?: number
+        }
+        Update: {
+          balance?: number
+          created_at?: string
+          daily_pnl?: number
+          equity?: number
+          free_margin?: number
+          id?: string
+          margin?: number
+          mode?: string
+          open_positions?: number
+        }
+        Relationships: []
+      }
+      backtest_runs: {
+        Row: {
+          created_at: string
+          end_balance: number
+          equity_curve: Json
+          id: string
+          losses: number
+          max_drawdown: number
+          net_profit: number
+          params: Json
+          profit_factor: number
+          start_balance: number
+          symbol: string
+          total_trades: number
+          win_rate: number
+          wins: number
+        }
+        Insert: {
+          created_at?: string
+          end_balance: number
+          equity_curve: Json
+          id?: string
+          losses: number
+          max_drawdown: number
+          net_profit: number
+          params: Json
+          profit_factor: number
+          start_balance: number
+          symbol: string
+          total_trades: number
+          win_rate: number
+          wins: number
+        }
+        Update: {
+          created_at?: string
+          end_balance?: number
+          equity_curve?: Json
+          id?: string
+          losses?: number
+          max_drawdown?: number
+          net_profit?: number
+          params?: Json
+          profit_factor?: number
+          start_balance?: number
+          symbol?: string
+          total_trades?: number
+          win_rate?: number
+          wins?: number
+        }
+        Relationships: []
+      }
+      bot_settings: {
+        Row: {
+          account_mode: string
+          adx_min: number
+          atr_period: number
+          atr_sl_mult: number
+          atr_tp_mult: number
+          created_at: string
+          ema_fast: number
+          ema_slow: number
+          enabled: boolean
+          id: number
+          max_daily_loss: number
+          max_spread_pips: number
+          min_confidence: number
+          partial_close_pct: number
+          risk_per_trade: number
+          rsi_period: number
+          symbols: string[]
+          trailing_atr_mult: number
+          updated_at: string
+        }
+        Insert: {
+          account_mode?: string
+          adx_min?: number
+          atr_period?: number
+          atr_sl_mult?: number
+          atr_tp_mult?: number
+          created_at?: string
+          ema_fast?: number
+          ema_slow?: number
+          enabled?: boolean
+          id?: number
+          max_daily_loss?: number
+          max_spread_pips?: number
+          min_confidence?: number
+          partial_close_pct?: number
+          risk_per_trade?: number
+          rsi_period?: number
+          symbols?: string[]
+          trailing_atr_mult?: number
+          updated_at?: string
+        }
+        Update: {
+          account_mode?: string
+          adx_min?: number
+          atr_period?: number
+          atr_sl_mult?: number
+          atr_tp_mult?: number
+          created_at?: string
+          ema_fast?: number
+          ema_slow?: number
+          enabled?: boolean
+          id?: number
+          max_daily_loss?: number
+          max_spread_pips?: number
+          min_confidence?: number
+          partial_close_pct?: number
+          risk_per_trade?: number
+          rsi_period?: number
+          symbols?: string[]
+          trailing_atr_mult?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      signals: {
+        Row: {
+          confidence: number
+          created_at: string
+          entry: number
+          executed_at: string | null
+          id: string
+          lot: number
+          mt5_ticket: number | null
+          reason: string
+          risk_pct: number
+          side: string
+          status: string
+          stop_loss: number
+          symbol: string
+          take_profit: number
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          entry: number
+          executed_at?: string | null
+          id?: string
+          lot: number
+          mt5_ticket?: number | null
+          reason: string
+          risk_pct: number
+          side: string
+          status?: string
+          stop_loss: number
+          symbol: string
+          take_profit: number
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          entry?: number
+          executed_at?: string | null
+          id?: string
+          lot?: number
+          mt5_ticket?: number | null
+          reason?: string
+          risk_pct?: number
+          side?: string
+          status?: string
+          stop_loss?: number
+          symbol?: string
+          take_profit?: number
+        }
+        Relationships: []
+      }
+      trades: {
+        Row: {
+          closed_at: string | null
+          entry: number
+          exit: number | null
+          id: string
+          lot: number
+          mt5_ticket: number | null
+          opened_at: string
+          pips: number | null
+          profit: number | null
+          side: string
+          signal_id: string | null
+          status: string
+          stop_loss: number | null
+          symbol: string
+          take_profit: number | null
+        }
+        Insert: {
+          closed_at?: string | null
+          entry: number
+          exit?: number | null
+          id?: string
+          lot: number
+          mt5_ticket?: number | null
+          opened_at?: string
+          pips?: number | null
+          profit?: number | null
+          side: string
+          signal_id?: string | null
+          status?: string
+          stop_loss?: number | null
+          symbol: string
+          take_profit?: number | null
+        }
+        Update: {
+          closed_at?: string | null
+          entry?: number
+          exit?: number | null
+          id?: string
+          lot?: number
+          mt5_ticket?: number | null
+          opened_at?: string
+          pips?: number | null
+          profit?: number | null
+          side?: string
+          signal_id?: string | null
+          status?: string
+          stop_loss?: number | null
+          symbol?: string
+          take_profit?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
