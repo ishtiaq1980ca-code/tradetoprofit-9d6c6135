@@ -84,6 +84,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "AI-powered Forex trading bot for XAUUSD and majors, connected to MetaTrader 5." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "AurumAI — Gold & FX Trading Bot" },
+      { name: "twitter:description", content: "AI-powered Forex trading bot for XAUUSD and majors, connected to MetaTrader 5." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cc7730b9-4aae-47bf-bb69-77ef55be18b1/id-preview-908221a6--b38faf6b-b5b7-491e-b861-585e1be8f36c.lovable.app-1781239406667.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/cc7730b9-4aae-47bf-bb69-77ef55be18b1/id-preview-908221a6--b38faf6b-b5b7-491e-b861-585e1be8f36c.lovable.app-1781239406667.png" },
     ],
     links: [
       {
