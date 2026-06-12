@@ -9,38 +9,181 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as SignalsRouteImport } from './routes/signals'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as BridgeRouteImport } from './routes/bridge'
+import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/bridge/trades'
+import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
+import { Route as ApiPublicBridgeAccountRouteImport } from './routes/api/public/bridge/account'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignalsRoute = SignalsRouteImport.update({
+  id: '/signals',
+  path: '/signals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BridgeRoute = BridgeRouteImport.update({
+  id: '/bridge',
+  path: '/bridge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BacktestRoute = BacktestRouteImport.update({
+  id: '/backtest',
+  path: '/backtest',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBridgeTradesRoute = ApiPublicBridgeTradesRouteImport.update({
+  id: '/api/public/bridge/trades',
+  path: '/api/public/bridge/trades',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicBridgePollRoute = ApiPublicBridgePollRouteImport.update({
+  id: '/api/public/bridge/poll',
+  path: '/api/public/bridge/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicBridgeAccountRoute = ApiPublicBridgeAccountRouteImport.update({
+  id: '/api/public/bridge/account',
+  path: '/api/public/bridge/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/backtest': typeof BacktestRoute
+  '/bridge': typeof BridgeRoute
+  '/settings': typeof SettingsRoute
+  '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/backtest': typeof BacktestRoute
+  '/bridge': typeof BridgeRoute
+  '/settings': typeof SettingsRoute
+  '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/backtest': typeof BacktestRoute
+  '/bridge': typeof BridgeRoute
+  '/settings': typeof SettingsRoute
+  '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/backtest'
+    | '/bridge'
+    | '/settings'
+    | '/signals'
+    | '/sitemap.xml'
+    | '/api/public/bridge/account'
+    | '/api/public/bridge/poll'
+    | '/api/public/bridge/trades'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/backtest'
+    | '/bridge'
+    | '/settings'
+    | '/signals'
+    | '/sitemap.xml'
+    | '/api/public/bridge/account'
+    | '/api/public/bridge/poll'
+    | '/api/public/bridge/trades'
+  id:
+    | '__root__'
+    | '/'
+    | '/backtest'
+    | '/bridge'
+    | '/settings'
+    | '/signals'
+    | '/sitemap.xml'
+    | '/api/public/bridge/account'
+    | '/api/public/bridge/poll'
+    | '/api/public/bridge/trades'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BacktestRoute: typeof BacktestRoute
+  BridgeRoute: typeof BridgeRoute
+  SettingsRoute: typeof SettingsRoute
+  SignalsRoute: typeof SignalsRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  ApiPublicBridgeAccountRoute: typeof ApiPublicBridgeAccountRoute
+  ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
+  ApiPublicBridgeTradesRoute: typeof ApiPublicBridgeTradesRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signals': {
+      id: '/signals'
+      path: '/signals'
+      fullPath: '/signals'
+      preLoaderRoute: typeof SignalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bridge': {
+      id: '/bridge'
+      path: '/bridge'
+      fullPath: '/bridge'
+      preLoaderRoute: typeof BridgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/backtest': {
+      id: '/backtest'
+      path: '/backtest'
+      fullPath: '/backtest'
+      preLoaderRoute: typeof BacktestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +191,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bridge/trades': {
+      id: '/api/public/bridge/trades'
+      path: '/api/public/bridge/trades'
+      fullPath: '/api/public/bridge/trades'
+      preLoaderRoute: typeof ApiPublicBridgeTradesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/bridge/poll': {
+      id: '/api/public/bridge/poll'
+      path: '/api/public/bridge/poll'
+      fullPath: '/api/public/bridge/poll'
+      preLoaderRoute: typeof ApiPublicBridgePollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/bridge/account': {
+      id: '/api/public/bridge/account'
+      path: '/api/public/bridge/account'
+      fullPath: '/api/public/bridge/account'
+      preLoaderRoute: typeof ApiPublicBridgeAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BacktestRoute: BacktestRoute,
+  BridgeRoute: BridgeRoute,
+  SettingsRoute: SettingsRoute,
+  SignalsRoute: SignalsRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
+  ApiPublicBridgeAccountRoute: ApiPublicBridgeAccountRoute,
+  ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
+  ApiPublicBridgeTradesRoute: ApiPublicBridgeTradesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
