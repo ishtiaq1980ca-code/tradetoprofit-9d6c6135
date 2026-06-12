@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SignalsRouteImport } from './routes/signals'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as BridgeRouteImport } from './routes/bridge'
@@ -18,6 +19,11 @@ import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/b
 import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
 import { Route as ApiPublicBridgeAccountRouteImport } from './routes/api/public/bridge/account'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignalsRoute = SignalsRouteImport.update({
   id: '/signals',
   path: '/signals',
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/bridge': typeof BridgeRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/bridge': typeof BridgeRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/bridge': typeof BridgeRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/settings'
     | '/signals'
+    | '/sitemap.xml'
     | '/api/public/bridge/account'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/settings'
     | '/signals'
+    | '/sitemap.xml'
     | '/api/public/bridge/account'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/settings'
     | '/signals'
+    | '/sitemap.xml'
     | '/api/public/bridge/account'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
@@ -129,6 +141,7 @@ export interface RootRouteChildren {
   BridgeRoute: typeof BridgeRoute
   SettingsRoute: typeof SettingsRoute
   SignalsRoute: typeof SignalsRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicBridgeAccountRoute: typeof ApiPublicBridgeAccountRoute
   ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
   ApiPublicBridgeTradesRoute: typeof ApiPublicBridgeTradesRoute
@@ -136,6 +149,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signals': {
       id: '/signals'
       path: '/signals'
@@ -201,6 +221,7 @@ const rootRouteChildren: RootRouteChildren = {
   BridgeRoute: BridgeRoute,
   SettingsRoute: SettingsRoute,
   SignalsRoute: SignalsRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicBridgeAccountRoute: ApiPublicBridgeAccountRoute,
   ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
   ApiPublicBridgeTradesRoute: ApiPublicBridgeTradesRoute,
@@ -208,3 +229,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
