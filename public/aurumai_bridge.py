@@ -70,7 +70,7 @@ def report_account():
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
     }
     try:
-        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, timeout=10)
+        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, headers=HEADERS, timeout=10)
     except Exception as e:
         print(f"account report failed: {e}")
 
@@ -105,7 +105,7 @@ def execute_signal(sig: dict) -> bool:
         return False
     print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price}")
     try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", json={
+        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
             "signal_id": sig["id"],
             "mt5_ticket": int(res.order),
             "symbol": symbol,
@@ -133,7 +133,7 @@ def sync_closed_trades():
             continue
         seen.add(d.position_id)
         try:
-            requests.post(f"{BASE_URL}/api/public/bridge/trades", json={
+            requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
                 "mt5_ticket": int(d.position_id),
                 "symbol": d.symbol,
                 "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",  # OUT is opposite
@@ -155,7 +155,7 @@ def main():
     last_acct = 0
     while True:
         try:
-            r = requests.get(f"{BASE_URL}/api/public/bridge/poll", timeout=10)
+            r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
             if r.ok:
                 data = r.json()
                 if data.get("enabled") and data.get("signals"):
