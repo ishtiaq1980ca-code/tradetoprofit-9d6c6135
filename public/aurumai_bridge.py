@@ -115,7 +115,7 @@ def execute_signal(sig: dict) -> bool:
             "take_profit": float(sig["take_profit"]),
             "lot": float(sig["lot"]),
             "status": "open",
-        }, timeout=10)
+        })
     except Exception as e:
         print(f"trade report failed: {e}")
     return True
@@ -143,7 +143,7 @@ def sync_closed_trades():
                 "profit": float(d.profit),
                 "status": "closed",
                 "closed_at": dt.datetime.utcfromtimestamp(d.time).isoformat() + "Z",
-            }, timeout=10)
+            })
         except Exception:
             pass
 
