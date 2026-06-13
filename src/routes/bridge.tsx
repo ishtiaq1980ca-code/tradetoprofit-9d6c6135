@@ -59,7 +59,12 @@ function BridgePage() {
               </a>
             </Step>
             <Step n={5} title="Configure and run">
-              Open the script, set <code className="rounded bg-muted px-1">BASE_URL</code> to the URL above and your MT5 login.
+              Open the script, set <code className="rounded bg-muted px-1">BASE_URL</code> to the URL above,
+              paste the <code className="rounded bg-muted px-1">BRIDGE_API_TOKEN</code> you stored as a
+              secret in Lovable into <code className="rounded bg-muted px-1">BRIDGE_TOKEN</code>, and add
+              your MT5 login. Every request now sends
+              <code className="rounded bg-muted px-1">Authorization: Bearer &lt;token&gt;</code> — calls
+              without it are rejected with 401.
               Then run: <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-background/60 p-3 text-xs">{`python aurumai_bridge.py`}</pre>
               The bridge polls signals every 5 seconds, posts account snapshots to the dashboard, and executes orders on MT5.
             </Step>
@@ -69,7 +74,7 @@ function BridgePage() {
         <Card className="border-bear/30 bg-card/70">
           <CardHeader><CardTitle className="text-base text-bear">Safety notes</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>· The bridge endpoint is currently open for this single-user demo. Before going live, add a bearer token check (see the bridge script header).</p>
+            <p>· Bridge endpoints require a bearer token (<code className="rounded bg-muted px-1">BRIDGE_API_TOKEN</code>). Keep it secret — anyone with the token can submit fake account snapshots or trades.</p>
             <p>· Always run on a demo account for at least two weeks. Past synthetic backtest performance is not a guarantee of real results.</p>
             <p>· The bridge respects the daily loss limit set on the Settings page: once breached, no new orders are sent for the rest of the day.</p>
           </CardContent>
