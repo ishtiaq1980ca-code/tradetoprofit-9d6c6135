@@ -26,15 +26,18 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BASE_URL   = "https://YOUR-PROJECT.lovable.app"   # paste the Base URL from the Bridge page
-MT5_LOGIN  = 0                                    # your MT5 demo account number
-MT5_PASS   = ""                                   # your MT5 password
-MT5_SERVER = ""                                   # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC   = 5                                    # how often to poll for new signals
-SLIPPAGE   = 20                                   # in points
-MAGIC      = 770077                               # unique magic number for AurumAI trades
+BASE_URL     = "https://YOUR-PROJECT.lovable.app" # paste the Base URL from the Bridge page
+BRIDGE_TOKEN = ""                                 # paste the BRIDGE_API_TOKEN secret you set in Lovable
+MT5_LOGIN    = 0                                  # your MT5 demo account number
+MT5_PASS     = ""                                 # your MT5 password
+MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
+POLL_SEC     = 5                                  # how often to poll for new signals
+SLIPPAGE     = 20                                 # in points
+MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
 # ==================================
+
+HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
 
 
 def connect_mt5() -> bool:

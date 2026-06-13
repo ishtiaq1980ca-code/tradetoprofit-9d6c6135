@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
 export const Route = createFileRoute("/api/public/bridge/poll")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
+        const unauth = checkBridgeAuth(request);
+        if (unauth) return unauth;
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: settings } = await supabaseAdmin.from("bot_settings").select("*").eq("id", 1).maybeSingle();
         if (!settings?.enabled) return Response.json({ enabled: false, signals: [] });
