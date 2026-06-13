@@ -1,11 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, LayoutDashboard, PlugZap, Settings, Signal } from "lucide-react";
+import { Activity, BarChart3, LayoutDashboard, ListChecks, PlugZap, Settings, Signal } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { MarketEngine } from "@/hooks/usePriceFeed";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/signals", label: "Signals", icon: Signal },
+  { to: "/positions", label: "Positions", icon: ListChecks },
   { to: "/backtest", label: "Backtest", icon: BarChart3 },
   { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -15,6 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="flex min-h-screen">
+      <MarketEngine />
       <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
         <Link to="/" className="mb-8 flex items-center gap-2 px-2">
           <div className="grid h-9 w-9 place-items-center rounded-md bg-gold text-primary-foreground glow-gold">
@@ -49,9 +52,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-4 rounded-md border border-border/60 bg-card/50 p-3 text-[11px] text-muted-foreground">
           <div className="mb-1 flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-bull animate-pulse" />
-            <span className="font-medium text-foreground">Demo Mode</span>
+            <span className="font-medium text-foreground">Paper Trading</span>
           </div>
-          Switch to Real on the Settings page after testing on a demo account.
+          Virtual $10,000. Live ticks anchored to public FX/gold spot.
         </div>
       </aside>
       <main className="flex-1 min-w-0">{children}</main>
