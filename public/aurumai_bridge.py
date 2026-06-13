@@ -26,15 +26,18 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BASE_URL   = "https://YOUR-PROJECT.lovable.app"   # paste the Base URL from the Bridge page
-MT5_LOGIN  = 0                                    # your MT5 demo account number
-MT5_PASS   = ""                                   # your MT5 password
-MT5_SERVER = ""                                   # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC   = 5                                    # how often to poll for new signals
-SLIPPAGE   = 20                                   # in points
-MAGIC      = 770077                               # unique magic number for AurumAI trades
+BASE_URL     = "https://YOUR-PROJECT.lovable.app" # paste the Base URL from the Bridge page
+BRIDGE_TOKEN = ""                                 # paste the BRIDGE_API_TOKEN secret you set in Lovable
+MT5_LOGIN    = 0                                  # your MT5 demo account number
+MT5_PASS     = ""                                 # your MT5 password
+MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
+POLL_SEC     = 5                                  # how often to poll for new signals
+SLIPPAGE     = 20                                 # in points
+MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
 # ==================================
+
+HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
 
 
 def connect_mt5() -> bool:
@@ -67,7 +70,7 @@ def report_account():
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
     }
     try:
-        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, timeout=10)
+        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, headers=HEADERS, timeout=10)
     except Exception as e:
         print(f"account report failed: {e}")
 
@@ -102,7 +105,7 @@ def execute_signal(sig: dict) -> bool:
         return False
     print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price}")
     try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", json={
+        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
             "signal_id": sig["id"],
             "mt5_ticket": int(res.order),
             "symbol": symbol,
@@ -112,7 +115,7 @@ def execute_signal(sig: dict) -> bool:
             "take_profit": float(sig["take_profit"]),
             "lot": float(sig["lot"]),
             "status": "open",
-        }, timeout=10)
+        })
     except Exception as e:
         print(f"trade report failed: {e}")
     return True
@@ -130,7 +133,7 @@ def sync_closed_trades():
             continue
         seen.add(d.position_id)
         try:
-            requests.post(f"{BASE_URL}/api/public/bridge/trades", json={
+            requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
                 "mt5_ticket": int(d.position_id),
                 "symbol": d.symbol,
                 "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",  # OUT is opposite
@@ -140,7 +143,7 @@ def sync_closed_trades():
                 "profit": float(d.profit),
                 "status": "closed",
                 "closed_at": dt.datetime.utcfromtimestamp(d.time).isoformat() + "Z",
-            }, timeout=10)
+            })
         except Exception:
             pass
 
@@ -152,7 +155,7 @@ def main():
     last_acct = 0
     while True:
         try:
-            r = requests.get(f"{BASE_URL}/api/public/bridge/poll", timeout=10)
+            r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
             if r.ok:
                 data = r.json()
                 if data.get("enabled") and data.get("signals"):

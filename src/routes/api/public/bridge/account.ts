@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
+import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
 const Schema = z.object({
   balance: z.number(),
@@ -15,6 +16,8 @@ export const Route = createFileRoute("/api/public/bridge/account")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const unauth = checkBridgeAuth(request);
+        if (unauth) return unauth;
         const body = await request.json();
         const parsed = Schema.safeParse(body);
         if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });

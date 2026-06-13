@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { updateBotSettings } from "@/lib/settings.functions";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 
@@ -31,15 +32,23 @@ function SettingsPage() {
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
 
   const save = async () => {
-    const { error } = await supabase.from("bot_settings").update({
-      enabled: form.enabled, account_mode: form.account_mode, risk_per_trade: form.risk_per_trade,
-      max_daily_loss: form.max_daily_loss, ema_fast: form.ema_fast, ema_slow: form.ema_slow,
-      rsi_period: form.rsi_period, adx_min: form.adx_min, atr_period: form.atr_period,
-      atr_sl_mult: form.atr_sl_mult, atr_tp_mult: form.atr_tp_mult, trailing_atr_mult: form.trailing_atr_mult,
-      min_confidence: form.min_confidence, max_spread_pips: form.max_spread_pips, partial_close_pct: form.partial_close_pct,
-    }).eq("id", 1);
-    if (error) toast.error(error.message);
-    else { toast.success("Settings saved"); qc.invalidateQueries({ queryKey: ["bot_settings"] }); }
+    try {
+      await updateBotSettings({
+        data: {
+          enabled: !!form.enabled, account_mode: form.account_mode,
+          risk_per_trade: +form.risk_per_trade, max_daily_loss: +form.max_daily_loss,
+          ema_fast: +form.ema_fast, ema_slow: +form.ema_slow, rsi_period: +form.rsi_period,
+          adx_min: +form.adx_min, atr_period: +form.atr_period, atr_sl_mult: +form.atr_sl_mult,
+          atr_tp_mult: +form.atr_tp_mult, trailing_atr_mult: +form.trailing_atr_mult,
+          min_confidence: +form.min_confidence, max_spread_pips: +form.max_spread_pips,
+          partial_close_pct: +form.partial_close_pct,
+        },
+      });
+      toast.success("Settings saved");
+      qc.invalidateQueries({ queryKey: ["bot_settings"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Save failed");
+    }
   };
 
   return (
