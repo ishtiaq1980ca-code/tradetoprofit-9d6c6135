@@ -280,6 +280,39 @@ function Dashboard() {
         </section>
 
         <section>
+          <Card className="border-border/60 bg-card/70">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base font-medium">Bot Activity</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {botEnabled ? `Scanning every ${Math.round(useBot.getState().scanIntervalMs / 1000)}s` : "Bot idle"}
+              </span>
+            </CardHeader>
+            <CardContent className="p-0">
+              {botLog.length === 0 ? (
+                <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">
+                  No activity yet. Start the bot — entries and reasons will appear here.
+                </div>
+              ) : (
+                <ul className="max-h-64 overflow-y-auto divide-y divide-border/40 text-xs font-mono-tabular">
+                  {botLog.map((e, i) => (
+                    <li key={i} className="flex items-start gap-3 px-4 py-2">
+                      <span className="text-muted-foreground whitespace-nowrap">{new Date(e.t).toLocaleTimeString()}</span>
+                      <span className={cn(
+                        "uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded border whitespace-nowrap",
+                        e.level === "trade" && "border-bull/40 text-bull",
+                        e.level === "warn" && "border-bear/40 text-bear",
+                        e.level === "info" && "border-border text-muted-foreground",
+                      )}>{e.level}</span>
+                      <span className="flex-1 break-words">{e.msg}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-medium">Live Strategy Scan</h2>
             <a href="/signals">
