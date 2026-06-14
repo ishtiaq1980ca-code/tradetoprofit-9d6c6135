@@ -26,7 +26,7 @@ function SignalsPage() {
   const live = useMemo(() => {
     return SYMBOLS.map((s) => {
       const candles = feed.candles[s] ?? [];
-      if (candles.length < 220) return null;
+      if (candles.length < 60) return null;
       const sig = analyze(s, candles, DEFAULT_PARAMS);
       const lot = sig.side !== "FLAT" ? calculateLot(s, balance, 1, Math.abs(sig.entry - sig.stopLoss)) : 0;
       return { ...sig, lot };
