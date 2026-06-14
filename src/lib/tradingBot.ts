@@ -112,7 +112,7 @@ function runScan() {
   for (const sym of SYMBOLS) {
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
-    if (!candles || candles.length < 220) continue;
+    if (!candles || candles.length < 60) continue;
     const sig = analyze(sym, candles, params);
     if (sig.side === "FLAT") continue;
     if (sig.confidence < bot.minConfidence) continue;
