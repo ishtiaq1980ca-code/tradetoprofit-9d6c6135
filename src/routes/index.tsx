@@ -78,7 +78,7 @@ function Dashboard() {
 
   const quickTrade = (side: "BUY" | "SELL") => {
     const candles = feed.candles.XAUUSD;
-    if (!candles || candles.length < 220) { toast.error("Warming up market data…"); return; }
+    if (!candles || candles.length < 60) { toast.error("Warming up market data…"); return; }
     const sig = analyze("XAUUSD", candles, DEFAULT_PARAMS);
     const entry = xauPrice;
     const atrDist = Math.abs(sig.entry - sig.stopLoss) || entry * 0.002;
