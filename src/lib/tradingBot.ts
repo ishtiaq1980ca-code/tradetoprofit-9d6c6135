@@ -37,8 +37,8 @@ export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 60_000,
-      minConfidence: DEFAULT_PARAMS.minConfidence,
+      scanIntervalMs: 15_000,
+      minConfidence: 50,
       riskPct: 1,
       maxDailyLossPct: 3,
       haltedToday: false,
@@ -112,7 +112,7 @@ function runScan() {
   for (const sym of SYMBOLS) {
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
-    if (!candles || candles.length < 220) continue;
+    if (!candles || candles.length < 60) continue;
     const sig = analyze(sym, candles, params);
     if (sig.side === "FLAT") continue;
     if (sig.confidence < bot.minConfidence) continue;

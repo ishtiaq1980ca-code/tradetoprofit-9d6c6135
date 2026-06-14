@@ -28,15 +28,15 @@ export type Signal = {
 };
 
 export const DEFAULT_PARAMS: StrategyParams = {
-  emaFast: 50,
-  emaSlow: 200,
+  emaFast: 20,
+  emaSlow: 50,
   rsiPeriod: 14,
-  adxMin: 20,
+  adxMin: 18,
   atrPeriod: 14,
   atrSlMult: 1.5,
-  atrTpMult: 3.0,
-  minConfidence: 75,
-  riskPct: 0.75,
+  atrTpMult: 2.5,
+  minConfidence: 50,
+  riskPct: 1,
 };
 
 export function analyze(symbol: string, candles: Candle[], params: StrategyParams = DEFAULT_PARAMS): Signal {
