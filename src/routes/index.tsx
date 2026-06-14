@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, ArrowDown, ArrowUp, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { fmt, SYMBOLS } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { floatingPnl, pnlOf, useAccount } from "@/lib/paperTrading";
+import { useBot, triggerManualScan } from "@/lib/tradingBot";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
