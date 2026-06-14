@@ -37,8 +37,8 @@ export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 60_000,
-      minConfidence: DEFAULT_PARAMS.minConfidence,
+      scanIntervalMs: 15_000,
+      minConfidence: 50,
       riskPct: 1,
       maxDailyLossPct: 3,
       haltedToday: false,
