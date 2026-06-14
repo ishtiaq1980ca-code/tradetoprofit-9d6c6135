@@ -3,6 +3,7 @@ import { Activity, BarChart3, LayoutDashboard, ListChecks, PlugZap, Settings, Si
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { MarketEngine } from "@/hooks/usePriceFeed";
+import { BotEngine } from "@/lib/tradingBot";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -18,6 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <MarketEngine />
+      <BotEngine />
       <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
         <Link to="/" className="mb-8 flex items-center gap-2 px-2">
           <div className="grid h-9 w-9 place-items-center rounded-md bg-gold text-primary-foreground glow-gold">
