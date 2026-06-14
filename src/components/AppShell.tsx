@@ -3,6 +3,7 @@ import { Activity, BarChart3, LayoutDashboard, ListChecks, PlugZap, Settings, Si
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { MarketEngine } from "@/hooks/usePriceFeed";
+import { BotEngine } from "@/lib/tradingBot";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
