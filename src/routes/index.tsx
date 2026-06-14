@@ -37,7 +37,7 @@ function Dashboard() {
   const signals = useMemo(() => {
     return SYMBOLS.map((s) => {
       const candles = feed.candles[s] ?? [];
-      if (candles.length < 220) return { symbol: s, candles, signal: null as any, price: feed.prices[s] ?? 0 };
+      if (candles.length < 60) return { symbol: s, candles, signal: null as any, price: feed.prices[s] ?? 0 };
       return { symbol: s, candles, signal: analyze(s, candles, DEFAULT_PARAMS), price: feed.prices[s] ?? candles[candles.length - 1].close };
     });
     // re-evaluate strategy on candle additions, not on every tick
