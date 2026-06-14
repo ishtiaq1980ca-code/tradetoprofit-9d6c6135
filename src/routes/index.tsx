@@ -89,9 +89,6 @@ function Dashboard() {
     if (pos) toast.success(`${side} ${lot} XAUUSD @ ${fmt.price(entry, "XAUUSD")}`);
   };
 
-  return (
-    <AppShell>
-      <div className="p-6 lg:p-8 space-y-6">
   const botEnabled = useBot((s) => s.enabled);
   const botSetEnabled = useBot((s) => s.setEnabled);
   const botHalted = useBot((s) => s.haltedToday);
