@@ -92,18 +92,54 @@ function Dashboard() {
   return (
     <AppShell>
       <div className="p-6 lg:p-8 space-y-6">
+  const botEnabled = useBot((s) => s.enabled);
+  const botSetEnabled = useBot((s) => s.setEnabled);
+  const botHalted = useBot((s) => s.haltedToday);
+  const lastScanAt = useBot((s) => s.lastScanAt);
+  const botLog = useBot((s) => s.log);
+
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const feedFresh = now - feed.updatedAt < 8_000;
+  const connected = feedFresh && Object.keys(feed.prices).length > 0;
+
+  return (
+    <AppShell>
+      <div className="p-6 lg:p-8 space-y-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              <span className={cn("h-1.5 w-1.5 rounded-full", feed.source === "live" ? "bg-bull animate-pulse" : "bg-gold animate-pulse")} />
-              {feed.source === "live" ? "Live spot feed" : "Simulated feed"} · Paper · ${startingBalance.toLocaleString()} starting
+            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5", connected ? "border-bull/40 text-bull" : "border-bear/40 text-bear")}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-bull animate-pulse" : "bg-bear")} />
+                {connected ? "CONNECTED" : "DISCONNECTED"}
+              </span>
+              <span>{feed.source === "live" ? "Live spot feed" : "Simulated feed"} · Paper · ${startingBalance.toLocaleString()} starting</span>
             </div>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">Trading Dashboard</h1>
             <p className="text-sm text-muted-foreground">XAUUSD · EURUSD · GBPUSD · USDJPY · AUDUSD · USDCAD · USDCHF</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={botEnabled ? "outline" : "default"}
+              className={cn(botEnabled ? "border-bear/40 text-bear hover:bg-bear/10" : "bg-gold text-primary-foreground hover:bg-gold/90")}
+              onClick={() => {
+                botSetEnabled(!botEnabled);
+                toast.success(botEnabled ? "Bot stopped" : "Bot started — scanning every minute");
+                if (!botEnabled) triggerManualScan();
+              }}
+            >
+              {botEnabled ? <Pause className="mr-1 h-3.5 w-3.5" /> : <Play className="mr-1 h-3.5 w-3.5" />}
+              {botEnabled ? "Stop Bot" : "Start Bot"}
+            </Button>
+            <Badge variant="outline" className={cn(botEnabled ? "border-bull/40 text-bull" : "border-border text-muted-foreground")}>
+              <Bot className="mr-1 h-3 w-3" />
+              {botHalted ? "Halted (daily loss)" : botEnabled ? `Active · ${lastScanAt ? `${Math.max(0, Math.round((now - lastScanAt) / 1000))}s ago` : "scanning…"}` : "Idle"}
+            </Badge>
             <Badge variant="outline" className="border-gold/40 text-gold">Risk 1% / trade</Badge>
-            <Badge variant="outline">RR 1:2</Badge>
             <Button variant="outline" size="sm" onClick={() => { if (confirm("Reset paper account to $10,000?")) { reset(); toast.success("Account reset"); } }}>
               Reset
             </Button>
