@@ -178,8 +178,11 @@ function runScan() {
   let opened = 0;
   const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
 
+  const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
+
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
+    if (!allowed.has(sym)) continue;
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
     if (!candles || candles.length < 40) continue;
@@ -189,7 +192,9 @@ function runScan() {
 
     const slDist = Math.abs(sig.entry - sig.stopLoss);
     if (slDist <= 0) continue;
-    const lot = calculateLot(sym, acc.balance, bot.riskPct, slDist);
+    const lot = bot.lotMode === "fixed"
+      ? Math.max(0.01, bot.fixedLot)
+      : calculateLot(sym, acc.balance, bot.riskPct, slDist);
     const pos = acc.open({
       symbol: sym,
       side: sig.side,
