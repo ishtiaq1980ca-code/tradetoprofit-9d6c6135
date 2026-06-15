@@ -178,8 +178,9 @@ function SettingsPage() {
         </Card>
 
         <div className="flex justify-end">
-          <Button onClick={save}><Save className="mr-1.5 h-4 w-4" /> Save settings</Button>
+          <Button onClick={save}><Save className="mr-1.5 h-4 w-4" /> Save cloud settings</Button>
         </div>
+        </> : null}
       </div>
     </AppShell>
   );
