@@ -54,13 +54,81 @@ function SettingsPage() {
     }
   };
 
+  const presetAggressive = () => {
+    bot.setMinConfidence(35); bot.setRiskPct(1); bot.setAtrSlMult(2.0); bot.setAtrTpMult(0.5);
+    bot.setEmaFast(9); bot.setEmaSlow(21); bot.setAdxMin(10); bot.setScanInterval(6_000); bot.setMaxOpenTrades(6);
+    toast.success("Aggressive preset applied — many small wins");
+  };
+  const presetBalanced = () => {
+    bot.setMinConfidence(40); bot.setRiskPct(1); bot.setAtrSlMult(2.5); bot.setAtrTpMult(0.7);
+    bot.setEmaFast(9); bot.setEmaSlow(21); bot.setAdxMin(12); bot.setScanInterval(8_000); bot.setMaxOpenTrades(4);
+    toast.success("Balanced preset applied (target ~80% win rate)");
+  };
+  const presetConservative = () => {
+    bot.setMinConfidence(60); bot.setRiskPct(0.5); bot.setAtrSlMult(1.5); bot.setAtrTpMult(2.0);
+    bot.setEmaFast(20); bot.setEmaSlow(50); bot.setAdxMin(20); bot.setScanInterval(30_000); bot.setMaxOpenTrades(2);
+    toast.success("Conservative preset applied");
+  };
+
   return (
     <AppShell>
       <div className="p-6 lg:p-8 space-y-6 max-w-4xl">
         <header>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted-foreground">Strategy, risk, and execution controls. Changes apply on next signal scan.</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Bot & Strategy Settings</h1>
+          <p className="text-sm text-muted-foreground">Live controls for the paper-trading bot. Changes apply instantly to the next scan.</p>
         </header>
+
+        <Card className="border-gold/30 bg-card/70">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2"><Bot className="h-4 w-4 text-gold" /> Paper Trading Bot</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Runs locally in this browser. Scans every {Math.round(bot.scanIntervalMs / 1000)}s.</p>
+            </div>
+            <Badge variant="outline" className={bot.enabled ? "border-bull/40 text-bull" : "border-border text-muted-foreground"}>
+              {bot.haltedToday ? "Halted (daily loss)" : bot.enabled ? "Active" : "Idle"}
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => { bot.setEnabled(!bot.enabled); if (!bot.enabled) triggerManualScan(); }} className={bot.enabled ? "bg-bear text-primary-foreground hover:bg-bear/90" : "bg-gold text-primary-foreground hover:bg-gold/90"}>
+                {bot.enabled ? <><Pause className="mr-1 h-3.5 w-3.5" /> Stop bot</> : <><Play className="mr-1 h-3.5 w-3.5" /> Start bot</>}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => triggerManualScan()}><Zap className="mr-1 h-3.5 w-3.5" /> Scan now</Button>
+              <Button size="sm" variant="outline" onClick={() => { bot.setHalted(false); toast.success("Daily halt cleared"); }}>Clear halt</Button>
+              <Button size="sm" variant="outline" onClick={() => { if (confirm("Reset paper account to $10,000? All positions and history are wiped.")) { resetAccount(); toast.success("Account reset"); } }}>
+                <RotateCcw className="mr-1 h-3.5 w-3.5" /> Reset account
+              </Button>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground">Presets</Label>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={presetAggressive}>Aggressive</Button>
+                <Button size="sm" variant="outline" className="border-gold/40 text-gold" onClick={presetBalanced}>Balanced · 80% win-rate</Button>
+                <Button size="sm" variant="outline" onClick={presetConservative}>Conservative</Button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <F label="Min confidence (%)"><N v={bot.minConfidence} on={bot.setMinConfidence} /></F>
+              <F label="Risk per trade (%)"><N v={bot.riskPct} on={bot.setRiskPct} step="0.1" /></F>
+              <F label="Max daily loss (%)"><N v={bot.maxDailyLossPct} on={bot.setMaxDailyLossPct} step="0.5" /></F>
+              <F label="Scan interval (s)"><N v={Math.round(bot.scanIntervalMs / 1000)} on={(v) => bot.setScanInterval(Math.max(2, v) * 1000)} /></F>
+              <F label="Max open trades"><N v={bot.maxOpenTrades} on={bot.setMaxOpenTrades} /></F>
+              <F label="EMA fast"><N v={bot.emaFast} on={bot.setEmaFast} /></F>
+              <F label="EMA slow"><N v={bot.emaSlow} on={bot.setEmaSlow} /></F>
+              <F label="ADX min"><N v={bot.adxMin} on={bot.setAdxMin} /></F>
+              <F label="ATR SL ×"><N v={bot.atrSlMult} on={bot.setAtrSlMult} step="0.1" /></F>
+              <F label="ATR TP ×"><N v={bot.atrTpMult} on={bot.setAtrTpMult} step="0.1" /></F>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tip: For high win-rate (~80%), keep <b>ATR TP ×</b> small (0.5–0.8) and <b>ATR SL ×</b> wide (2.0–3.0). Lower TP hits more often than the wider SL.
+            </p>
+          </CardContent>
+        </Card>
+
+        {form ? <>
+        <header className="pt-4"><h2 className="text-lg font-semibold">Cloud settings (for MT5 bridge)</h2><p className="text-xs text-muted-foreground">Synced to the database. Used by the Python MT5 bridge when connected.</p></header>
 
         <Card className="border-border/60 bg-card/70">
           <CardHeader><CardTitle className="text-base">Bot Mode</CardTitle></CardHeader>
