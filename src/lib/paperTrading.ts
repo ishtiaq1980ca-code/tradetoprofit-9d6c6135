@@ -73,6 +73,13 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
+      trailTriggerUsd: 3,
+      trailStepUsd: 1,
+      useUsdTrail: true,
+      setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
+      setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
+      setUseUsdTrail: (v) => set({ useUsdTrail: v }),
+
 
       open: (p) => {
         if (p.lot <= 0) return null;
