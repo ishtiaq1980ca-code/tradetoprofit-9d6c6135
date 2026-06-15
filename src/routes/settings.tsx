@@ -23,14 +23,14 @@ export const Route = createFileRoute("/settings")({
 
 function SettingsPage() {
   const qc = useQueryClient();
+  const bot = useBot();
+  const resetAccount = useAccount((s) => s.reset);
   const { data } = useQuery({
     queryKey: ["bot_settings"],
     queryFn: async () => (await supabase.from("bot_settings").select("*").eq("id", 1).maybeSingle()).data,
   });
   const [form, setForm] = useState<any>(null);
   useEffect(() => { if (data) setForm(data); }, [data]);
-
-  if (!form) return <AppShell><div className="p-8 text-muted-foreground">Loading...</div></AppShell>;
 
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
 
