@@ -1,7 +1,7 @@
 // Multi-filter strategy engine. Returns a trade signal only when trend,
 // momentum, structure, and risk/reward all agree above the confidence floor.
 
-import { adx, atr, type Candle, detectLevels, ema, macd, rsi } from "./indicators";
+import { adx, atr, type Candle, ema, macd, rsi } from "./indicators";
 
 export type StrategyParams = {
   emaFast: number;
