@@ -36,6 +36,7 @@ function SettingsPage() {
 
   const save = async () => {
     if (!form) return;
+    try {
       await updateBotSettings({
         data: {
           enabled: !!form.enabled, account_mode: form.account_mode,
