@@ -27,6 +27,9 @@ type BotStore = {
   emaSlow: number;
   adxMin: number;
   maxOpenTrades: number;
+  enabledSymbols: string[];
+  lotMode: "auto" | "fixed";
+  fixedLot: number;
   haltedToday: boolean;
   haltedDate: string | null;
   lastScanAt: number;
@@ -42,6 +45,10 @@ type BotStore = {
   setEmaSlow: (n: number) => void;
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
+  toggleSymbol: (s: string) => void;
+  setEnabledSymbols: (s: string[]) => void;
+  setLotMode: (m: "auto" | "fixed") => void;
+  setFixedLot: (n: number) => void;
   pushLog: (entry: BotLogEntry) => void;
   setHalted: (v: boolean) => void;
   setLastScan: (t: number) => void;
@@ -62,6 +69,9 @@ export const useBot = create<BotStore>()(
       emaSlow: 21,
       adxMin: 12,
       maxOpenTrades: 4,
+      enabledSymbols: [...SYMBOLS],
+      lotMode: "auto",
+      fixedLot: 0.1,
       haltedToday: false,
       haltedDate: null,
       lastScanAt: 0,
@@ -77,6 +87,13 @@ export const useBot = create<BotStore>()(
       setEmaSlow: (n) => set({ emaSlow: n }),
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
+      toggleSymbol: (s) => {
+        const cur = get().enabledSymbols;
+        set({ enabledSymbols: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
+      },
+      setEnabledSymbols: (s) => set({ enabledSymbols: s }),
+      setLotMode: (m) => set({ lotMode: m }),
+      setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
       pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 80) }),
       setHalted: (v) =>
         set({ haltedToday: v, haltedDate: v ? new Date().toDateString() : null }),
@@ -84,7 +101,7 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v2",
+      name: "aurum-bot-v3",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
@@ -100,6 +117,9 @@ export const useBot = create<BotStore>()(
         emaSlow: s.emaSlow,
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
+        enabledSymbols: s.enabledSymbols,
+        lotMode: s.lotMode,
+        fixedLot: s.fixedLot,
         haltedToday: s.haltedToday,
         haltedDate: s.haltedDate,
       }),
@@ -158,8 +178,11 @@ function runScan() {
   let opened = 0;
   const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
 
+  const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
+
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
+    if (!allowed.has(sym)) continue;
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
     if (!candles || candles.length < 40) continue;
@@ -169,7 +192,9 @@ function runScan() {
 
     const slDist = Math.abs(sig.entry - sig.stopLoss);
     if (slDist <= 0) continue;
-    const lot = calculateLot(sym, acc.balance, bot.riskPct, slDist);
+    const lot = bot.lotMode === "fixed"
+      ? Math.max(0.01, bot.fixedLot)
+      : calculateLot(sym, acc.balance, bot.riskPct, slDist);
     const pos = acc.open({
       symbol: sym,
       side: sig.side,

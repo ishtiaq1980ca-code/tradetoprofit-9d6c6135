@@ -32,6 +32,12 @@ type Store = {
   startingBalance: number;
   positions: Position[];
   history: ClosedTrade[];
+  trailTriggerUsd: number;
+  trailStepUsd: number;
+  useUsdTrail: boolean;
+  setTrailTriggerUsd: (n: number) => void;
+  setTrailStepUsd: (n: number) => void;
+  setUseUsdTrail: (v: boolean) => void;
   open: (p: Omit<Position, "id" | "openedAt">) => Position | null;
   close: (id: string, price: number, reason?: string) => void;
   reset: (balance?: number) => void;
@@ -67,6 +73,13 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
+      trailTriggerUsd: 3,
+      trailStepUsd: 1,
+      useUsdTrail: true,
+      setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
+      setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
+      setUseUsdTrail: (v) => set({ useUsdTrail: v }),
+
 
       open: (p) => {
         if (p.lot <= 0) return null;
@@ -130,47 +143,46 @@ export const useAccount = create<Store>()(
           const moveInR = ((price - p.entry) * dir) / (r || 1);
           let updated: Position = { ...p };
 
-          // Partial close at 1R: take 50% off, log as closed half
-          if (!p.partialTaken && moveInR >= 1) {
-            const halfLot = Math.max(0.01, Math.round((p.lot / 2) * 100) / 100);
-            if (halfLot < p.lot) {
-              const profit = pnlOf({ ...p, lot: halfLot }, price);
-              balance += profit;
-              newClosed.push({
-                ...p,
-                lot: halfLot,
-                closedAt: Date.now(),
-                exit: price,
-                profit,
-                closeReason: "partial @1R",
-              });
-              updated.lot = Math.round((p.lot - halfLot) * 100) / 100;
-              updated.partialTaken = true;
-              touched = true;
-            }
-          }
-
-          // Break even at +0.5R
-          if (!updated.breakEvenTriggered && moveInR >= 0.5) {
-            updated.stopLoss = p.entry;
-            updated.breakEvenTriggered = true;
-            touched = true;
-          }
-
-          // Trailing stop after BE: keep ~1R distance behind price
-          if (updated.breakEvenTriggered) {
-            const trail = r;
-            if (dir === 1) {
-              const sl = price - trail;
-              if (sl > updated.stopLoss) {
-                updated.stopLoss = sl;
+          if (s.useUsdTrail) {
+            // USD-based trailing: once floating profit ≥ trigger, lock SL so we
+            // keep (profit − trailStep) USD of profit. SL ratchets, never widens.
+            const profitUsd = pnlOf(p, price);
+            if (profitUsd >= s.trailTriggerUsd) {
+              const lockUsd = profitUsd - s.trailStepUsd;
+              const vpu = valuePerUnit(p.symbol) * p.lot || 1;
+              const priceMoveForLock = lockUsd / vpu;
+              const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
+              const better = dir === 1 ? candidateSl > updated.stopLoss : candidateSl < updated.stopLoss;
+              if (better) {
+                updated.stopLoss = candidateSl;
+                updated.breakEvenTriggered = true;
                 touched = true;
               }
-            } else {
-              const sl = price + trail;
-              if (sl < updated.stopLoss) {
-                updated.stopLoss = sl;
+            }
+          } else {
+            // Legacy R-based: partial @1R, BE @0.5R, trail 1R behind.
+            if (!p.partialTaken && moveInR >= 1) {
+              const halfLot = Math.max(0.01, Math.round((p.lot / 2) * 100) / 100);
+              if (halfLot < p.lot) {
+                const profit = pnlOf({ ...p, lot: halfLot }, price);
+                balance += profit;
+                newClosed.push({ ...p, lot: halfLot, closedAt: Date.now(), exit: price, profit, closeReason: "partial @1R" });
+                updated.lot = Math.round((p.lot - halfLot) * 100) / 100;
+                updated.partialTaken = true;
                 touched = true;
+              }
+            }
+            if (!updated.breakEvenTriggered && moveInR >= 0.5) {
+              updated.stopLoss = p.entry; updated.breakEvenTriggered = true; touched = true;
+            }
+            if (updated.breakEvenTriggered) {
+              const trail = r;
+              if (dir === 1) {
+                const sl = price - trail;
+                if (sl > updated.stopLoss) { updated.stopLoss = sl; touched = true; }
+              } else {
+                const sl = price + trail;
+                if (sl < updated.stopLoss) { updated.stopLoss = sl; touched = true; }
               }
             }
           }
