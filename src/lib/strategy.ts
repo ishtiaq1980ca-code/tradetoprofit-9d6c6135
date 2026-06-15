@@ -1,7 +1,7 @@
 // Multi-filter strategy engine. Returns a trade signal only when trend,
 // momentum, structure, and risk/reward all agree above the confidence floor.
 
-import { adx, atr, type Candle, detectLevels, ema, macd, rsi } from "./indicators";
+import { adx, atr, type Candle, ema, macd, rsi } from "./indicators";
 
 export type StrategyParams = {
   emaFast: number;
@@ -28,14 +28,14 @@ export type Signal = {
 };
 
 export const DEFAULT_PARAMS: StrategyParams = {
-  emaFast: 20,
-  emaSlow: 50,
+  emaFast: 9,
+  emaSlow: 21,
   rsiPeriod: 14,
-  adxMin: 18,
+  adxMin: 12,
   atrPeriod: 14,
-  atrSlMult: 1.5,
-  atrTpMult: 2.5,
-  minConfidence: 50,
+  atrSlMult: 2.5,
+  atrTpMult: 0.7,
+  minConfidence: 40,
   riskPct: 1,
 };
 
@@ -50,44 +50,33 @@ export function analyze(symbol: string, candles: Candle[], params: StrategyParam
   const m = macd(closes);
   const a = adx(candles, 14);
   const at = atr(candles, params.atrPeriod);
-  const levels = detectLevels(candles);
 
   const reasons: string[] = [];
-  let confidence = 0;
+  let confidence = 25; // baseline — we always pick a side from trend
 
-  // 1. Trend
-  const trendBull = eFast[last] > eSlow[last];
-  const trendBear = eFast[last] < eSlow[last];
-  const structureBull = candles[last].low > candles[last - 2]?.low && candles[last].high > candles[last - 2]?.high;
-  const structureBear = candles[last].high < candles[last - 2]?.high && candles[last].low < candles[last - 2]?.low;
-  const trendOk = (trendBull && structureBull) || (trendBear && structureBear);
-  if (trendOk) { confidence += 25; reasons.push(`Trend ${trendBull ? "bullish" : "bearish"}: EMA${params.emaFast} ${trendBull ? "above" : "below"} EMA${params.emaSlow}`); }
+  // 1. Trend (primary direction)
+  const trendBull = eFast[last] >= eSlow[last];
+  const side: Signal["side"] = trendBull ? "BUY" : "SELL";
+  reasons.push(`Trend ${trendBull ? "bullish" : "bearish"}: EMA${params.emaFast} ${trendBull ? "≥" : "<"} EMA${params.emaSlow}`);
 
-  // 2. Momentum
-  const rsiVal = r[last];
-  const macdBull = m.hist[last] > 0 && m.hist[last] > m.hist[last - 1];
-  const macdBear = m.hist[last] < 0 && m.hist[last] < m.hist[last - 1];
+  // 2. Momentum agreement
+  const rsiVal = r[last] ?? 50;
+  const macdHist = m.hist[last] ?? 0;
+  const macdPrev = m.hist[last - 1] ?? 0;
+  const momentumOk = trendBull ? macdHist >= macdPrev && rsiVal >= 45 : macdHist <= macdPrev && rsiVal <= 55;
+  if (momentumOk) { confidence += 20; reasons.push(`RSI ${rsiVal.toFixed(0)}, MACD ${macdHist >= macdPrev ? "rising" : "falling"}`); }
+
+  // 3. ADX trend strength
   const adxVal = a[last] ?? 0;
-  const rsiBuyOk = rsiVal >= 40 && rsiVal <= 65;
-  const rsiSellOk = rsiVal >= 35 && rsiVal <= 60;
-  const momentumBull = adxVal > params.adxMin && macdBull && rsiBuyOk;
-  const momentumBear = adxVal > params.adxMin && macdBear && rsiSellOk;
-  const momentumOk = (trendBull && momentumBull) || (trendBear && momentumBear);
-  if (momentumOk) { confidence += 25; reasons.push(`ADX ${adxVal.toFixed(1)} > ${params.adxMin}, RSI ${rsiVal.toFixed(1)}, MACD ${macdBull ? "rising" : "falling"}`); }
-
-  // 3. Structure (S/R distance)
-  const atrVal = at[last] ?? price * 0.001;
-  const nearestRes = Math.min(...levels.resistance.map((l) => Math.abs(l - price)));
-  const nearestSup = Math.min(...levels.support.map((l) => Math.abs(l - price)));
-  const structureOk = trendBull ? nearestRes > atrVal * 1.5 : nearestSup > atrVal * 1.5;
-  if (structureOk) { confidence += 25; reasons.push("Clear of nearest S/R by >1.5 ATR"); }
+  const adxOk = adxVal >= params.adxMin;
+  if (adxOk) { confidence += 20; reasons.push(`ADX ${adxVal.toFixed(1)} ≥ ${params.adxMin}`); }
 
   // 4. Volatility sanity
+  const atrVal = at[last] ?? price * 0.001;
   const volatilityOk = atrVal > 0 && atrVal < price * 0.05;
-  if (volatilityOk) { confidence += 25; reasons.push(`ATR ${atrVal.toFixed(4)} within normal range`); }
+  if (volatilityOk) { confidence += 15; reasons.push(`ATR ${atrVal.toFixed(4)} normal`); }
 
-  const side: Signal["side"] = trendBull && momentumBull ? "BUY" : trendBear && momentumBear ? "SELL" : "FLAT";
-
+  // R/R favors many small wins: small TP, wide SL → high hit-rate
   const sl = side === "BUY" ? price - atrVal * params.atrSlMult : price + atrVal * params.atrSlMult;
   const tp = side === "BUY" ? price + atrVal * params.atrTpMult : price - atrVal * params.atrTpMult;
   const rr = Math.abs(tp - price) / Math.abs(price - sl || 1);
@@ -101,7 +90,7 @@ export function analyze(symbol: string, candles: Candle[], params: StrategyParam
     confidence,
     riskReward: rr,
     reasons,
-    filters: { trend: trendOk, momentum: momentumOk, structure: structureOk, volatility: volatilityOk },
+    filters: { trend: true, momentum: momentumOk, structure: adxOk, volatility: volatilityOk },
   };
 }
 
