@@ -32,6 +32,12 @@ type Store = {
   startingBalance: number;
   positions: Position[];
   history: ClosedTrade[];
+  trailTriggerUsd: number;
+  trailStepUsd: number;
+  useUsdTrail: boolean;
+  setTrailTriggerUsd: (n: number) => void;
+  setTrailStepUsd: (n: number) => void;
+  setUseUsdTrail: (v: boolean) => void;
   open: (p: Omit<Position, "id" | "openedAt">) => Position | null;
   close: (id: string, price: number, reason?: string) => void;
   reset: (balance?: number) => void;
