@@ -124,8 +124,59 @@ function SettingsPage() {
               <F label="ATR SL ×"><N v={bot.atrSlMult} on={bot.setAtrSlMult} step="0.1" /></F>
               <F label="ATR TP ×"><N v={bot.atrTpMult} on={bot.setAtrTpMult} step="0.1" /></F>
             </div>
+
+            <div className="space-y-2 rounded-md border border-border/60 bg-background/40 p-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Pairs to trade</Label>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => bot.setEnabledSymbols([...SYMBOLS])}>All</Button>
+                  <Button size="sm" variant="ghost" onClick={() => bot.setEnabledSymbols(["XAUUSD"])}>Gold only</Button>
+                  <Button size="sm" variant="ghost" onClick={() => bot.setEnabledSymbols([])}>None</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                {SYMBOLS.map((s) => (
+                  <label key={s} className="flex items-center gap-2 rounded border border-border/60 bg-card/40 px-2.5 py-1.5 text-sm cursor-pointer">
+                    <Checkbox checked={bot.enabledSymbols.includes(s)} onCheckedChange={() => bot.toggleSymbol(s)} />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 rounded-md border border-border/60 bg-background/40 p-4">
+              <F label="Lot mode">
+                <Select value={bot.lotMode} onValueChange={(v) => bot.setLotMode(v as "auto" | "fixed")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (risk-based)</SelectItem>
+                    <SelectItem value="fixed">Fixed lot size</SelectItem>
+                  </SelectContent>
+                </Select>
+              </F>
+              <F label={`Fixed lot size${bot.lotMode === "auto" ? " (ignored)" : ""}`}>
+                <N v={bot.fixedLot} on={bot.setFixedLot} step="0.01" />
+              </F>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 rounded-md border border-gold/30 bg-background/40 p-4">
+              <div className="md:col-span-3 flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium">USD trailing stop</Label>
+                  <p className="text-xs text-muted-foreground">Once a trade's floating profit reaches the trigger, the SL ratchets up to lock profit.</p>
+                </div>
+                <Switch checked={useAccount((s) => s.useUsdTrail)} onCheckedChange={useAccount.getState().setUseUsdTrail} />
+              </div>
+              <F label="Trigger profit ($)">
+                <N v={useAccount((s) => s.trailTriggerUsd)} on={useAccount.getState().setTrailTriggerUsd} step="0.5" />
+              </F>
+              <F label="Lock profit step ($)">
+                <N v={useAccount((s) => s.trailStepUsd)} on={useAccount.getState().setTrailStepUsd} step="0.5" />
+              </F>
+            </div>
+
             <p className="text-xs text-muted-foreground">
-              Tip: For high win-rate (~80%), keep <b>ATR TP ×</b> small (0.5–0.8) and <b>ATR SL ×</b> wide (2.0–3.0). Lower TP hits more often than the wider SL.
+              Tip: For high win-rate (~80%), keep <b>ATR TP ×</b> small (0.5–0.8) and <b>ATR SL ×</b> wide (2.0–3.0). Default trail locks ${"{"}` $${"}"} of profit once a trade is +$3.
             </p>
           </CardContent>
         </Card>
