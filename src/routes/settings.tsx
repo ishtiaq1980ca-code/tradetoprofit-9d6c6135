@@ -35,7 +35,7 @@ function SettingsPage() {
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
 
   const save = async () => {
-    try {
+    if (!form) return;
       await updateBotSettings({
         data: {
           enabled: !!form.enabled, account_mode: form.account_mode,
