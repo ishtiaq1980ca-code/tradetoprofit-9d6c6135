@@ -8,10 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { updateBotSettings } from "@/lib/settings.functions";
+import { useBot, triggerManualScan } from "@/lib/tradingBot";
+import { useAccount } from "@/lib/paperTrading";
 import { toast } from "sonner";
-import { Save } from "lucide-react";
+import { Bot, Play, Pause, RotateCcw, Save, Zap } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({ meta: [{ title: "Settings — AurumAI" }, { name: "description", content: "Configure strategy parameters, risk limits, and trading mode." }] }),
