@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { updateBotSettings } from "@/lib/settings.functions";
 import { useBot, triggerManualScan } from "@/lib/tradingBot";
 import { useAccount } from "@/lib/paperTrading";
+import { SYMBOLS } from "@/lib/format";
 import { toast } from "sonner";
 import { Bot, Play, Pause, RotateCcw, Save, Zap } from "lucide-react";
 
