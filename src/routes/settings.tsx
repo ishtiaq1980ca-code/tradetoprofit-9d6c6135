@@ -176,7 +176,7 @@ function SettingsPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Tip: For high win-rate (~80%), keep <b>ATR TP ×</b> small (0.5–0.8) and <b>ATR SL ×</b> wide (2.0–3.0). Default trail locks ${"{"}` $${"}"} of profit once a trade is +$3.
+              Tip: For ~80% win-rate, keep <b>ATR TP ×</b> small (0.5–0.8) and <b>ATR SL ×</b> wide (2.0–3.0). Default trail locks $1 of profit once a trade is +$3.
             </p>
           </CardContent>
         </Card>
