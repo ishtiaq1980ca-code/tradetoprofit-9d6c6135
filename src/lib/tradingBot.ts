@@ -21,6 +21,12 @@ type BotStore = {
   minConfidence: number;
   riskPct: number;
   maxDailyLossPct: number;
+  atrSlMult: number;
+  atrTpMult: number;
+  emaFast: number;
+  emaSlow: number;
+  adxMin: number;
+  maxOpenTrades: number;
   haltedToday: boolean;
   haltedDate: string | null;
   lastScanAt: number;
@@ -28,19 +34,34 @@ type BotStore = {
   setEnabled: (v: boolean) => void;
   setMinConfidence: (n: number) => void;
   setRiskPct: (n: number) => void;
+  setScanInterval: (ms: number) => void;
+  setMaxDailyLossPct: (n: number) => void;
+  setAtrSlMult: (n: number) => void;
+  setAtrTpMult: (n: number) => void;
+  setEmaFast: (n: number) => void;
+  setEmaSlow: (n: number) => void;
+  setAdxMin: (n: number) => void;
+  setMaxOpenTrades: (n: number) => void;
   pushLog: (entry: BotLogEntry) => void;
   setHalted: (v: boolean) => void;
   setLastScan: (t: number) => void;
+  clearLog: () => void;
 };
 
 export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 15_000,
-      minConfidence: 50,
+      scanIntervalMs: 8_000,
+      minConfidence: 40,
       riskPct: 1,
-      maxDailyLossPct: 3,
+      maxDailyLossPct: 5,
+      atrSlMult: 2.5,
+      atrTpMult: 0.7,
+      emaFast: 9,
+      emaSlow: 21,
+      adxMin: 12,
+      maxOpenTrades: 4,
       haltedToday: false,
       haltedDate: null,
       lastScanAt: 0,
@@ -48,13 +69,22 @@ export const useBot = create<BotStore>()(
       setEnabled: (v) => set({ enabled: v }),
       setMinConfidence: (n) => set({ minConfidence: n }),
       setRiskPct: (n) => set({ riskPct: n }),
-      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 50) }),
+      setScanInterval: (ms) => set({ scanIntervalMs: ms }),
+      setMaxDailyLossPct: (n) => set({ maxDailyLossPct: n }),
+      setAtrSlMult: (n) => set({ atrSlMult: n }),
+      setAtrTpMult: (n) => set({ atrTpMult: n }),
+      setEmaFast: (n) => set({ emaFast: n }),
+      setEmaSlow: (n) => set({ emaSlow: n }),
+      setAdxMin: (n) => set({ adxMin: n }),
+      setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
+      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 80) }),
       setHalted: (v) =>
         set({ haltedToday: v, haltedDate: v ? new Date().toDateString() : null }),
       setLastScan: (t) => set({ lastScanAt: t }),
+      clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v1",
+      name: "aurum-bot-v2",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
@@ -64,6 +94,12 @@ export const useBot = create<BotStore>()(
         minConfidence: s.minConfidence,
         riskPct: s.riskPct,
         maxDailyLossPct: s.maxDailyLossPct,
+        atrSlMult: s.atrSlMult,
+        atrTpMult: s.atrTpMult,
+        emaFast: s.emaFast,
+        emaSlow: s.emaSlow,
+        adxMin: s.adxMin,
+        maxOpenTrades: s.maxOpenTrades,
         haltedToday: s.haltedToday,
         haltedDate: s.haltedDate,
       }),
@@ -106,13 +142,27 @@ function runScan() {
 
   useBot.setState({ lastScanAt: Date.now() });
 
+  if (acc.positions.length >= bot.maxOpenTrades) return;
+
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
-  const params = { ...DEFAULT_PARAMS, minConfidence: bot.minConfidence };
+  const params = {
+    ...DEFAULT_PARAMS,
+    minConfidence: bot.minConfidence,
+    atrSlMult: bot.atrSlMult,
+    atrTpMult: bot.atrTpMult,
+    emaFast: bot.emaFast,
+    emaSlow: bot.emaSlow,
+    adxMin: bot.adxMin,
+  };
+
+  let opened = 0;
+  const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
 
   for (const sym of SYMBOLS) {
+    if (opened >= slots) break;
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
-    if (!candles || candles.length < 60) continue;
+    if (!candles || candles.length < 40) continue;
     const sig = analyze(sym, candles, params);
     if (sig.side === "FLAT") continue;
     if (sig.confidence < bot.minConfidence) continue;
@@ -134,11 +184,10 @@ function runScan() {
       bot.pushLog({
         t: Date.now(),
         level: "trade",
-        msg: `${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%)`,
+        msg: `${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%)`,
       });
       toast.success(`Bot: ${sig.side} ${lot} ${sym}`);
-      // Only open one new trade per scan to stay conservative
-      break;
+      opened++;
     }
   }
 }
