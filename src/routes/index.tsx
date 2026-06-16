@@ -50,7 +50,11 @@ function Dashboard() {
   const wins = closed.filter((t) => t.profit > 0).length;
   const losses = closed.length - wins;
   const winRate = closed.length ? (wins / closed.length) * 100 : 0;
+  const grossWin = closed.filter((t) => t.profit > 0).reduce((s, t) => s + t.profit, 0);
+  const grossLoss = Math.abs(closed.filter((t) => t.profit < 0).reduce((s, t) => s + t.profit, 0));
+  const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
   const totalPnl = balance - startingBalance + floating;
+
 
   // Today's P/L (closed today + floating)
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
