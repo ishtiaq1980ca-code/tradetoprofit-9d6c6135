@@ -1,9 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, LayoutDashboard, ListChecks, PlugZap, Settings, Signal } from "lucide-react";
-import type { ReactNode } from "react";
+import { Activity, BarChart3, LayoutDashboard, ListChecks, Menu, PlugZap, Settings, Signal } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { MarketEngine } from "@/hooks/usePriceFeed";
 import { BotEngine } from "@/lib/tradingBot";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -14,43 +16,60 @@ const nav = [
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
+function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return (
+    <nav className="flex flex-1 flex-col gap-1">
+      {nav.map((n) => {
+        const Icon = n.icon;
+        const active = pathname === n.to;
+        return (
+          <Link
+            key={n.to}
+            to={n.to}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+              active
+                ? "bg-accent text-gold"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {n.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Brand() {
+  return (
+    <Link to="/" className="flex items-center gap-2 px-2">
+      <div className="grid h-9 w-9 place-items-center rounded-md bg-gold text-primary-foreground glow-gold">
+        <Activity className="h-5 w-5" />
+      </div>
+      <div>
+        <div className="text-sm font-semibold tracking-tight">AurumAI</div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Forex Bot</div>
+      </div>
+    </Link>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [open, setOpen] = useState(false);
+  const current = nav.find((n) => n.to === pathname);
   return (
     <div className="flex min-h-screen">
       <MarketEngine />
       <BotEngine />
+
+      {/* Desktop sidebar */}
       <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
-        <Link to="/" className="mb-8 flex items-center gap-2 px-2">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-gold text-primary-foreground glow-gold">
-            <Activity className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold tracking-tight">AurumAI</div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Forex Bot</div>
-          </div>
-        </Link>
-        <nav className="flex flex-1 flex-col gap-1">
-          {nav.map((n) => {
-            const Icon = n.icon;
-            const active = pathname === n.to;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-accent text-gold"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="mb-8"><Brand /></div>
+        <NavList pathname={pathname} />
         <div className="mt-4 rounded-md border border-border/60 bg-card/50 p-3 text-[11px] text-muted-foreground">
           <div className="mb-1 flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-bull animate-pulse" />
@@ -59,7 +78,47 @@ export function AppShell({ children }: { children: ReactNode }) {
           Virtual $10,000. Live ticks anchored to public FX/gold spot.
         </div>
       </aside>
-      <main className="flex-1 min-w-0">{children}</main>
+
+      <main className="flex-1 min-w-0 pb-20 md:pb-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border bg-background/95 backdrop-blur px-3 py-2">
+          <Brand />
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Open menu">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64 p-4">
+              <div className="mb-6"><Brand /></div>
+              <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        {children}
+
+        {/* Mobile bottom tab bar */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur">
+          {nav.map((n) => {
+            const Icon = n.icon;
+            const active = pathname === n.to;
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px]",
+                  active ? "text-gold" : "text-muted-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="truncate max-w-full px-1">{n.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </main>
     </div>
   );
 }
