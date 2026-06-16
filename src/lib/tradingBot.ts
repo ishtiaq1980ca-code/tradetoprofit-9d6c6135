@@ -25,6 +25,10 @@ type BotStore = {
   atrTpMult: number;
   emaFast: number;
   emaSlow: number;
+  rsiPeriod: number;
+  rsiBuyMax: number;
+  rsiSellMin: number;
+  useMacd: boolean;
   adxMin: number;
   maxOpenTrades: number;
   enabledSymbols: string[];
@@ -43,6 +47,10 @@ type BotStore = {
   setAtrTpMult: (n: number) => void;
   setEmaFast: (n: number) => void;
   setEmaSlow: (n: number) => void;
+  setRsiPeriod: (n: number) => void;
+  setRsiBuyMax: (n: number) => void;
+  setRsiSellMin: (n: number) => void;
+  setUseMacd: (v: boolean) => void;
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
   toggleSymbol: (s: string) => void;
@@ -67,6 +75,10 @@ export const useBot = create<BotStore>()(
       atrTpMult: 0.7,
       emaFast: 9,
       emaSlow: 21,
+      rsiPeriod: 14,
+      rsiBuyMax: 75,
+      rsiSellMin: 25,
+      useMacd: true,
       adxMin: 12,
       maxOpenTrades: 4,
       enabledSymbols: [...SYMBOLS],
@@ -85,6 +97,10 @@ export const useBot = create<BotStore>()(
       setAtrTpMult: (n) => set({ atrTpMult: n }),
       setEmaFast: (n) => set({ emaFast: n }),
       setEmaSlow: (n) => set({ emaSlow: n }),
+      setRsiPeriod: (n) => set({ rsiPeriod: Math.max(2, n) }),
+      setRsiBuyMax: (n) => set({ rsiBuyMax: n }),
+      setRsiSellMin: (n) => set({ rsiSellMin: n }),
+      setUseMacd: (v) => set({ useMacd: v }),
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
       toggleSymbol: (s) => {
@@ -94,14 +110,14 @@ export const useBot = create<BotStore>()(
       setEnabledSymbols: (s) => set({ enabledSymbols: s }),
       setLotMode: (m) => set({ lotMode: m }),
       setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
-      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 80) }),
+      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 120) }),
       setHalted: (v) =>
         set({ haltedToday: v, haltedDate: v ? new Date().toDateString() : null }),
       setLastScan: (t) => set({ lastScanAt: t }),
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v3",
+      name: "aurum-bot-v4",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
@@ -115,6 +131,10 @@ export const useBot = create<BotStore>()(
         atrTpMult: s.atrTpMult,
         emaFast: s.emaFast,
         emaSlow: s.emaSlow,
+        rsiPeriod: s.rsiPeriod,
+        rsiBuyMax: s.rsiBuyMax,
+        rsiSellMin: s.rsiSellMin,
+        useMacd: s.useMacd,
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
         enabledSymbols: s.enabledSymbols,
@@ -126,6 +146,7 @@ export const useBot = create<BotStore>()(
     },
   ),
 );
+
 
 function dailyPnlFor(): number {
   const s = useAccount.getState();
