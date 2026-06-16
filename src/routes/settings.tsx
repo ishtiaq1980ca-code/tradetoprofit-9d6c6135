@@ -120,10 +120,18 @@ function SettingsPage() {
               <F label="Max open trades"><N v={bot.maxOpenTrades} on={bot.setMaxOpenTrades} /></F>
               <F label="EMA fast"><N v={bot.emaFast} on={bot.setEmaFast} /></F>
               <F label="EMA slow"><N v={bot.emaSlow} on={bot.setEmaSlow} /></F>
+              <F label="RSI period"><N v={bot.rsiPeriod} on={bot.setRsiPeriod} /></F>
+              <F label="RSI overbought (no BUY above)"><N v={bot.rsiBuyMax} on={bot.setRsiBuyMax} /></F>
+              <F label="RSI oversold (no SELL below)"><N v={bot.rsiSellMin} on={bot.setRsiSellMin} /></F>
               <F label="ADX min"><N v={bot.adxMin} on={bot.setAdxMin} /></F>
               <F label="ATR SL ×"><N v={bot.atrSlMult} on={bot.setAtrSlMult} step="0.1" /></F>
               <F label="ATR TP ×"><N v={bot.atrTpMult} on={bot.setAtrTpMult} step="0.1" /></F>
+              <div className="flex items-center justify-between rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                <Label className="text-xs">MACD confirmation</Label>
+                <Switch checked={bot.useMacd} onCheckedChange={bot.setUseMacd} />
+              </div>
             </div>
+
 
             <div className="space-y-2 rounded-md border border-border/60 bg-background/40 p-4">
               <div className="flex items-center justify-between">
