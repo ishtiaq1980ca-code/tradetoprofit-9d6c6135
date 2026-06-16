@@ -151,8 +151,9 @@ function Dashboard() {
           <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)}`} />
           <Stat icon={Activity} label="Floating P&L" value={fmt.money(floating)} hint={`${positions.length} open`} tone={floating >= 0 ? "bull" : "bear"} />
           <Stat icon={TrendingUp} label="Today P&L" value={fmt.money(dailyPnl)} hint={fmt.pct((dailyPnl / startingBalance) * 100)} tone={dailyPnl >= 0 ? "bull" : "bear"} />
-          <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · DD ${drawdown.toFixed(1)}%`} />
+          <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · PF ${isFinite(profitFactor) ? profitFactor.toFixed(2) : "∞"} · DD ${drawdown.toFixed(1)}%`} />
         </section>
+
 
         <section className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2 border-border/60 bg-card/70 backdrop-blur">
