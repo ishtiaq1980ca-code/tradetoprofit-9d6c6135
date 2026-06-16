@@ -25,6 +25,10 @@ type BotStore = {
   atrTpMult: number;
   emaFast: number;
   emaSlow: number;
+  rsiPeriod: number;
+  rsiBuyMax: number;
+  rsiSellMin: number;
+  useMacd: boolean;
   adxMin: number;
   maxOpenTrades: number;
   enabledSymbols: string[];
@@ -43,6 +47,10 @@ type BotStore = {
   setAtrTpMult: (n: number) => void;
   setEmaFast: (n: number) => void;
   setEmaSlow: (n: number) => void;
+  setRsiPeriod: (n: number) => void;
+  setRsiBuyMax: (n: number) => void;
+  setRsiSellMin: (n: number) => void;
+  setUseMacd: (v: boolean) => void;
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
   toggleSymbol: (s: string) => void;
@@ -67,6 +75,10 @@ export const useBot = create<BotStore>()(
       atrTpMult: 0.7,
       emaFast: 9,
       emaSlow: 21,
+      rsiPeriod: 14,
+      rsiBuyMax: 75,
+      rsiSellMin: 25,
+      useMacd: true,
       adxMin: 12,
       maxOpenTrades: 4,
       enabledSymbols: [...SYMBOLS],
@@ -85,6 +97,10 @@ export const useBot = create<BotStore>()(
       setAtrTpMult: (n) => set({ atrTpMult: n }),
       setEmaFast: (n) => set({ emaFast: n }),
       setEmaSlow: (n) => set({ emaSlow: n }),
+      setRsiPeriod: (n) => set({ rsiPeriod: Math.max(2, n) }),
+      setRsiBuyMax: (n) => set({ rsiBuyMax: n }),
+      setRsiSellMin: (n) => set({ rsiSellMin: n }),
+      setUseMacd: (v) => set({ useMacd: v }),
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
       toggleSymbol: (s) => {
@@ -94,14 +110,14 @@ export const useBot = create<BotStore>()(
       setEnabledSymbols: (s) => set({ enabledSymbols: s }),
       setLotMode: (m) => set({ lotMode: m }),
       setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
-      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 80) }),
+      pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 120) }),
       setHalted: (v) =>
         set({ haltedToday: v, haltedDate: v ? new Date().toDateString() : null }),
       setLastScan: (t) => set({ lastScanAt: t }),
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v3",
+      name: "aurum-bot-v4",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
@@ -115,6 +131,10 @@ export const useBot = create<BotStore>()(
         atrTpMult: s.atrTpMult,
         emaFast: s.emaFast,
         emaSlow: s.emaSlow,
+        rsiPeriod: s.rsiPeriod,
+        rsiBuyMax: s.rsiBuyMax,
+        rsiSellMin: s.rsiSellMin,
+        useMacd: s.useMacd,
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
         enabledSymbols: s.enabledSymbols,
@@ -126,6 +146,7 @@ export const useBot = create<BotStore>()(
     },
   ),
 );
+
 
 function dailyPnlFor(): number {
   const s = useAccount.getState();
@@ -162,7 +183,10 @@ function runScan() {
 
   useBot.setState({ lastScanAt: Date.now() });
 
-  if (acc.positions.length >= bot.maxOpenTrades) return;
+  if (acc.positions.length >= bot.maxOpenTrades) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades (${bot.maxOpenTrades}) reached — waiting` });
+    return;
+  }
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
   const params = {
@@ -172,26 +196,36 @@ function runScan() {
     atrTpMult: bot.atrTpMult,
     emaFast: bot.emaFast,
     emaSlow: bot.emaSlow,
+    rsiPeriod: bot.rsiPeriod,
+    rsiBuyMax: bot.rsiBuyMax,
+    rsiSellMin: bot.rsiSellMin,
+    useMacd: bot.useMacd,
     adxMin: bot.adxMin,
   };
 
   let opened = 0;
   const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
-
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
+  const waitingMsgs: string[] = [];
 
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
     if (!allowed.has(sym)) continue;
     if (openSymbols.has(sym)) continue;
     const candles = priceFeed.state.candles[sym];
-    if (!candles || candles.length < 40) continue;
+    if (!candles || candles.length < 40) {
+      waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
+      continue;
+    }
     const sig = analyze(sym, candles, params);
-    if (sig.side === "FLAT") continue;
-    if (sig.confidence < bot.minConfidence) continue;
+    if (sig.side === "FLAT") {
+      const why = sig.blockers[0] ?? `confidence ${sig.confidence}% < ${bot.minConfidence}%`;
+      waitingMsgs.push(`${sym}: ${why}`);
+      continue;
+    }
 
     const slDist = Math.abs(sig.entry - sig.stopLoss);
-    if (slDist <= 0) continue;
+    if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
     const lot = bot.lotMode === "fixed"
       ? Math.max(0.01, bot.fixedLot)
       : calculateLot(sym, acc.balance, bot.riskPct, slDist);
@@ -209,13 +243,20 @@ function runScan() {
       bot.pushLog({
         t: Date.now(),
         level: "trade",
-        msg: `${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%)`,
+        msg: `Opened ${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%, ${sig.reasons.slice(0, 2).join("; ")})`,
       });
       toast.success(`Bot: ${sig.side} ${lot} ${sym}`);
       opened++;
     }
   }
+
+  // Emit a single consolidated "waiting" log per scan so the user always sees
+  // why the bot didn't fire (throttled — only when nothing opened).
+  if (opened === 0 && waitingMsgs.length) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Waiting — ${waitingMsgs.slice(0, 3).join(" | ")}` });
+  }
 }
+
 
 /** Mount once near the root. Runs scans on a wall-clock interval whenever enabled. */
 export function BotEngine() {
