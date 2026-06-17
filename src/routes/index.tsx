@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -153,6 +154,10 @@ function Dashboard() {
           <Stat icon={TrendingUp} label="Today P&L" value={fmt.money(dailyPnl)} hint={fmt.pct((dailyPnl / startingBalance) * 100)} tone={dailyPnl >= 0 ? "bull" : "bear"} />
           <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · PF ${isFinite(profitFactor) ? profitFactor.toFixed(2) : "∞"} · DD ${drawdown.toFixed(1)}%`} />
         </section>
+
+        <LicenseAndTierPanel />
+
+
 
 
         <section className="grid gap-4 lg:grid-cols-3">
