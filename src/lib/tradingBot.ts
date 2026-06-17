@@ -34,6 +34,12 @@ type BotStore = {
   enabledSymbols: string[];
   lotMode: "auto" | "fixed";
   fixedLot: number;
+  // Account-tier risk limits
+  tierMode: "auto" | "manual";
+  manualTier: 500 | 1000 | 2000;
+  useTierLimits: boolean;
+  // License gate (set from React via setLicenseValid)
+  licenseValid: boolean;
   haltedToday: boolean;
   haltedDate: string | null;
   lastScanAt: number;
@@ -57,6 +63,10 @@ type BotStore = {
   setEnabledSymbols: (s: string[]) => void;
   setLotMode: (m: "auto" | "fixed") => void;
   setFixedLot: (n: number) => void;
+  setTierMode: (m: "auto" | "manual") => void;
+  setManualTier: (t: 500 | 1000 | 2000) => void;
+  setUseTierLimits: (v: boolean) => void;
+  setLicenseValid: (v: boolean) => void;
   pushLog: (entry: BotLogEntry) => void;
   setHalted: (v: boolean) => void;
   setLastScan: (t: number) => void;
@@ -84,6 +94,10 @@ export const useBot = create<BotStore>()(
       enabledSymbols: [...SYMBOLS],
       lotMode: "auto",
       fixedLot: 0.1,
+      tierMode: "auto",
+      manualTier: 500,
+      useTierLimits: true,
+      licenseValid: false,
       haltedToday: false,
       haltedDate: null,
       lastScanAt: 0,
@@ -140,6 +154,9 @@ export const useBot = create<BotStore>()(
         enabledSymbols: s.enabledSymbols,
         lotMode: s.lotMode,
         fixedLot: s.fixedLot,
+        tierMode: s.tierMode,
+        manualTier: s.manualTier,
+        useTierLimits: s.useTierLimits,
         haltedToday: s.haltedToday,
         haltedDate: s.haltedDate,
       }),
