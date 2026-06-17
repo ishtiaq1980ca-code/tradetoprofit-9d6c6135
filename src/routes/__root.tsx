@@ -12,6 +12,8 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { MarketEngine } from "@/hooks/usePriceFeed";
+import { BotEngine } from "@/lib/tradingBot";
 
 function NotFoundComponent() {
   return (
@@ -121,6 +123,8 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <MarketEngine />
+      <BotEngine />
       <Outlet />
       <Toaster richColors position="top-right" theme="dark" />
     </QueryClientProvider>
