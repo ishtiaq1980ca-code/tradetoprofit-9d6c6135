@@ -55,29 +55,19 @@ export function useLicense() {
       if (!user) return { error: "Not signed in" };
       const token = rawToken.trim().toUpperCase();
       if (!token) return { error: "Enter a token" };
-      // Claim path: RLS allows UPDATE only when the row is currently unassigned
-      // (user_id IS NULL) or already owned by us. We rely on RLS instead of a
-      // separate SELECT (signed-in users can't read unassigned tokens).
-      const nowIso = new Date().toISOString();
-      const { data, error } = await supabase
-        .from("license_tokens")
-        .update({
-          user_id: user.id,
-          mt5_account: mt5Account || null,
-          redeemed_at: nowIso,
-        })
-        .eq("token", token)
-        .eq("status", "active")
-        .gt("expires_at", nowIso)
-        .select("id, token, status, expires_at, mt5_account, broker, redeemed_at")
-        .maybeSingle();
+      // Server-side validated redemption: SECURITY DEFINER RPC checks the
+      // token string, status, expiry, and that it is unclaimed before binding.
+      const { error } = await supabase.rpc("redeem_license_token", {
+        _token: token,
+        _mt5_account: mt5Account || undefined,
+      });
       if (error) return { error: error.message };
-      if (!data) return { error: "Invalid, expired, or already-claimed token" };
       await refresh();
       return { ok: true };
     },
     [user, refresh],
   );
+
 
   return { license, loading, error, refresh, redeem, valid: isLicenseValid(license) };
 }

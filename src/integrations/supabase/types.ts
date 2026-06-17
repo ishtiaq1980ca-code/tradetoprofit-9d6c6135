@@ -423,6 +423,29 @@ export type Database = {
           user_id: string
         }[]
       }
+      redeem_license_token: {
+        Args: { _mt5_account?: string; _token: string }
+        Returns: {
+          broker: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          mt5_account: string | null
+          notes: string | null
+          redeemed_at: string | null
+          status: string
+          token: string
+          updated_at: string
+          user_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "license_tokens"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       app_role: "admin" | "user"
