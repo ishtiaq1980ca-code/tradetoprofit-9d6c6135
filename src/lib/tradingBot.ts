@@ -12,6 +12,8 @@ import { priceFeed } from "./priceFeed";
 import { useAccount, floatingPnl } from "./paperTrading";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "./strategy";
 import { SYMBOLS } from "./format";
+import { activeSessions } from "./sessions";
+
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
@@ -31,7 +33,11 @@ type BotStore = {
   useMacd: boolean;
   adxMin: number;
   maxOpenTrades: number;
+  maxTradesPerSymbol: number;
+  maxDailyTrades: number;
+  pauseOnWeekend: boolean;
   enabledSymbols: string[];
+
   lotMode: "auto" | "fixed";
   fixedLot: number;
   // Account-tier risk limits
@@ -59,7 +65,11 @@ type BotStore = {
   setUseMacd: (v: boolean) => void;
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
+  setMaxTradesPerSymbol: (n: number) => void;
+  setMaxDailyTrades: (n: number) => void;
+  setPauseOnWeekend: (v: boolean) => void;
   toggleSymbol: (s: string) => void;
+
   setEnabledSymbols: (s: string[]) => void;
   setLotMode: (m: "auto" | "fixed") => void;
   setFixedLot: (n: number) => void;
@@ -91,7 +101,11 @@ export const useBot = create<BotStore>()(
       useMacd: true,
       adxMin: 12,
       maxOpenTrades: 4,
+      maxTradesPerSymbol: 2,
+      maxDailyTrades: 20,
+      pauseOnWeekend: true,
       enabledSymbols: [...SYMBOLS],
+
       lotMode: "auto",
       fixedLot: 0.1,
       tierMode: "auto",
@@ -117,6 +131,10 @@ export const useBot = create<BotStore>()(
       setUseMacd: (v) => set({ useMacd: v }),
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
+      setMaxTradesPerSymbol: (n) => set({ maxTradesPerSymbol: Math.max(1, n) }),
+      setMaxDailyTrades: (n) => set({ maxDailyTrades: Math.max(1, n) }),
+      setPauseOnWeekend: (v) => set({ pauseOnWeekend: v }),
+
       toggleSymbol: (s) => {
         const cur = get().enabledSymbols;
         set({ enabledSymbols: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
@@ -155,7 +173,11 @@ export const useBot = create<BotStore>()(
         useMacd: s.useMacd,
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
+        maxTradesPerSymbol: s.maxTradesPerSymbol,
+        maxDailyTrades: s.maxDailyTrades,
+        pauseOnWeekend: s.pauseOnWeekend,
         enabledSymbols: s.enabledSymbols,
+
         lotMode: s.lotMode,
         fixedLot: s.fixedLot,
         tierMode: s.tierMode,
