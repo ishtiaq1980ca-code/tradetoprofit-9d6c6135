@@ -96,9 +96,9 @@ export const useBot = create<BotStore>()(
       emaFast: 9,
       emaSlow: 21,
       rsiPeriod: 14,
-      rsiBuyMax: 75,
-      rsiSellMin: 25,
-      useMacd: true,
+      rsiBuyMax: 85,
+      rsiSellMin: 15,
+      useMacd: false,
       adxMin: 12,
       maxOpenTrades: 4,
       maxTradesPerSymbol: 2,
@@ -153,7 +153,7 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v4",
+      name: "aurum-bot-v5",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
