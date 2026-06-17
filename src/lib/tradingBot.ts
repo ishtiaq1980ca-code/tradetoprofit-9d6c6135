@@ -363,7 +363,7 @@ function runScan() {
     }
     const pos = acc.open({
       symbol: sym,
-      side: sig.side,
+      side: sig.side as "BUY" | "SELL",
       lot,
       entry: sig.entry,
       stopLoss: sig.stopLoss,
