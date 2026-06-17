@@ -2,8 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, BarChart3, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, Settings, ShieldCheck, Signal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { MarketEngine } from "@/hooks/usePriceFeed";
-import { BotEngine, useBot } from "@/lib/tradingBot";
+import { useBot } from "@/lib/tradingBot";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { AuthGate } from "@/components/AuthGate";
@@ -105,9 +104,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <AuthGate>
       <div className="flex min-h-screen">
-        <MarketEngine />
-        <BotEngine />
         <LicenseSyncer />
+
 
         {/* Desktop sidebar */}
         <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
