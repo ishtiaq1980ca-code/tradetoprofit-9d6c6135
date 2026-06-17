@@ -180,9 +180,38 @@ function dailyPnlFor(): number {
   return closed + floating;
 }
 
+/** Auto-detect the account tier from balance. <500 disables the bot. */
+export function detectTier(balance: number): 500 | 1000 | 2000 | null {
+  if (balance >= 2000) return 2000;
+  if (balance >= 1000) return 1000;
+  if (balance >= 500) return 500;
+  return null;
+}
+
+/** Max simultaneous open 0.01 lots permitted by tier. */
+export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
+  if (tier === 2000) return 0.10; // 10 × 0.01
+  if (tier === 1000) return 0.06; // 6  × 0.01
+  if (tier === 500) return 0.03;  // 3  × 0.01
+  return 0;
+}
+
+export function currentTier(): 500 | 1000 | 2000 | null {
+  const bot = useBot.getState();
+  const acc = useAccount.getState();
+  if (bot.tierMode === "manual") return bot.manualTier;
+  return detectTier(acc.balance);
+}
+
 function runScan() {
   const bot = useBot.getState();
   const acc = useAccount.getState();
+
+  // License gate — bot will not place trades without a valid token
+  if (!bot.licenseValid) {
+    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: no active license token" });
+    return;
+  }
 
   // Daily reset
   const today = new Date().toDateString();
@@ -203,6 +232,21 @@ function runScan() {
   }
 
   useBot.setState({ lastScanAt: Date.now() });
+
+  // Tier-based lot exposure cap
+  const tier = currentTier();
+  const lotCap = bot.useTierLimits ? tierLotCap(tier) : Infinity;
+  const openLot = acc.positions.reduce((s, p) => s + p.lot, 0);
+  if (bot.useTierLimits) {
+    if (!tier) {
+      bot.pushLog({ t: Date.now(), level: "warn", msg: `Balance below $500 — bot disabled by tier rules` });
+      return;
+    }
+    if (openLot + 0.01 > lotCap + 1e-9) {
+      bot.pushLog({ t: Date.now(), level: "info", msg: `Tier ${tier} lot cap reached (${openLot.toFixed(2)}/${lotCap.toFixed(2)}) — waiting for closes` });
+      return;
+    }
+  }
 
   if (acc.positions.length >= bot.maxOpenTrades) {
     bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades (${bot.maxOpenTrades}) reached — waiting` });
@@ -225,6 +269,7 @@ function runScan() {
   };
 
   let opened = 0;
+  let usedLot = openLot;
   const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
   const waitingMsgs: string[] = [];
@@ -247,9 +292,15 @@ function runScan() {
 
     const slDist = Math.abs(sig.entry - sig.stopLoss);
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
-    const lot = bot.lotMode === "fixed"
-      ? Math.max(0.01, bot.fixedLot)
-      : calculateLot(sym, acc.balance, bot.riskPct, slDist);
+    let lot = bot.useTierLimits
+      ? 0.01
+      : bot.lotMode === "fixed"
+        ? Math.max(0.01, bot.fixedLot)
+        : calculateLot(sym, acc.balance, bot.riskPct, slDist);
+    if (bot.useTierLimits && usedLot + lot > lotCap + 1e-9) {
+      waitingMsgs.push(`${sym}: would exceed tier cap`);
+      continue;
+    }
     const pos = acc.open({
       symbol: sym,
       side: sig.side,
