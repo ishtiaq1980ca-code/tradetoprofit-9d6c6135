@@ -14,6 +14,7 @@ import { analyze, calculateLot, DEFAULT_PARAMS } from "./strategy";
 import { SYMBOLS } from "./format";
 import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
+import { supabase } from "@/integrations/supabase/client";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
