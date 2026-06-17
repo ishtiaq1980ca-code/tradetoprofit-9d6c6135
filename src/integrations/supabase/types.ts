@@ -381,12 +381,47 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_generate_token: {
+        Args: { _days?: number; _notes?: string; _token: string }
+        Returns: {
+          broker: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          mt5_account: string | null
+          notes: string | null
+          redeemed_at: string | null
+          status: string
+          token: string
+          updated_at: string
+          user_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "license_tokens"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_admin_if_none: { Args: never; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      list_users_basic: {
+        Args: never
+        Returns: {
+          active_token: string
+          display_name: string
+          email: string
+          is_admin: boolean
+          token_expires_at: string
+          user_id: string
+        }[]
       }
     }
     Enums: {

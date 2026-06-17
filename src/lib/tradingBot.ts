@@ -12,6 +12,8 @@ import { priceFeed } from "./priceFeed";
 import { useAccount, floatingPnl } from "./paperTrading";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "./strategy";
 import { SYMBOLS } from "./format";
+import { activeSessions } from "./sessions";
+
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
@@ -31,7 +33,11 @@ type BotStore = {
   useMacd: boolean;
   adxMin: number;
   maxOpenTrades: number;
+  maxTradesPerSymbol: number;
+  maxDailyTrades: number;
+  pauseOnWeekend: boolean;
   enabledSymbols: string[];
+
   lotMode: "auto" | "fixed";
   fixedLot: number;
   // Account-tier risk limits
@@ -59,7 +65,11 @@ type BotStore = {
   setUseMacd: (v: boolean) => void;
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
+  setMaxTradesPerSymbol: (n: number) => void;
+  setMaxDailyTrades: (n: number) => void;
+  setPauseOnWeekend: (v: boolean) => void;
   toggleSymbol: (s: string) => void;
+
   setEnabledSymbols: (s: string[]) => void;
   setLotMode: (m: "auto" | "fixed") => void;
   setFixedLot: (n: number) => void;
@@ -91,7 +101,11 @@ export const useBot = create<BotStore>()(
       useMacd: true,
       adxMin: 12,
       maxOpenTrades: 4,
+      maxTradesPerSymbol: 2,
+      maxDailyTrades: 20,
+      pauseOnWeekend: true,
       enabledSymbols: [...SYMBOLS],
+
       lotMode: "auto",
       fixedLot: 0.1,
       tierMode: "auto",
@@ -117,6 +131,10 @@ export const useBot = create<BotStore>()(
       setUseMacd: (v) => set({ useMacd: v }),
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
+      setMaxTradesPerSymbol: (n) => set({ maxTradesPerSymbol: Math.max(1, n) }),
+      setMaxDailyTrades: (n) => set({ maxDailyTrades: Math.max(1, n) }),
+      setPauseOnWeekend: (v) => set({ pauseOnWeekend: v }),
+
       toggleSymbol: (s) => {
         const cur = get().enabledSymbols;
         set({ enabledSymbols: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
@@ -155,7 +173,11 @@ export const useBot = create<BotStore>()(
         useMacd: s.useMacd,
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
+        maxTradesPerSymbol: s.maxTradesPerSymbol,
+        maxDailyTrades: s.maxDailyTrades,
+        pauseOnWeekend: s.pauseOnWeekend,
         enabledSymbols: s.enabledSymbols,
+
         lotMode: s.lotMode,
         fixedLot: s.fixedLot,
         tierMode: s.tierMode,
@@ -221,6 +243,23 @@ function runScan() {
 
   if (bot.haltedToday) return;
 
+  // Weekend pause
+  const sess = activeSessions();
+  if (bot.pauseOnWeekend && sess.weekend) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: "Market closed (weekend) — waiting" });
+    return;
+  }
+
+  // Daily-trade cap (counts trades opened today, open + closed today)
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const openedToday = acc.positions.filter((p) => p.openedAt >= startOfDay.getTime()).length
+    + acc.history.filter((t) => t.openedAt >= startOfDay.getTime()).length;
+  if (openedToday >= bot.maxDailyTrades) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Daily trade cap reached (${openedToday}/${bot.maxDailyTrades})` });
+    return;
+  }
+
+
   // Max daily loss circuit breaker
   const dpnl = dailyPnlFor();
   const lossPct = (dpnl / acc.startingBalance) * 100;
@@ -254,6 +293,9 @@ function runScan() {
   }
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
+  const perSymCount: Record<string, number> = {};
+  for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
+
   const params = {
     ...DEFAULT_PARAMS,
     minConfidence: bot.minConfidence,
@@ -277,12 +319,17 @@ function runScan() {
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
     if (!allowed.has(sym)) continue;
-    if (openSymbols.has(sym)) continue;
+    if ((perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol) {
+      waitingMsgs.push(`${sym}: per-symbol cap (${bot.maxTradesPerSymbol}) reached`);
+      continue;
+    }
     const candles = priceFeed.state.candles[sym];
     if (!candles || candles.length < 40) {
       waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
       continue;
     }
+
+
     const sig = analyze(sym, candles, params);
     if (sig.side === "FLAT") {
       const why = sig.blockers[0] ?? `confidence ${sig.confidence}% < ${bot.minConfidence}%`;
@@ -310,7 +357,10 @@ function runScan() {
       takeProfit: sig.takeProfit,
       confidence: sig.confidence,
       reason: sig.reasons.slice(0, 2).join(" · "),
+      session: sess.primary,
     });
+    if (pos) perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
+
     if (pos) {
       bot.pushLog({
         t: Date.now(),

@@ -16,9 +16,11 @@ export type Position = {
   openedAt: number;
   confidence?: number;
   reason?: string;
+  session?: string;
   breakEvenTriggered?: boolean;
   partialTaken?: boolean;
 };
+
 
 export type ClosedTrade = Position & {
   closedAt: number;
