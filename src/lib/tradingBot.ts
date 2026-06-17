@@ -329,10 +329,7 @@ function runScan() {
       continue;
     }
 
-    if (!candles || candles.length < 40) {
-      waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
-      continue;
-    }
+
     const sig = analyze(sym, candles, params);
     if (sig.side === "FLAT") {
       const why = sig.blockers[0] ?? `confidence ${sig.confidence}% < ${bot.minConfidence}%`;
