@@ -86,11 +86,47 @@ class PriceFeed {
     this.notify();
   }
 
+  private reseeded = new Set<string>();
+
   private blend(sym: string, target: number) {
     const prev = this.state.prices[sym];
     if (!prev || !isFinite(target) || target <= 0) return;
+    // First time we see a real anchor for this symbol, rebuild the whole
+    // candle history around the real spot so indicators (RSI/MACD/ATR) aren't
+    // poisoned by the gap between synthetic seed price and reality.
+    // Also reseed if the live spot is wildly different from our current price
+    // (>1.5%), which would otherwise spike RSI to extremes.
+    const drift = Math.abs(target - prev) / prev;
+    if (!this.reseeded.has(sym) || drift > 0.015) {
+      this.reseeded.add(sym);
+      const candles = this.state.candles[sym];
+      const v = VOL[sym] ?? target * 0.0002;
+      let p = target;
+      // Walk backward from target, producing a gentle mean-reverting series
+      // so the most recent close sits exactly at the live spot.
+      const out: Candle[] = [];
+      for (let i = candles.length - 1; i >= 0; i--) {
+        const close = p;
+        const open = close + (Math.random() - 0.5) * v * 2;
+        const high = Math.max(open, close) + Math.random() * v;
+        const low = Math.min(open, close) - Math.random() * v;
+        out.unshift({ time: candles[i].time, open, high, low, close });
+        p = open;
+      }
+      this.state.candles[sym] = out;
+      this.state.prices[sym] = target;
+      return;
+    }
     // 60% pull toward real spot, 40% preserve recent tick path for smoothness
-    this.state.prices[sym] = prev * 0.4 + target * 0.6;
+    const next = prev * 0.4 + target * 0.6;
+    this.state.prices[sym] = next;
+    const candles = this.state.candles[sym];
+    const last = candles[candles.length - 1];
+    if (last) {
+      last.close = next;
+      if (next > last.high) last.high = next;
+      if (next < last.low) last.low = next;
+    }
   }
 
   private async anchor() {
