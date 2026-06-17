@@ -13,6 +13,7 @@ import { useAccount, floatingPnl } from "./paperTrading";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "./strategy";
 import { SYMBOLS } from "./format";
 import { activeSessions } from "./sessions";
+import { useStrategies, strategiesForSymbol } from "./strategies";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
@@ -292,7 +293,7 @@ function runScan() {
   const perSymCount: Record<string, number> = {};
   for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
 
-  const params = {
+  const baseParams = {
     ...DEFAULT_PARAMS,
     minConfidence: bot.minConfidence,
     atrSlMult: bot.atrSlMult,
@@ -305,6 +306,10 @@ function runScan() {
     useMacd: bot.useMacd,
     adxMin: bot.adxMin,
   };
+
+  // Refresh admin-defined strategies (cached, soft TTL inside the store)
+  useStrategies.getState().fetch().catch(() => { /* offline ok */ });
+  const customList = useStrategies.getState().list;
 
   let opened = 0;
   let usedLot = openLot;
@@ -325,13 +330,25 @@ function runScan() {
       continue;
     }
 
+    // Build the strategy list for this symbol. Custom admin strategies take
+    // priority; if none match, fall back to the built-in bot params.
+    const customs = strategiesForSymbol(sym, customList);
+    const runs = customs.length
+      ? customs
+      : [{ id: "built-in", name: "Built-in", params: baseParams }];
 
-    const sig = analyze(sym, candles, params);
-    if (sig.side === "FLAT") {
-      const why = sig.blockers[0] ?? `confidence ${sig.confidence}% < ${bot.minConfidence}%`;
-      waitingMsgs.push(`${sym}: ${why}`);
+    let chosen: { sig: ReturnType<typeof analyze>; stratName: string } | null = null;
+    let lastWhy = "";
+    for (const r of runs) {
+      const s = analyze(sym, candles, r.params);
+      if (s.side !== "FLAT") { chosen = { sig: s, stratName: r.name }; break; }
+      lastWhy = s.blockers[0] ?? `confidence ${s.confidence}% < ${r.params.minConfidence}%`;
+    }
+    if (!chosen) {
+      waitingMsgs.push(`${sym}: ${lastWhy || "no strategy fired"}`);
       continue;
     }
+    const sig = chosen.sig;
 
     const slDist = Math.abs(sig.entry - sig.stopLoss);
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
@@ -352,7 +369,7 @@ function runScan() {
       stopLoss: sig.stopLoss,
       takeProfit: sig.takeProfit,
       confidence: sig.confidence,
-      reason: sig.reasons.slice(0, 2).join(" · "),
+      reason: `[${chosen.stratName}] ${sig.reasons.slice(0, 2).join(" · ")}`,
       session: sess.primary,
     });
     if (pos) perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
@@ -361,9 +378,9 @@ function runScan() {
       bot.pushLog({
         t: Date.now(),
         level: "trade",
-        msg: `Opened ${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%, ${sig.reasons.slice(0, 2).join("; ")})`,
+        msg: `[${chosen.stratName}] Opened ${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%)`,
       });
-      toast.success(`Bot: ${sig.side} ${lot} ${sym}`);
+      toast.success(`Bot [${chosen.stratName}]: ${sig.side} ${lot} ${sym}`);
       opened++;
       usedLot += lot;
     }
