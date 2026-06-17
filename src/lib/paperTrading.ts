@@ -66,7 +66,7 @@ export function floatingPnl(positions: Position[], prices: Record<string, number
   return pnl;
 }
 
-const STARTING = 10_000;
+const STARTING = 1_000;
 
 export const useAccount = create<Store>()(
   persist(
