@@ -124,6 +124,10 @@ export const useBot = create<BotStore>()(
       setEnabledSymbols: (s) => set({ enabledSymbols: s }),
       setLotMode: (m) => set({ lotMode: m }),
       setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
+      setTierMode: (m) => set({ tierMode: m }),
+      setManualTier: (t) => set({ manualTier: t }),
+      setUseTierLimits: (v) => set({ useTierLimits: v }),
+      setLicenseValid: (v) => set({ licenseValid: v }),
       pushLog: (entry) => set({ log: [entry, ...get().log].slice(0, 120) }),
       setHalted: (v) =>
         set({ haltedToday: v, haltedDate: v ? new Date().toDateString() : null }),
