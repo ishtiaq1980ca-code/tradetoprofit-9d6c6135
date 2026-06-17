@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -128,8 +129,12 @@ function Dashboard() {
               variant={botEnabled ? "outline" : "default"}
               className={cn(botEnabled ? "border-bear/40 text-bear hover:bg-bear/10" : "bg-gold text-primary-foreground hover:bg-gold/90")}
               onClick={() => {
+                if (!useBot.getState().licenseValid) {
+                  toast.error("Activate a license token to start the bot");
+                  return;
+                }
                 botSetEnabled(!botEnabled);
-                toast.success(botEnabled ? "Bot stopped" : "Bot started — scanning every minute");
+                toast.success(botEnabled ? "Bot stopped" : "Bot started — scanning continuously");
                 if (!botEnabled) triggerManualScan();
               }}
             >
@@ -153,6 +158,10 @@ function Dashboard() {
           <Stat icon={TrendingUp} label="Today P&L" value={fmt.money(dailyPnl)} hint={fmt.pct((dailyPnl / startingBalance) * 100)} tone={dailyPnl >= 0 ? "bull" : "bear"} />
           <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · PF ${isFinite(profitFactor) ? profitFactor.toFixed(2) : "∞"} · DD ${drawdown.toFixed(1)}%`} />
         </section>
+
+        <LicenseAndTierPanel />
+
+
 
 
         <section className="grid gap-4 lg:grid-cols-3">

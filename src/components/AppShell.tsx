@@ -1,11 +1,14 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, LayoutDashboard, ListChecks, Menu, PlugZap, Settings, Signal } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Activity, BarChart3, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, Settings, Signal } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { MarketEngine } from "@/hooks/usePriceFeed";
-import { BotEngine } from "@/lib/tradingBot";
+import { BotEngine, useBot } from "@/lib/tradingBot";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { AuthGate } from "@/components/AuthGate";
+import { useAuth } from "@/hooks/useAuth";
+import { useLicense } from "@/hooks/useLicense";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -57,68 +60,98 @@ function Brand() {
   );
 }
 
+function LicenseSyncer() {
+  const { valid } = useLicense();
+  const setLicenseValid = useBot((s) => s.setLicenseValid);
+  useEffect(() => {
+    setLicenseValid(valid);
+    if (!valid) useBot.setState({ enabled: false });
+  }, [valid, setLicenseValid]);
+  return null;
+}
+
+function UserFooter() {
+  const { user, signOut } = useAuth();
+  const { license, valid } = useLicense();
+  if (!user) return null;
+  const expDays = license ? Math.max(0, Math.ceil((new Date(license.expires_at).getTime() - Date.now()) / 86400000)) : 0;
+  return (
+    <div className="mt-4 space-y-2 rounded-md border border-border/60 bg-card/50 p-3 text-[11px]">
+      <div className="truncate font-medium text-foreground">{user.email}</div>
+      <div className="flex items-center gap-1.5">
+        <KeyRound className="h-3 w-3" />
+        {valid ? (
+          <span className="text-bull">License active · {expDays}d left</span>
+        ) : (
+          <span className="text-bear">No active license</span>
+        )}
+      </div>
+      <Button variant="outline" size="sm" className="w-full h-7 text-[11px]" onClick={() => signOut()}>
+        <LogOut className="h-3 w-3 mr-1" /> Sign out
+      </Button>
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
-  const current = nav.find((n) => n.to === pathname);
   return (
-    <div className="flex min-h-screen">
-      <MarketEngine />
-      <BotEngine />
+    <AuthGate>
+      <div className="flex min-h-screen">
+        <MarketEngine />
+        <BotEngine />
+        <LicenseSyncer />
 
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
-        <div className="mb-8"><Brand /></div>
-        <NavList pathname={pathname} />
-        <div className="mt-4 rounded-md border border-border/60 bg-card/50 p-3 text-[11px] text-muted-foreground">
-          <div className="mb-1 flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-bull animate-pulse" />
-            <span className="font-medium text-foreground">Paper Trading</span>
+        {/* Desktop sidebar */}
+        <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
+          <div className="mb-8"><Brand /></div>
+          <NavList pathname={pathname} />
+          <UserFooter />
+        </aside>
+
+        <main className="flex-1 min-w-0 pb-20 md:pb-0">
+          {/* Mobile top bar */}
+          <div className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border bg-background/95 backdrop-blur px-3 py-2">
+            <Brand />
+            <Sheet open={open} onOpenChange={setOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="Open menu">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-64 p-4 flex flex-col">
+                <div className="mb-6"><Brand /></div>
+                <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+                <UserFooter />
+              </SheetContent>
+            </Sheet>
           </div>
-          Virtual $10,000. Live ticks anchored to public FX/gold spot.
-        </div>
-      </aside>
 
-      <main className="flex-1 min-w-0 pb-20 md:pb-0">
-        {/* Mobile top bar */}
-        <div className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border bg-background/95 backdrop-blur px-3 py-2">
-          <Brand />
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Open menu">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-64 p-4">
-              <div className="mb-6"><Brand /></div>
-              <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
-            </SheetContent>
-          </Sheet>
-        </div>
+          {children}
 
-        {children}
-
-        {/* Mobile bottom tab bar */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur">
-          {nav.map((n) => {
-            const Icon = n.icon;
-            const active = pathname === n.to;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px]",
-                  active ? "text-gold" : "text-muted-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="truncate max-w-full px-1">{n.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      </main>
-    </div>
+          {/* Mobile bottom tab bar */}
+          <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur">
+            {nav.map((n) => {
+              const Icon = n.icon;
+              const active = pathname === n.to;
+              return (
+                <Link
+                  key={n.to}
+                  to={n.to}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px]",
+                    active ? "text-gold" : "text-muted-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="truncate max-w-full px-1">{n.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </main>
+      </div>
+    </AuthGate>
   );
 }
