@@ -357,7 +357,10 @@ function runScan() {
       takeProfit: sig.takeProfit,
       confidence: sig.confidence,
       reason: sig.reasons.slice(0, 2).join(" · "),
+      session: sess.primary,
     });
+    if (pos) perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
+
     if (pos) {
       bot.pushLog({
         t: Date.now(),
