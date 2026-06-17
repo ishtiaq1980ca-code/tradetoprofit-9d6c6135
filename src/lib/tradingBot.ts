@@ -319,6 +319,7 @@ function runScan() {
       });
       toast.success(`Bot: ${sig.side} ${lot} ${sym}`);
       opened++;
+      usedLot += lot;
     }
   }
 
