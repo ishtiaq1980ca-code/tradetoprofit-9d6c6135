@@ -154,7 +154,7 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v5",
+      name: "aurum-bot-v6",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
