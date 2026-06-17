@@ -74,7 +74,7 @@ function AdminBody() {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newToken.trim()) return toast.error("Enter a token");
-    const { error } = await supabase.rpc("admin_generate_token", { _token: newToken.trim(), _days: days, _notes: notes || null });
+    const { error } = await supabase.rpc("admin_generate_token", { _token: newToken.trim(), _days: days, _notes: notes || undefined });
     if (error) return toast.error(error.message);
     toast.success(`Token ${newToken} created (${days}d)`);
     setNewToken(""); setNotes("");
