@@ -202,7 +202,7 @@ export const useAccount = create<Store>()(
       },
     }),
     {
-      name: "aurum-paper-account-v1",
+      name: "aurum-paper-account-v2",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
     },
   ),
