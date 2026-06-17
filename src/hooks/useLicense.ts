@@ -55,30 +55,24 @@ export function useLicense() {
       if (!user) return { error: "Not signed in" };
       const token = rawToken.trim().toUpperCase();
       if (!token) return { error: "Enter a token" };
-      // Look up the token (RLS denies non-admin select unless user_id matches),
-      // so we attempt the claim by updating where user_id is null.
-      const { data: existing, error: lookupErr } = await supabase
-        .from("license_tokens")
-        .select("id, user_id, status, expires_at")
-        .eq("token", token)
-        .maybeSingle();
-      if (lookupErr) return { error: lookupErr.message };
-      if (!existing) return { error: "Invalid token" };
-      if (existing.user_id && existing.user_id !== user.id)
-        return { error: "Token already assigned to another account" };
-      if (existing.status !== "active") return { error: "Token revoked" };
-      if (new Date(existing.expires_at).getTime() <= Date.now())
-        return { error: "Token expired" };
-
-      const { error: updErr } = await supabase
+      // Claim path: RLS allows UPDATE only when the row is currently unassigned
+      // (user_id IS NULL) or already owned by us. We rely on RLS instead of a
+      // separate SELECT (signed-in users can't read unassigned tokens).
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
         .from("license_tokens")
         .update({
           user_id: user.id,
           mt5_account: mt5Account || null,
-          redeemed_at: existing.user_id ? undefined : new Date().toISOString(),
+          redeemed_at: nowIso,
         })
-        .eq("id", existing.id);
-      if (updErr) return { error: updErr.message };
+        .eq("token", token)
+        .eq("status", "active")
+        .gt("expires_at", nowIso)
+        .select("id, token, status, expires_at, mt5_account, broker, redeemed_at")
+        .maybeSingle();
+      if (error) return { error: error.message };
+      if (!data) return { error: "Invalid, expired, or already-claimed token" };
       await refresh();
       return { ok: true };
     },
