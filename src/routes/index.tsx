@@ -129,8 +129,12 @@ function Dashboard() {
               variant={botEnabled ? "outline" : "default"}
               className={cn(botEnabled ? "border-bear/40 text-bear hover:bg-bear/10" : "bg-gold text-primary-foreground hover:bg-gold/90")}
               onClick={() => {
+                if (!useBot.getState().licenseValid) {
+                  toast.error("Activate a license token to start the bot");
+                  return;
+                }
                 botSetEnabled(!botEnabled);
-                toast.success(botEnabled ? "Bot stopped" : "Bot started — scanning every minute");
+                toast.success(botEnabled ? "Bot stopped" : "Bot started — scanning continuously");
                 if (!botEnabled) triggerManualScan();
               }}
             >
