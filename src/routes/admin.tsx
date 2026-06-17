@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { toast } from "sonner";
 import { ShieldCheck, KeyRound, Users, Trash2, Plus } from "lucide-react";
+import { StrategyAdmin } from "@/components/StrategyAdmin";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Admin — AurumAI" }] }),
@@ -157,6 +158,8 @@ function AdminBody() {
           </table>
         </CardContent>
       </Card>
+
+      <StrategyAdmin />
 
       <Card className="border-border/60 bg-card/70">
         <CardHeader><CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" /> Users ({users.length})</CardTitle></CardHeader>

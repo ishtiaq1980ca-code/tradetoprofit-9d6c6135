@@ -293,6 +293,45 @@ export type Database = {
         }
         Relationships: []
       }
+      strategies: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          min_confidence: number
+          name: string
+          notes: string | null
+          params: Json
+          symbol: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          min_confidence?: number
+          name: string
+          notes?: string | null
+          params?: Json
+          symbol?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          min_confidence?: number
+          name?: string
+          notes?: string | null
+          params?: Json
+          symbol?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       trades: {
         Row: {
           closed_at: string | null
