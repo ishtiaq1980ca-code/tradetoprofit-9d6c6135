@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, Settings, Signal } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Activity, BarChart3, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, Settings, ShieldCheck, Signal } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { MarketEngine } from "@/hooks/usePriceFeed";
 import { BotEngine, useBot } from "@/lib/tradingBot";
@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { AuthGate } from "@/components/AuthGate";
 import { useAuth } from "@/hooks/useAuth";
 import { useLicense } from "@/hooks/useLicense";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
-const nav = [
+const baseNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/signals", label: "Signals", icon: Signal },
   { to: "/positions", label: "Positions", icon: ListChecks },
@@ -18,11 +19,13 @@ const nav = [
   { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
+const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck } as const;
 
-function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+
+function NavList({ pathname, onNavigate, items }: { pathname: string; onNavigate?: () => void; items: ReadonlyArray<{ to: string; label: string; icon: any }> }) {
   return (
     <nav className="flex flex-1 flex-col gap-1">
-      {nav.map((n) => {
+      {items.map((n) => {
         const Icon = n.icon;
         const active = pathname === n.to;
         return (
@@ -45,6 +48,7 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
     </nav>
   );
 }
+
 
 function Brand() {
   return (
@@ -96,6 +100,8 @@ function UserFooter() {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const { isAdmin } = useIsAdmin();
+  const items = useMemo(() => (isAdmin ? [...baseNav, adminNav] : [...baseNav]), [isAdmin]);
   return (
     <AuthGate>
       <div className="flex min-h-screen">
@@ -106,7 +112,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Desktop sidebar */}
         <aside className="hidden md:flex w-60 flex-col border-r border-border bg-sidebar p-4">
           <div className="mb-8"><Brand /></div>
-          <NavList pathname={pathname} />
+          <NavList pathname={pathname} items={items} />
           <UserFooter />
         </aside>
 
@@ -122,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </SheetTrigger>
               <SheetContent side="right" className="w-64 p-4 flex flex-col">
                 <div className="mb-6"><Brand /></div>
-                <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+                <NavList pathname={pathname} items={items} onNavigate={() => setOpen(false)} />
                 <UserFooter />
               </SheetContent>
             </Sheet>
@@ -131,8 +137,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
 
           {/* Mobile bottom tab bar */}
-          <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur">
-            {nav.map((n) => {
+          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-7" : "grid-cols-6")}>
+            {items.map((n) => {
               const Icon = n.icon;
               const active = pathname === n.to;
               return (
@@ -155,3 +161,4 @@ export function AppShell({ children }: { children: ReactNode }) {
     </AuthGate>
   );
 }
+
