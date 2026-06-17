@@ -243,6 +243,23 @@ function runScan() {
 
   if (bot.haltedToday) return;
 
+  // Weekend pause
+  const sess = activeSessions();
+  if (bot.pauseOnWeekend && sess.weekend) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: "Market closed (weekend) — waiting" });
+    return;
+  }
+
+  // Daily-trade cap (counts trades opened today, open + closed today)
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const openedToday = acc.positions.filter((p) => p.openedAt >= startOfDay.getTime()).length
+    + acc.history.filter((t) => t.openedAt >= startOfDay.getTime()).length;
+  if (openedToday >= bot.maxDailyTrades) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Daily trade cap reached (${openedToday}/${bot.maxDailyTrades})` });
+    return;
+  }
+
+
   // Max daily loss circuit breaker
   const dpnl = dailyPnlFor();
   const lossPct = (dpnl / acc.startingBalance) * 100;
@@ -276,6 +293,9 @@ function runScan() {
   }
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
+  const perSymCount: Record<string, number> = {};
+  for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
+
   const params = {
     ...DEFAULT_PARAMS,
     minConfidence: bot.minConfidence,
@@ -299,8 +319,16 @@ function runScan() {
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
     if (!allowed.has(sym)) continue;
-    if (openSymbols.has(sym)) continue;
+    if ((perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol) {
+      waitingMsgs.push(`${sym}: per-symbol cap (${bot.maxTradesPerSymbol}) reached`);
+      continue;
+    }
     const candles = priceFeed.state.candles[sym];
+    if (!candles || candles.length < 40) {
+      waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
+      continue;
+    }
+
     if (!candles || candles.length < 40) {
       waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
       continue;
