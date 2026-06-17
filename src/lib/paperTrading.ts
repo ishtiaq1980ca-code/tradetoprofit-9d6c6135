@@ -66,7 +66,7 @@ export function floatingPnl(positions: Position[], prices: Record<string, number
   return pnl;
 }
 
-const STARTING = 10_000;
+const STARTING = 1_000;
 
 export const useAccount = create<Store>()(
   persist(
@@ -202,7 +202,7 @@ export const useAccount = create<Store>()(
       },
     }),
     {
-      name: "aurum-paper-account-v1",
+      name: "aurum-paper-account-v2",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
     },
   ),

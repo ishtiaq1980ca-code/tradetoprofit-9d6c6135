@@ -250,14 +250,10 @@ function runScan() {
     return;
   }
 
-  // Daily-trade cap (counts trades opened today, open + closed today)
-  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-  const openedToday = acc.positions.filter((p) => p.openedAt >= startOfDay.getTime()).length
-    + acc.history.filter((t) => t.openedAt >= startOfDay.getTime()).length;
-  if (openedToday >= bot.maxDailyTrades) {
-    bot.pushLog({ t: Date.now(), level: "info", msg: `Daily trade cap reached (${openedToday}/${bot.maxDailyTrades})` });
-    return;
-  }
+  // No daily trade cap — concurrent open trades are limited by `maxOpenTrades`
+  // and the tier lot cap. Once trades close, new ones can be opened immediately.
+
+
 
 
   // Max daily loss circuit breaker
