@@ -14,6 +14,7 @@ import { analyze, calculateLot, DEFAULT_PARAMS } from "./strategy";
 import { SYMBOLS } from "./format";
 import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
+import { supabase } from "@/integrations/supabase/client";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
@@ -383,6 +384,38 @@ function runScan() {
       toast.success(`Bot [${chosen.stratName}]: ${sig.side} ${lot} ${sym}`);
       opened++;
       usedLot += lot;
+
+      // Enqueue signal for the MT5 bridge so the same trade gets placed on
+      // the live/demo MT5 account. Fire-and-forget; bridge polls the DB.
+      supabase
+        .from("signals")
+        .insert({
+          symbol: sym,
+          side: sig.side,
+          entry: sig.entry,
+          stop_loss: sig.stopLoss,
+          take_profit: sig.takeProfit,
+          lot,
+          confidence: sig.confidence,
+          risk_pct: bot.riskPct,
+          reason: `[${chosen.stratName}] ${sig.reasons.slice(0, 2).join(" · ")}`,
+          status: "pending",
+        })
+        .then(({ error }) => {
+          if (error) {
+            useBot.getState().pushLog({
+              t: Date.now(),
+              level: "warn",
+              msg: `MT5 queue failed: ${error.message}`,
+            });
+          } else {
+            useBot.getState().pushLog({
+              t: Date.now(),
+              level: "info",
+              msg: `Signal queued for MT5 bridge → ${sig.side} ${sym}`,
+            });
+          }
+        });
     }
   }
 
@@ -394,17 +427,35 @@ function runScan() {
 }
 
 
+/** Sync the local bot.enabled toggle to bot_settings.enabled so the MT5
+ * bridge knows whether to act on queued signals. */
+async function syncEnabledToCloud(enabled: boolean) {
+  try {
+    await supabase.from("bot_settings").update({ enabled }).eq("id", 1);
+  } catch {
+    /* offline ok */
+  }
+}
+
 /** Mount once near the root. Runs scans on a wall-clock interval whenever enabled. */
 export function BotEngine() {
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Sync current enabled state on mount + on every change
+    syncEnabledToCloud(useBot.getState().enabled);
+    const unsub = useBot.subscribe((s, prev) => {
+      if (s.enabled !== prev.enabled) syncEnabledToCloud(s.enabled);
+    });
     const id = setInterval(() => {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       runScan();
     }, 2_000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      unsub();
+    };
   }, []);
   return null;
 }
