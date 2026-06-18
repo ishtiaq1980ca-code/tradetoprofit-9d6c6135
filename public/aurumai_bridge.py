@@ -104,6 +104,18 @@ def _quote_currency_ok(name: str, want_quote: str) -> bool:
 def resolve_symbol(original: str) -> str | None:
     if original in _SYMBOL_CACHE:
         return _SYMBOL_CACHE[original]
+
+    # 1) Honor explicit override from CONFIG (skip quote-currency guardrail —
+    #    user has explicitly told us this is the right broker symbol).
+    override = (SYMBOL_OVERRIDES.get(original) or "").strip()
+    if override:
+        if mt5.symbol_select(override, True):
+            _SYMBOL_CACHE[original] = override
+            print(f"Mapped {original} -> broker symbol {override} (override)")
+            return override
+        print(f"SYMBOL_OVERRIDES['{original}'] = '{override}' not found on broker; check spelling in Market Watch")
+        return None
+
     want_quote = original[-3:].upper() if len(original) >= 6 else "USD"
     base = original[:-3] if len(original) >= 6 else original
     candidates = [
@@ -125,7 +137,12 @@ def resolve_symbol(original: str) -> str | None:
             _SYMBOL_CACHE[original] = m.name
             print(f"Mapped {original} -> broker symbol {m.name}")
             return m.name
-    print(f"symbol_select failed for {original}; add the {want_quote}-quoted symbol to Market Watch")
+    available = ", ".join(sorted({m.name for m in matches})[:10]) or "(none)"
+    print(
+        f"symbol_select failed for {original}; no {want_quote}-quoted variant found.\n"
+        f"  Available {base}* symbols on your broker: {available}\n"
+        f"  Fix: set SYMBOL_OVERRIDES['{original}'] in the CONFIG section to the exact broker name."
+    )
     return None
 
 
