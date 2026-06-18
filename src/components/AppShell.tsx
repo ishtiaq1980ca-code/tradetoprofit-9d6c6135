@@ -69,7 +69,10 @@ function LicenseSyncer() {
   useEffect(() => {
     if (loading) return;
     setLicenseValid(valid);
-    if (!valid) useBot.setState({ enabled: false });
+    // Note: do NOT flip bot.enabled off when license is transiently invalid.
+    // The runScan() license gate already blocks trades without a valid license,
+    // and toggling enabled here causes the bot to switch off whenever the user
+    // navigates back / the license refetches.
   }, [valid, loading, setLicenseValid]);
   return null;
 }
