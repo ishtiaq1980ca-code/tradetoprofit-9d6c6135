@@ -75,6 +75,8 @@ type BotStore = {
   toggleSymbol: (s: string) => void;
 
   setEnabledSymbols: (s: string[]) => void;
+  setUseBuiltInStrategy: (v: boolean) => void;
+  setBuiltInFallback: (v: boolean) => void;
   setLotMode: (m: "auto" | "fixed") => void;
   setFixedLot: (n: number) => void;
   setTierMode: (m: "auto" | "manual") => void;
@@ -109,6 +111,8 @@ export const useBot = create<BotStore>()(
       maxDailyTrades: 20,
       pauseOnWeekend: true,
       enabledSymbols: ["XAUUSD"],
+      useBuiltInStrategy: true,
+      builtInFallback: true,
 
       lotMode: "auto",
       fixedLot: 0.1,
@@ -144,6 +148,8 @@ export const useBot = create<BotStore>()(
         set({ enabledSymbols: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
       },
       setEnabledSymbols: (s) => set({ enabledSymbols: s }),
+      setUseBuiltInStrategy: (v) => set({ useBuiltInStrategy: v }),
+      setBuiltInFallback: (v) => set({ builtInFallback: v }),
       setLotMode: (m) => set({ lotMode: m }),
       setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
       setTierMode: (m) => set({ tierMode: m }),
@@ -181,6 +187,8 @@ export const useBot = create<BotStore>()(
         maxDailyTrades: s.maxDailyTrades,
         pauseOnWeekend: s.pauseOnWeekend,
         enabledSymbols: s.enabledSymbols,
+        useBuiltInStrategy: s.useBuiltInStrategy,
+        builtInFallback: s.builtInFallback,
 
         lotMode: s.lotMode,
         fixedLot: s.fixedLot,
