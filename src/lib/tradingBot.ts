@@ -446,10 +446,18 @@ function runScan() {
 
 
 /** Sync the local bot.enabled toggle to bot_settings.enabled so the MT5
- * bridge knows whether to act on queued signals. */
+ * bridge knows whether to act on queued signals. Uses a SECURITY DEFINER
+ * RPC since direct UPDATE on bot_settings is admin-only. */
 async function syncEnabledToCloud(enabled: boolean) {
   try {
-    await supabase.from("bot_settings").update({ enabled }).eq("id", 1);
+    const { error } = await supabase.rpc("set_bot_enabled", { _enabled: enabled });
+    if (error) {
+      useBot.getState().pushLog({
+        t: Date.now(),
+        level: "warn",
+        msg: `Bridge sync failed: ${error.message}`,
+      });
+    }
   } catch {
     /* offline ok */
   }
