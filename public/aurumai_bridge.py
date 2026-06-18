@@ -76,45 +76,107 @@ def report_account():
         print(f"account report failed: {e}")
 
 
-def execute_signal(sig: dict) -> bool:
-    symbol = sig["symbol"]
-    original_symbol = symbol
-    if not mt5.symbol_select(symbol, True):
-        # Many brokers expose Gold as XAUUSDm, XAUUSD., GOLD, etc. Try common
-        # variants before giving up so queued dashboard signals can execute.
-        candidates = [
-            f"{original_symbol}m", f"{original_symbol}.", f"{original_symbol}_",
-            "GOLD", "Gold", "XAUUSD", "XAUUSDm", "XAUUSD.", "XAUUSD_",
-        ]
-        matched = False
-        for candidate in candidates:
-            if mt5.symbol_select(candidate, True):
-                symbol = candidate
-                matched = True
-                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
-                break
-        if not matched:
-            matches = mt5.symbols_get(f"*{original_symbol}*") or mt5.symbols_get("*XAU*") or []
-            if matches and mt5.symbol_select(matches[0].name, True):
-                symbol = matches[0].name
-                matched = True
-                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
-        if not matched:
-            print(f"symbol_select failed for {original_symbol}; add your broker's Gold symbol to Market Watch")
+_SYMBOL_CACHE: dict[str, str] = {}
+
+
+def _quote_currency_ok(name: str, want_quote: str) -> bool:
+    """Reject obvious wrong-quote variants (e.g. XAUEUR when we want XAUUSD)."""
+    other_quotes = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"}
+    other_quotes.discard(want_quote)
+    upper = name.upper()
+    if want_quote not in upper:
+        return False
+    for q in other_quotes:
+        # base+wrong-quote pattern e.g. "XAUEUR"
+        if q in upper.replace(want_quote, "", 1):
             return False
+    return True
+
+
+def resolve_symbol(original: str) -> str | None:
+    if original in _SYMBOL_CACHE:
+        return _SYMBOL_CACHE[original]
+    want_quote = original[-3:].upper() if len(original) >= 6 else "USD"
+    base = original[:-3] if len(original) >= 6 else original
+    candidates = [
+        original,
+        f"{original}m", f"{original}.", f"{original}_", f"{original}#", f"{original}.i", f"{original}.pro",
+    ]
+    if original == "XAUUSD":
+        candidates += ["GOLD", "Gold", "XAUUSDm", "XAUUSD.", "XAUUSD_", "XAUUSD#"]
+    for c in candidates:
+        if _quote_currency_ok(c, want_quote) and mt5.symbol_select(c, True):
+            _SYMBOL_CACHE[original] = c
+            if c != original:
+                print(f"Mapped {original} -> broker symbol {c}")
+            return c
+    # broad search but filter out wrong-quote variants
+    matches = mt5.symbols_get(f"*{base}*") or []
+    for m in matches:
+        if _quote_currency_ok(m.name, want_quote) and mt5.symbol_select(m.name, True):
+            _SYMBOL_CACHE[original] = m.name
+            print(f"Mapped {original} -> broker symbol {m.name}")
+            return m.name
+    print(f"symbol_select failed for {original}; add the {want_quote}-quoted symbol to Market Watch")
+    return None
+
+
+def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: float,
+                     sig_entry: float) -> tuple[float, float] | None:
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return None
+    point = info.point or 0.01
+    digits = info.digits or 2
+    min_dist = max(info.trade_stops_level, 10) * point  # broker minimum
+
+    # If the broker symbol is on a very different price scale (different quote
+    # currency, contract size, etc.), the SL/TP from the dashboard signal will
+    # be meaningless. Rebuild them around the live price preserving the
+    # original SL/TP distance.
+    if sig_entry > 0 and abs(price - sig_entry) / sig_entry > 0.05:
+        sl_dist = abs(sig_entry - sl)
+        tp_dist = abs(sig_entry - tp)
+        sl = price - sl_dist if is_buy else price + sl_dist
+        tp = price + tp_dist if is_buy else price - tp_dist
+
+    # Enforce broker minimum distance
+    if is_buy:
+        if price - sl < min_dist: sl = price - min_dist
+        if tp - price < min_dist: tp = price + min_dist
+    else:
+        if sl - price < min_dist: sl = price + min_dist
+        if price - tp < min_dist: tp = price - min_dist
+
+    return round(sl, digits), round(tp, digits)
+
+
+def execute_signal(sig: dict) -> bool:
+    original_symbol = sig["symbol"]
+    symbol = resolve_symbol(original_symbol)
+    if symbol is None:
+        return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
+        print(f"no tick for {symbol}")
         return False
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
+    normalized = _normalize_stops(symbol, is_buy, price,
+                                  float(sig["stop_loss"]), float(sig["take_profit"]),
+                                  float(sig.get("entry") or sig.get("price") or 0))
+    if normalized is None:
+        print(f"symbol_info failed for {symbol}")
+        return False
+    sl, tp = normalized
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
         "volume": float(sig["lot"]),
         "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
         "price": price,
-        "sl": float(sig["stop_loss"]),
-        "tp": float(sig["take_profit"]),
+        "sl": sl,
+        "tp": tp,
         "deviation": SLIPPAGE,
         "magic": MAGIC,
         "comment": f"AurumAI {sig['confidence']:.0f}%",
@@ -123,9 +185,15 @@ def execute_signal(sig: dict) -> bool:
     }
     res = mt5.order_send(req)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
-        print(f"order_send failed for {symbol}: {res.retcode if res else 'None'} {res.comment if res else ''}")
+        # Retry once with FOK if IOC was rejected
+        if res and res.retcode in (10030, 10018):
+            req["type_filling"] = mt5.ORDER_FILLING_FOK
+            res = mt5.order_send(req)
+    if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
+        print(f"order_send failed for {symbol}: {res.retcode if res else 'None'} {res.comment if res else ''} "
+              f"price={price} sl={sl} tp={tp}")
         return False
-    print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price}")
+    print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price} sl={sl} tp={tp}")
     try:
         requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
             "signal_id": sig["id"],
@@ -133,8 +201,8 @@ def execute_signal(sig: dict) -> bool:
             "symbol": original_symbol,
             "side": sig["side"],
             "entry": float(res.price),
-            "stop_loss": float(sig["stop_loss"]),
-            "take_profit": float(sig["take_profit"]),
+            "stop_loss": float(sl),
+            "take_profit": float(tp),
             "lot": float(sig["lot"]),
             "status": "open",
         })
