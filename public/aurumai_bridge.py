@@ -35,6 +35,14 @@ POLL_SEC     = 5                                  # how often to poll for new si
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
+
+# Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
+# in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
+# search "XAU" or "GOLD" -> copy the exact USD-quoted name (NOT XAUEUR).
+# Common broker variants: "XAUUSD.i", "XAUUSDm", "XAUUSD#", "XAUUSD.pro", "GOLD", "GOLD.i"
+SYMBOL_OVERRIDES = {
+    "XAUUSD": "",   # <-- paste your broker's exact USD-quoted gold symbol here
+}
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
