@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
         const freshCutoff = new Date(Date.now() - 2 * 60_000).toISOString();
         await supabaseAdmin
           .from("signals")
-          .update({ status: "cancelled" })
+          .update({ status: "expired" })
           .in("status", ["pending", "sent"])
           .is("executed_at", null)
           .lt("created_at", freshCutoff);
