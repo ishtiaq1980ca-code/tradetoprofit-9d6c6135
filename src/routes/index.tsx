@@ -5,6 +5,7 @@ import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp
 import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
+import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -162,6 +163,8 @@ function Dashboard() {
         </section>
 
         <SessionBadge />
+
+        <Mt5AccountPanel />
 
         <LicenseAndTierPanel />
 
