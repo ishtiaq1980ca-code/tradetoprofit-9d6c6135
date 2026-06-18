@@ -165,7 +165,7 @@ def sync_closed_trades():
                 "lot": float(d.volume),
                 "profit": float(d.profit),
                 "status": "closed",
-                "closed_at": dt.datetime.utcfromtimestamp(d.time).isoformat() + "Z",
+                "closed_at": dt.datetime.fromtimestamp(d.time, dt.UTC).isoformat(),
             })
         except Exception:
             pass
