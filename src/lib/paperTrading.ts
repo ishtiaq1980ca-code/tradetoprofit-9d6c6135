@@ -203,6 +203,14 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
+      version: 2,
+      migrate: (persisted: any) => {
+        if (persisted && typeof persisted === "object") {
+          // Force auto-trailing on for all users going forward.
+          persisted.useUsdTrail = true;
+        }
+        return persisted;
+      },
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
     },
   ),
