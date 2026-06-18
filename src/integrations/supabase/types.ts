@@ -486,6 +486,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      set_bot_enabled: { Args: { _enabled: boolean }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "user"
