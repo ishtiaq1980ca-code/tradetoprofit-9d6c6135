@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Download, Copy, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useLicense } from "@/hooks/useLicense";
 
 export const Route = createFileRoute("/bridge")({
   head: () => ({ meta: [{ title: "MT5 Bridge — AurumAI" }, { name: "description", content: "Install the Python bridge to connect AurumAI to your MetaTrader 5 terminal." }] }),
@@ -16,6 +17,7 @@ const BRIDGE_URL = typeof window !== "undefined" ? window.location.origin : "";
 
 function BridgePage() {
   const [copied, setCopied] = useState<string | null>(null);
+  const { license, valid } = useLicense();
   const copy = (k: string, v: string) => { navigator.clipboard.writeText(v); setCopied(k); setTimeout(() => setCopied(null), 1500); toast.success("Copied"); };
 
   return (
@@ -35,9 +37,13 @@ function BridgePage() {
           </CardHeader>
           <CardContent className="space-y-3 font-mono-tabular text-xs">
             <Row k="Base URL" v={BRIDGE_URL} onCopy={() => copy("u", BRIDGE_URL)} copied={copied === "u"} />
+            <Row k="Bridge token" v={valid && license?.token ? license.token : "Use your active license token here"} onCopy={() => license?.token && copy("b", license.token)} copied={copied === "b"} />
             <Row k="Poll signals" v={`GET ${BRIDGE_URL}/api/public/bridge/poll`} onCopy={() => copy("p", `${BRIDGE_URL}/api/public/bridge/poll`)} copied={copied === "p"} />
             <Row k="Report account" v={`POST ${BRIDGE_URL}/api/public/bridge/account`} onCopy={() => copy("a", `${BRIDGE_URL}/api/public/bridge/account`)} copied={copied === "a"} />
             <Row k="Report trade" v={`POST ${BRIDGE_URL}/api/public/bridge/trades`} onCopy={() => copy("t", `${BRIDGE_URL}/api/public/bridge/trades`)} copied={copied === "t"} />
+            <p className="pt-1 font-sans text-xs text-muted-foreground">
+              Only paste Base URL and Bridge token into the Python file. The three GET/POST links are used automatically by the script.
+            </p>
           </CardContent>
         </Card>
 
@@ -60,8 +66,8 @@ function BridgePage() {
             </Step>
             <Step n={5} title="Configure and run">
               Open the script, set <code className="rounded bg-muted px-1">BASE_URL</code> to the URL above,
-              paste the <code className="rounded bg-muted px-1">BRIDGE_API_TOKEN</code> you stored as a
-              secret in Lovable into <code className="rounded bg-muted px-1">BRIDGE_TOKEN</code>, and add
+              paste your <code className="rounded bg-muted px-1">Bridge token</code> into
+              <code className="rounded bg-muted px-1">BRIDGE_TOKEN</code>, and add
               your MT5 login. Every request now sends
               <code className="rounded bg-muted px-1">Authorization: Bearer &lt;token&gt;</code> — calls
               without it are rejected with 401.
