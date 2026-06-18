@@ -64,12 +64,13 @@ function Brand() {
 }
 
 function LicenseSyncer() {
-  const { valid } = useLicense();
+  const { valid, loading } = useLicense();
   const setLicenseValid = useBot((s) => s.setLicenseValid);
   useEffect(() => {
+    if (loading) return;
     setLicenseValid(valid);
     if (!valid) useBot.setState({ enabled: false });
-  }, [valid, setLicenseValid]);
+  }, [valid, loading, setLicenseValid]);
   return null;
 }
 
