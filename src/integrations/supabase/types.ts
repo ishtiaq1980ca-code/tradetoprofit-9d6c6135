@@ -444,6 +444,7 @@ export type Database = {
         }
       }
       claim_admin_if_none: { Args: never; Returns: boolean }
+      has_active_license: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
