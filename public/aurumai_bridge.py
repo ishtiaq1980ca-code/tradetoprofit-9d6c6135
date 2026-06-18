@@ -77,9 +77,30 @@ def report_account():
 
 def execute_signal(sig: dict) -> bool:
     symbol = sig["symbol"]
+    original_symbol = symbol
     if not mt5.symbol_select(symbol, True):
-        print(f"symbol_select failed for {symbol}")
-        return False
+        # Many brokers expose Gold as XAUUSDm, XAUUSD., GOLD, etc. Try common
+        # variants before giving up so queued dashboard signals can execute.
+        candidates = [
+            f"{original_symbol}m", f"{original_symbol}.", f"{original_symbol}_",
+            "GOLD", "Gold", "XAUUSD", "XAUUSDm", "XAUUSD.", "XAUUSD_",
+        ]
+        matched = False
+        for candidate in candidates:
+            if mt5.symbol_select(candidate, True):
+                symbol = candidate
+                matched = True
+                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
+                break
+        if not matched:
+            matches = mt5.symbols_get(f"*{original_symbol}*") or mt5.symbols_get("*XAU*") or []
+            if matches and mt5.symbol_select(matches[0].name, True):
+                symbol = matches[0].name
+                matched = True
+                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
+        if not matched:
+            print(f"symbol_select failed for {original_symbol}; add your broker's Gold symbol to Market Watch")
+            return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
         return False
@@ -108,7 +129,7 @@ def execute_signal(sig: dict) -> bool:
         requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
             "signal_id": sig["id"],
             "mt5_ticket": int(res.order),
-            "symbol": symbol,
+            "symbol": original_symbol,
             "side": sig["side"],
             "entry": float(res.price),
             "stop_loss": float(sig["stop_loss"]),
