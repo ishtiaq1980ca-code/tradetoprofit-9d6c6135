@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BASE_URL     = "https://YOUR-PROJECT.lovable.app" # paste the Base URL from the Bridge page
+BASE_URL     = "https://tradetoprofit.lovable.app" # published app URL; do not use the Lovable preview URL
 BRIDGE_TOKEN = ""                                 # paste the BRIDGE_API_TOKEN secret you set in Lovable
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
@@ -178,12 +178,18 @@ def main():
         try:
             r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
             if r.ok:
-                data = r.json()
+                try:
+                    data = r.json()
+                except Exception:
+                    print(f"poll returned non-JSON. Check BASE_URL; current value is {BASE_URL}")
+                    data = {"enabled": False, "signals": []}
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
                 elif data.get("reason"):
                     print(f"Bot disabled by server: {data['reason']}")
+            else:
+                print(f"poll HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             print(f"poll failed: {e}")
 
