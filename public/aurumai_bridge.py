@@ -26,8 +26,8 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BASE_URL     = "https://tradetoprofit.lovable.app" # published app URL; do not use the Lovable preview URL
-BRIDGE_TOKEN = ""                                 # paste the BRIDGE_API_TOKEN secret you set in Lovable
+BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
+BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
@@ -56,8 +56,9 @@ def report_account():
     info = mt5.account_info()
     if info is None:
         return
-    today = dt.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    history = mt5.history_deals_get(today, dt.datetime.utcnow()) or []
+    now = dt.datetime.now(dt.UTC)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    history = mt5.history_deals_get(today, now) or []
     daily_pnl = sum(d.profit for d in history if d.magic == MAGIC)
     positions = mt5.positions_get() or []
     payload = {
@@ -144,8 +145,9 @@ def execute_signal(sig: dict) -> bool:
 
 def sync_closed_trades():
     """Report any closed positions opened by AurumAI in the last 24h."""
-    since = dt.datetime.utcnow() - dt.timedelta(days=1)
-    deals = mt5.history_deals_get(since, dt.datetime.utcnow()) or []
+    now = dt.datetime.now(dt.UTC)
+    since = now - dt.timedelta(days=1)
+    deals = mt5.history_deals_get(since, now) or []
     seen = set()
     for d in deals:
         if d.magic != MAGIC or d.entry != mt5.DEAL_ENTRY_OUT:
