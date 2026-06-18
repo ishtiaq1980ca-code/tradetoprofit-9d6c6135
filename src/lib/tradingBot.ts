@@ -39,6 +39,8 @@ type BotStore = {
   maxDailyTrades: number;
   pauseOnWeekend: boolean;
   enabledSymbols: string[];
+  useBuiltInStrategy: boolean;
+  builtInFallback: boolean;
 
   lotMode: "auto" | "fixed";
   fixedLot: number;
