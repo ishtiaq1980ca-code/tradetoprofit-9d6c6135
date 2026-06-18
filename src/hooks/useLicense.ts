@@ -19,17 +19,20 @@ export function isLicenseValid(l: License | null | undefined): boolean {
 }
 
 export function useLicense() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [license, setLicense] = useState<License | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (authLoading) return;
     if (!user) {
       setLicense(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
+    setError(null);
     const { data, error } = await supabase
       .from("license_tokens")
       .select("id, token, status, expires_at, mt5_account, broker, redeemed_at")
@@ -44,7 +47,7 @@ export function useLicense() {
       return;
     }
     setLicense((data as License | null) ?? null);
-  }, [user]);
+  }, [user, authLoading]);
 
   useEffect(() => {
     refresh();
@@ -68,6 +71,5 @@ export function useLicense() {
     [user, refresh],
   );
 
-
-  return { license, loading, error, refresh, redeem, valid: isLicenseValid(license) };
+  return { license, loading: loading || authLoading, error, refresh, redeem, valid: isLicenseValid(license) };
 }

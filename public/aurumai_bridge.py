@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BASE_URL     = "https://YOUR-PROJECT.lovable.app" # paste the Base URL from the Bridge page
+BASE_URL     = "https://tradetoprofit.lovable.app" # published app URL; do not use the Lovable preview URL
 BRIDGE_TOKEN = ""                                 # paste the BRIDGE_API_TOKEN secret you set in Lovable
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
@@ -77,9 +77,30 @@ def report_account():
 
 def execute_signal(sig: dict) -> bool:
     symbol = sig["symbol"]
+    original_symbol = symbol
     if not mt5.symbol_select(symbol, True):
-        print(f"symbol_select failed for {symbol}")
-        return False
+        # Many brokers expose Gold as XAUUSDm, XAUUSD., GOLD, etc. Try common
+        # variants before giving up so queued dashboard signals can execute.
+        candidates = [
+            f"{original_symbol}m", f"{original_symbol}.", f"{original_symbol}_",
+            "GOLD", "Gold", "XAUUSD", "XAUUSDm", "XAUUSD.", "XAUUSD_",
+        ]
+        matched = False
+        for candidate in candidates:
+            if mt5.symbol_select(candidate, True):
+                symbol = candidate
+                matched = True
+                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
+                break
+        if not matched:
+            matches = mt5.symbols_get(f"*{original_symbol}*") or mt5.symbols_get("*XAU*") or []
+            if matches and mt5.symbol_select(matches[0].name, True):
+                symbol = matches[0].name
+                matched = True
+                print(f"Mapped {original_symbol} -> broker symbol {symbol}")
+        if not matched:
+            print(f"symbol_select failed for {original_symbol}; add your broker's Gold symbol to Market Watch")
+            return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
         return False
@@ -108,7 +129,7 @@ def execute_signal(sig: dict) -> bool:
         requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
             "signal_id": sig["id"],
             "mt5_ticket": int(res.order),
-            "symbol": symbol,
+            "symbol": original_symbol,
             "side": sig["side"],
             "entry": float(res.price),
             "stop_loss": float(sig["stop_loss"]),
@@ -157,12 +178,18 @@ def main():
         try:
             r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
             if r.ok:
-                data = r.json()
+                try:
+                    data = r.json()
+                except Exception:
+                    print(f"poll returned non-JSON. Check BASE_URL; current value is {BASE_URL}")
+                    data = {"enabled": False, "signals": []}
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
                 elif data.get("reason"):
                     print(f"Bot disabled by server: {data['reason']}")
+            else:
+                print(f"poll HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             print(f"poll failed: {e}")
 

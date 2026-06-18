@@ -467,8 +467,15 @@ async function syncEnabledToCloud(enabled: boolean) {
 export function BotEngine() {
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // Sync current enabled state on mount + on every change
-    syncEnabledToCloud(useBot.getState().enabled);
+    // Sync current enabled state after auth storage is loaded, then on changes.
+    // Without waiting for the session, the cloud switch can stay off even while
+    // the browser bot is active, so the MT5 bridge receives no signals.
+    supabase.auth.getSession().then(() => syncEnabledToCloud(useBot.getState().enabled));
+    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        syncEnabledToCloud(useBot.getState().enabled);
+      }
+    });
     const unsub = useBot.subscribe((s, prev) => {
       if (s.enabled !== prev.enabled) syncEnabledToCloud(s.enabled);
     });
@@ -481,6 +488,7 @@ export function BotEngine() {
     return () => {
       clearInterval(id);
       unsub();
+      authSub.subscription.unsubscribe();
     };
   }, []);
   return null;

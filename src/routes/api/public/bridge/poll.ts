@@ -27,16 +27,21 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           }
         }
 
+        const freshCutoff = new Date(Date.now() - 2 * 60_000).toISOString();
+        await supabaseAdmin
+          .from("signals")
+          .update({ status: "expired" })
+          .in("status", ["pending", "sent"])
+          .is("executed_at", null)
+          .lt("created_at", freshCutoff);
+
         const { data: signals } = await supabaseAdmin
           .from("signals")
           .select("*")
           .eq("status", "pending")
+          .gte("created_at", freshCutoff)
           .order("created_at", { ascending: true })
           .limit(10);
-
-        if (signals && signals.length) {
-          await supabaseAdmin.from("signals").update({ status: "sent" }).in("id", signals.map((s) => s.id));
-        }
         return Response.json({ enabled: true, mode: settings.account_mode, signals: signals ?? [] });
       },
     },
