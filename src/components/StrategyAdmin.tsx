@@ -13,9 +13,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStrategies, type CustomStrategy } from "@/lib/strategies";
 import { DEFAULT_PARAMS } from "@/lib/strategy";
+import { useBot } from "@/lib/tradingBot";
 import { SYMBOLS } from "@/lib/format";
 import { toast } from "sonner";
-import { Sparkles, Trash2, Pencil, X } from "lucide-react";
+import { Sparkles, Trash2, Pencil, X, Cpu } from "lucide-react";
 
 type Draft = {
   id?: string;
@@ -144,14 +145,16 @@ export function StrategyAdmin() {
   };
 
   return (
-    <Card className="border-border/60 bg-card/70">
+    <div className="space-y-4">
+      <BuiltInStrategyPanel />
+      <Card className="border-border/60 bg-card/70">
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Sparkles className="h-4 w-4" /> Custom Strategies ({list.length})
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           Build per-pair strategies. The bot runs all enabled strategies that match a symbol in priority
-          order and opens the first signal that fires. Pairs with no custom strategy use the built-in engine.
+          order and opens the first signal that fires. Built-in can run as a fallback (toggle above).
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -261,6 +264,69 @@ export function StrategyAdmin() {
               </div>
             </div>
           ))}
+        </div>
+      </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function BuiltInStrategyPanel() {
+  const bot = useBot();
+  const num = (v: string, fb: number) => { const n = Number(v); return Number.isFinite(n) ? n : fb; };
+  return (
+    <Card className="border-border/60 bg-card/70">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Cpu className="h-4 w-4" /> Built-in Strategy
+              <Badge variant="outline" className={bot.useBuiltInStrategy ? "border-bull/40 text-bull" : "border-border/40 text-muted-foreground"}>
+                {bot.useBuiltInStrategy ? "on" : "off"}
+              </Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              The default multi-filter engine. Turn off to run only your custom strategies.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-xs">
+              <Switch checked={bot.useBuiltInStrategy} onCheckedChange={bot.setUseBuiltInStrategy} />
+              Enabled
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <Switch checked={bot.builtInFallback} onCheckedChange={bot.setBuiltInFallback} disabled={!bot.useBuiltInStrategy} />
+              Fallback after customs
+            </label>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <div><Label className="text-xs">Min confidence (%)</Label>
+            <Input type="number" min={0} max={100} value={bot.minConfidence} onChange={(e) => bot.setMinConfidence(num(e.target.value, 40))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">EMA fast</Label>
+            <Input type="number" min={2} value={bot.emaFast} onChange={(e) => bot.setEmaFast(num(e.target.value, 9))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">EMA slow</Label>
+            <Input type="number" min={3} value={bot.emaSlow} onChange={(e) => bot.setEmaSlow(num(e.target.value, 21))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">RSI period</Label>
+            <Input type="number" min={2} value={bot.rsiPeriod} onChange={(e) => bot.setRsiPeriod(num(e.target.value, 14))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">RSI buy max</Label>
+            <Input type="number" min={50} max={100} value={bot.rsiBuyMax} onChange={(e) => bot.setRsiBuyMax(num(e.target.value, 85))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">RSI sell min</Label>
+            <Input type="number" min={0} max={50} value={bot.rsiSellMin} onChange={(e) => bot.setRsiSellMin(num(e.target.value, 15))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">ADX min</Label>
+            <Input type="number" min={0} value={bot.adxMin} onChange={(e) => bot.setAdxMin(num(e.target.value, 12))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 text-xs">
+              <Switch checked={bot.useMacd} onCheckedChange={bot.setUseMacd} disabled={!bot.useBuiltInStrategy} />
+              Require MACD
+            </label>
+          </div>
+          <div><Label className="text-xs">ATR × SL</Label>
+            <Input type="number" step={0.1} min={0.1} value={bot.atrSlMult} onChange={(e) => bot.setAtrSlMult(num(e.target.value, 2.5))} disabled={!bot.useBuiltInStrategy} /></div>
+          <div><Label className="text-xs">ATR × TP</Label>
+            <Input type="number" step={0.1} min={0.1} value={bot.atrTpMult} onChange={(e) => bot.setAtrTpMult(num(e.target.value, 0.7))} disabled={!bot.useBuiltInStrategy} /></div>
         </div>
       </CardContent>
     </Card>

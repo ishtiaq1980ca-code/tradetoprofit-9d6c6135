@@ -39,6 +39,8 @@ type BotStore = {
   maxDailyTrades: number;
   pauseOnWeekend: boolean;
   enabledSymbols: string[];
+  useBuiltInStrategy: boolean;
+  builtInFallback: boolean;
 
   lotMode: "auto" | "fixed";
   fixedLot: number;
@@ -73,6 +75,8 @@ type BotStore = {
   toggleSymbol: (s: string) => void;
 
   setEnabledSymbols: (s: string[]) => void;
+  setUseBuiltInStrategy: (v: boolean) => void;
+  setBuiltInFallback: (v: boolean) => void;
   setLotMode: (m: "auto" | "fixed") => void;
   setFixedLot: (n: number) => void;
   setTierMode: (m: "auto" | "manual") => void;
@@ -107,6 +111,8 @@ export const useBot = create<BotStore>()(
       maxDailyTrades: 20,
       pauseOnWeekend: true,
       enabledSymbols: ["XAUUSD"],
+      useBuiltInStrategy: true,
+      builtInFallback: true,
 
       lotMode: "auto",
       fixedLot: 0.1,
@@ -142,6 +148,8 @@ export const useBot = create<BotStore>()(
         set({ enabledSymbols: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
       },
       setEnabledSymbols: (s) => set({ enabledSymbols: s }),
+      setUseBuiltInStrategy: (v) => set({ useBuiltInStrategy: v }),
+      setBuiltInFallback: (v) => set({ builtInFallback: v }),
       setLotMode: (m) => set({ lotMode: m }),
       setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
       setTierMode: (m) => set({ tierMode: m }),
@@ -179,6 +187,8 @@ export const useBot = create<BotStore>()(
         maxDailyTrades: s.maxDailyTrades,
         pauseOnWeekend: s.pauseOnWeekend,
         enabledSymbols: s.enabledSymbols,
+        useBuiltInStrategy: s.useBuiltInStrategy,
+        builtInFallback: s.builtInFallback,
 
         lotMode: s.lotMode,
         fixedLot: s.fixedLot,
@@ -331,12 +341,20 @@ function runScan() {
       continue;
     }
 
-    // Build the strategy list for this symbol. Custom admin strategies take
-    // priority; if none match, fall back to the built-in bot params.
+    // Build the strategy list for this symbol. Custom admin strategies run
+    // first (in priority order). If none fire and built-in fallback is on,
+    // the built-in engine runs as a last resort. When no customs match the
+    // symbol at all, built-in runs directly (still gated by its on/off flag).
     const customs = strategiesForSymbol(sym, customList);
-    const runs = customs.length
-      ? customs
-      : [{ id: "built-in", name: "Built-in", params: baseParams }];
+    const runs: Array<{ id: string; name: string; params: typeof baseParams }> = [...customs];
+    const allowBuiltIn = bot.useBuiltInStrategy && (customs.length === 0 || bot.builtInFallback);
+    if (allowBuiltIn) {
+      runs.push({ id: "built-in", name: "Built-in", params: baseParams });
+    }
+    if (runs.length === 0) {
+      waitingMsgs.push(`${sym}: no strategy enabled (custom off & built-in off)`);
+      continue;
+    }
 
     let chosen: { sig: ReturnType<typeof analyze>; stratName: string } | null = null;
     let lastWhy = "";
