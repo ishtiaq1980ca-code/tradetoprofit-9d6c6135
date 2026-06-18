@@ -95,7 +95,7 @@ export const useBot = create<BotStore>()(
       enabled: false,
       scanIntervalMs: 8_000,
       minConfidence: 40,
-      riskPct: 1,
+      riskPct: 3,
       maxDailyLossPct: 5,
       atrSlMult: 2.5,
       atrTpMult: 0.7,
@@ -163,7 +163,15 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v6",
+      name: "aurum-bot-v7",
+      version: 2,
+      migrate: (persisted: any) => {
+        if (persisted && typeof persisted === "object") {
+          // Force 3% risk going forward (overrides any prior value).
+          persisted.riskPct = 3;
+        }
+        return persisted;
+      },
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
