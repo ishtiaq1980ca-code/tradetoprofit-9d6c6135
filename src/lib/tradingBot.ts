@@ -341,12 +341,20 @@ function runScan() {
       continue;
     }
 
-    // Build the strategy list for this symbol. Custom admin strategies take
-    // priority; if none match, fall back to the built-in bot params.
+    // Build the strategy list for this symbol. Custom admin strategies run
+    // first (in priority order). If none fire and built-in fallback is on,
+    // the built-in engine runs as a last resort. When no customs match the
+    // symbol at all, built-in runs directly (still gated by its on/off flag).
     const customs = strategiesForSymbol(sym, customList);
-    const runs = customs.length
-      ? customs
-      : [{ id: "built-in", name: "Built-in", params: baseParams }];
+    const runs: Array<{ id: string; name: string; params: typeof baseParams }> = [...customs];
+    const allowBuiltIn = bot.useBuiltInStrategy && (customs.length === 0 || bot.builtInFallback);
+    if (allowBuiltIn) {
+      runs.push({ id: "built-in", name: "Built-in", params: baseParams });
+    }
+    if (runs.length === 0) {
+      waitingMsgs.push(`${sym}: no strategy enabled (custom off & built-in off)`);
+      continue;
+    }
 
     let chosen: { sig: ReturnType<typeof analyze>; stratName: string } | null = null;
     let lastWhy = "";
