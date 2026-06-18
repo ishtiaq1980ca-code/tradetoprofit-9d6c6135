@@ -16,7 +16,7 @@ export const Route = createFileRoute("/api/public/bridge/account")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const unauth = checkBridgeAuth(request);
+        const unauth = await checkBridgeAuth(request);
         if (unauth) return unauth;
         const body = await request.json();
         const parsed = Schema.safeParse(body);

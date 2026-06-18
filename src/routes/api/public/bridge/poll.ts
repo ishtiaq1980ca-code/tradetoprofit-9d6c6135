@@ -5,7 +5,7 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const unauth = checkBridgeAuth(request);
+        const unauth = await checkBridgeAuth(request);
         if (unauth) return unauth;
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: settings } = await supabaseAdmin.from("bot_settings").select("*").eq("id", 1).maybeSingle();
