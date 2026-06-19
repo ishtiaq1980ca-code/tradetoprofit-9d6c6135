@@ -449,7 +449,7 @@ function runScan() {
     // ---- Reliability + price re-validation ----
     const livePrice = priceFeed.state.prices[sym];
     if (!livePrice || livePrice <= 0) {
-      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side, code: "no_price", reason: "No live price available" });
+      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side as "BUY" | "SELL", code: "no_price", reason: "No live price available" });
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  RELIABILITY no live price` });
       waitingMsgs.push(`${sym}: no live price`);
       continue;
@@ -467,7 +467,7 @@ function runScan() {
       atr: decision.indicators.atr,
     });
     if (!norm.ok) {
-      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side, code: norm.code, reason: norm.reason });
+      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side as "BUY" | "SELL", code: norm.code, reason: norm.reason });
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  EXEC-REJECT [${norm.code}] ${norm.reason}` });
       waitingMsgs.push(`${sym}: ${norm.code} (${norm.reason})`);
       continue;
