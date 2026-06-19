@@ -31,7 +31,7 @@ BRIDGE_TOKEN = ""                                 # paste your active Bridge tok
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 5                                  # how often to poll for new signals
+POLL_SEC     = 2                                  # how often to poll for new signals
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
@@ -46,6 +46,19 @@ SYMBOL_OVERRIDES = {
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
+
+
+def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
+    """Post to the dashboard and print server-side validation errors."""
+    try:
+        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=HEADERS, timeout=timeout)
+        if not r.ok:
+            print(f"POST {path} HTTP {r.status_code}: {r.text[:240]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST {path} failed: {e}")
+        return False
 
 
 def connect_mt5() -> bool:
