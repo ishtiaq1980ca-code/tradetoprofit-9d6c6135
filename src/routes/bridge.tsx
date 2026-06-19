@@ -72,7 +72,7 @@ function BridgePage() {
               <code className="rounded bg-muted px-1">Authorization: Bearer &lt;token&gt;</code> — calls
               without it are rejected with 401.
               Then run: <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-background/60 p-3 text-xs">{`python aurumai_bridge.py`}</pre>
-              The bridge polls signals every 5 seconds, posts account snapshots to the dashboard, and executes orders on MT5.
+              The bridge polls signals every 2 seconds, posts account snapshots to the dashboard, and executes orders on MT5.
             </Step>
           </CardContent>
         </Card>
