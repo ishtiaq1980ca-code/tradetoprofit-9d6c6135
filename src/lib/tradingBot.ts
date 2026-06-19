@@ -94,7 +94,7 @@ export const useBot = create<BotStore>()(
     (set, get) => ({
       enabled: false,
       scanIntervalMs: 8_000,
-      minConfidence: 40,
+      minConfidence: 75,
       riskPct: 3,
       maxDailyLossPct: 5,
       atrSlMult: 2.5,
@@ -164,11 +164,12 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 2,
+      version: 3,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // Force 3% risk going forward (overrides any prior value).
+          // Force 3% risk and 75% confidence floor going forward.
           persisted.riskPct = 3;
+          persisted.minConfidence = 75;
         }
         return persisted;
       },
