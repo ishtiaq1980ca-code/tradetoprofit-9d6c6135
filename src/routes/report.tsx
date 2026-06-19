@@ -130,7 +130,13 @@ function ReportPage() {
           <Stat label="Closed P&L" value={fmt.money(stats.totalPnl)} tone={stats.totalPnl >= 0 ? "bull" : "bear"} />
         </section>
 
-        {/* Safety checks */}
+        {/* Open-trade slots (FX vs XAUUSD) */}
+        <SlotsCard />
+
+        {/* Execution latency + failures */}
+        <ExecutionCard />
+
+
         <Card className="border-border/60 bg-card/70">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-3">
