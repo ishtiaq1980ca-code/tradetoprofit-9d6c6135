@@ -46,15 +46,19 @@ export function computeLevels(
   return { stopLoss, takeProfit, slDistance, tpDistance, rr: tpDistance / Math.max(slDistance, 1e-9) };
 }
 
-/** Position size in lots from risk %, balance and SL distance. */
+export const MAX_LOT_SAFETY = 50; // hard upper cap regardless of risk math
+
 export function positionSize(symbol: string, balance: number, riskPct: number, slDistance: number): number {
   if (slDistance <= 0 || !isFinite(slDistance)) return 0.01;
+  if (balance <= 0 || riskPct <= 0) return 0.01;
   const riskAmount = (balance * riskPct) / 100;
   const isJpy = symbol.endsWith("JPY");
   const isGold = symbol === "XAUUSD" || symbol === "GOLD";
   const valuePerUnit = isGold ? 100 : isJpy ? 1000 : 100_000;
-  const lot = riskAmount / (slDistance * valuePerUnit);
-  return Math.max(0.01, Math.round(lot * 100) / 100);
+  const raw = riskAmount / (slDistance * valuePerUnit);
+  if (!isFinite(raw) || raw <= 0) return 0.01;
+  const lot = Math.min(MAX_LOT_SAFETY, Math.max(0.01, Math.round(raw * 100) / 100));
+  return lot;
 }
 
 /** Has the daily loss circuit breaker tripped? */
