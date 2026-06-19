@@ -251,3 +251,89 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "bu
     </Card>
   );
 }
+
+function SlotsCard() {
+  const positions = useAccount((s) => s.positions);
+  const slots = useMemo(() => computeOpenSlots(positions), [positions]);
+  const fxFull = slots.fxAvailable === 0;
+  const xauFull = slots.xauAvailable === 0;
+  return (
+    <Card className="border-border/60 bg-card/70">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold flex items-center gap-2"><Layers className="h-4 w-4 text-gold" /> Open-Trade Slots</h2>
+          <Badge variant="outline" className="text-[10px]">FX max {slots.fxMax} · XAU max {slots.xauMax}</Badge>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <Slot label="FX Open" value={`${slots.fxOpen} / ${slots.fxMax}`} tone={fxFull ? "bear" : "bull"} />
+          <Slot label="FX Available" value={slots.fxAvailable.toString()} tone={fxFull ? "bear" : "bull"} />
+          <Slot label="XAUUSD Open" value={`${slots.xauOpen} / ${slots.xauMax}`} tone={xauFull ? "bear" : "bull"} />
+          <Slot label="XAUUSD Available" value={slots.xauAvailable.toString()} tone={xauFull ? "bear" : "bull"} />
+        </div>
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          Total open {slots.totalOpen} / {slots.totalMax}. Caps apply per instrument class so XAUUSD never starves FX (and vice versa).
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Slot({ label, value, tone }: { label: string; value: string; tone: "bull" | "bear" }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 text-lg font-semibold font-mono-tabular", tone === "bull" ? "text-bull" : "text-bear")}>{value}</div>
+    </div>
+  );
+}
+
+function ExecutionCard() {
+  const stats = useExecutionStats();
+  const sentAvg = avgMs(stats.sentLatencies);
+  const fillAvg = avgMs(stats.fillLatencies);
+  const lastFails = stats.failures.slice(0, 6);
+  const failByCode = useMemo(() => {
+    const m = new Map<string, number>();
+    stats.failures.forEach((f) => m.set(f.code, (m.get(f.code) ?? 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [stats.failures]);
+  return (
+    <Card className="border-border/60 bg-card/70">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold flex items-center gap-2"><Gauge className="h-4 w-4 text-gold" /> Execution Performance</h2>
+          <Badge variant="outline" className={cn("text-[10px]", stats.failed === 0 ? "border-bull/40 text-bull" : "border-amber-500/40 text-amber-400")}>
+            {stats.failed === 0 ? "Healthy" : `${stats.failed} failures`}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+          <Slot label="Signal → Sent (avg)" value={`${sentAvg.toFixed(0)} ms`} tone="bull" />
+          <Slot label="Signal → MT5 Fill (avg)" value={fillAvg ? `${fillAvg.toFixed(0)} ms` : "—"} tone="bull" />
+          <Slot label="Sent" value={stats.sent.toString()} tone="bull" />
+          <Slot label="Filled" value={stats.filled.toString()} tone="bull" />
+          <Slot label="Failed" value={stats.failed.toString()} tone={stats.failed === 0 ? "bull" : "bear"} />
+        </div>
+        {failByCode.length > 0 && (
+          <div className="mt-3">
+            <div className="text-[11px] font-medium text-muted-foreground mb-1">Failure reasons</div>
+            <div className="flex flex-wrap gap-1.5">
+              {failByCode.map(([code, n]) => (
+                <Badge key={code} variant="outline" className="text-[10px] border-bear/40 text-bear">{code} × {n}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        {lastFails.length > 0 && (
+          <ul className="mt-3 space-y-1 text-[11px] font-mono-tabular">
+            {lastFails.map((f, i) => (
+              <li key={i} className="flex justify-between rounded bg-background/40 px-2 py-1">
+                <span className="truncate">{f.symbol} {f.side} · {f.code}</span>
+                <span className="text-muted-foreground truncate max-w-[60%] text-right">{f.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
