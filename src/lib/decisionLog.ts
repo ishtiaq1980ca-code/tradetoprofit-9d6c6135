@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type DecisionStatus = "executed" | "rejected" | "blocked" | "duplicate";
+export type DecisionStatus = "queued" | "executed" | "rejected" | "blocked" | "duplicate";
 
 export type DecisionRecord = {
   id: string;
