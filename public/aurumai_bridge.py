@@ -232,7 +232,7 @@ def _send_with_supported_filling(req: dict):
     return res if 'res' in locals() else None
 
 
-def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None):
+def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None, allow_latest: bool = True):
     positions = mt5.positions_get(symbol=symbol) or []
     tagged = f"AurumAI {signal_id[:8]}" if signal_id else "AurumAI"
     for p in positions:
@@ -241,8 +241,24 @@ def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | 
     for p in positions:
         if p.magic == MAGIC and tagged in (p.comment or ""):
             return p
+    if not allow_latest:
+        return None
     aurum_positions = [p for p in positions if p.magic == MAGIC]
     return aurum_positions[-1] if aurum_positions else None
+
+
+def _report_open_position(sig: dict, original_symbol: str, position) -> bool:
+    return _post_json("/api/public/bridge/trades", {
+        "signal_id": sig.get("id"),
+        "mt5_ticket": int(position.ticket),
+        "symbol": original_symbol,
+        "side": sig["side"],
+        "entry": float(position.price_open),
+        "stop_loss": float(position.sl or 0),
+        "take_profit": float(position.tp or 0),
+        "lot": float(position.volume),
+        "status": "open",
+    })
 
 
 def execute_signal(sig: dict) -> bool:
