@@ -20,6 +20,7 @@ export const Route = createFileRoute("/decisions")({
 });
 
 const STATUS_META: Record<DecisionStatus, { label: string; cls: string; icon: any }> = {
+  queued: { label: "Queued", cls: "border-gold/40 bg-gold/10 text-gold", icon: CheckCircle2 },
   executed: { label: "Executed", cls: "border-bull/40 bg-bull/10 text-bull", icon: CheckCircle2 },
   rejected: { label: "Rejected", cls: "border-muted bg-muted/30 text-muted-foreground", icon: XCircle },
   blocked: { label: "Blocked", cls: "border-bear/40 bg-bear/10 text-bear", icon: ShieldAlert },
@@ -48,7 +49,7 @@ function DecisionsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {(["all", "executed", "rejected", "blocked", "duplicate"] as const).map((f) => (
+            {(["all", "queued", "executed", "rejected", "blocked", "duplicate"] as const).map((f) => (
               <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
                 {f === "all" ? "All" : STATUS_META[f].label}
               </Button>

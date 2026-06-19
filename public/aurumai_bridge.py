@@ -31,7 +31,7 @@ BRIDGE_TOKEN = ""                                 # paste your active Bridge tok
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 5                                  # how often to poll for new signals
+POLL_SEC     = 2                                  # how often to poll for new signals
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
@@ -46,6 +46,19 @@ SYMBOL_OVERRIDES = {
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
+
+
+def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
+    """Post to the dashboard and print server-side validation errors."""
+    try:
+        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=HEADERS, timeout=timeout)
+        if not r.ok:
+            print(f"POST {path} HTTP {r.status_code}: {r.text[:240]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST {path} failed: {e}")
+        return False
 
 
 def connect_mt5() -> bool:
@@ -78,10 +91,7 @@ def report_account():
         "daily_pnl": float(daily_pnl),
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
     }
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, headers=HEADERS, timeout=10)
-    except Exception as e:
-        print(f"account report failed: {e}")
+    _post_json("/api/public/bridge/account", payload)
 
 
 _SYMBOL_CACHE: dict[str, str] = {}
@@ -183,8 +193,7 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
 
 def report_trade_failure(sig: dict, symbol: str, reason: str):
     print(f"trade failed {sig.get('side')} {symbol}: {reason}")
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+    _post_json("/api/public/bridge/trades", {
             "signal_id": sig.get("id"),
             "mt5_ticket": None,
             "symbol": sig.get("symbol") or symbol,
@@ -196,8 +205,6 @@ def report_trade_failure(sig: dict, symbol: str, reason: str):
             "status": "cancelled",
             "failure_reason": reason,
         })
-    except Exception as e:
-        print(f"failure report failed: {e}")
 
 
 def _send_with_supported_filling(req: dict):
@@ -225,6 +232,35 @@ def _send_with_supported_filling(req: dict):
     return res if 'res' in locals() else None
 
 
+def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None, allow_latest: bool = True):
+    positions = mt5.positions_get(symbol=symbol) or []
+    tagged = f"AurumAI {signal_id[:8]}" if signal_id else "AurumAI"
+    for p in positions:
+        if ticket and (p.ticket == ticket or p.identifier == ticket):
+            return p
+    for p in positions:
+        if p.magic == MAGIC and tagged in (p.comment or ""):
+            return p
+    if not allow_latest:
+        return None
+    aurum_positions = [p for p in positions if p.magic == MAGIC]
+    return aurum_positions[-1] if aurum_positions else None
+
+
+def _report_open_position(sig: dict, original_symbol: str, position) -> bool:
+    return _post_json("/api/public/bridge/trades", {
+        "signal_id": sig.get("id"),
+        "mt5_ticket": int(position.ticket),
+        "symbol": original_symbol,
+        "side": sig["side"],
+        "entry": float(position.price_open),
+        "stop_loss": float(position.sl or 0),
+        "take_profit": float(position.tp or 0),
+        "lot": float(position.volume),
+        "status": "open",
+    })
+
+
 def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
     symbol = resolve_symbol(original_symbol)
@@ -242,6 +278,10 @@ def execute_signal(sig: dict) -> bool:
     if info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
         report_trade_failure(sig, symbol, "symbol trade disabled by broker")
         return False
+    already_open = _find_position_after_fill(symbol, None, str(sig.get("id") or ""), allow_latest=False)
+    if already_open is not None:
+        print(f"Signal {sig.get('id')} already has MT5 position ticket={already_open.ticket}; confirming instead of opening duplicate")
+        return _report_open_position(sig, original_symbol, already_open)
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
     normalized = _normalize_stops(symbol, is_buy, price,
@@ -257,6 +297,7 @@ def execute_signal(sig: dict) -> bool:
     if volume < min_vol:
         volume = min_vol
     volume = round(round(volume / step) * step, 2)
+    sig_id = str(sig.get("id") or "")
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
@@ -267,7 +308,7 @@ def execute_signal(sig: dict) -> bool:
         "tp": tp,
         "deviation": SLIPPAGE,
         "magic": MAGIC,
-        "comment": f"AurumAI {sig['confidence']:.0f}%",
+        "comment": f"AurumAI {sig_id[:8] or sig['confidence']:.0f}%" if not sig_id else f"AurumAI {sig_id[:8]}",
         "type_time": mt5.ORDER_TIME_GTC,
     }
     res = _send_with_supported_filling(req)
@@ -277,21 +318,40 @@ def execute_signal(sig: dict) -> bool:
             f"order_send retcode={res.retcode if res else 'None'} {res.comment if res else ''} price={price} sl={sl} tp={tp}",
         )
         return False
-    print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price} sl={sl} tp={tp}")
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
-            "signal_id": sig["id"],
-            "mt5_ticket": int(res.order),
-            "symbol": original_symbol,
-            "side": sig["side"],
-            "entry": float(res.price),
-            "stop_loss": float(sl),
-            "take_profit": float(tp),
-            "lot": float(sig["lot"]),
-            "status": "open",
-        })
-    except Exception as e:
-        print(f"trade report failed: {e}")
+    ticket = int(res.order or res.deal or 0)
+    position = None
+    for _ in range(5):
+        position = _find_position_after_fill(symbol, ticket, sig_id)
+        if position is not None:
+            break
+        time.sleep(0.2)
+    if position is not None:
+        ticket = int(position.ticket)
+        filled_price = float(position.price_open)
+        live_sl = float(position.sl or 0)
+        live_tp = float(position.tp or 0)
+        if live_sl <= 0 or live_tp <= 0:
+            print(f"Filled {sig['side']} {symbol} ticket={ticket}, but broker did not attach SL/TP; requested sl={sl} tp={tp}")
+        else:
+            print(f"Filled {sig['side']} {symbol} ticket={ticket} price={filled_price} sl={live_sl} tp={live_tp}")
+    else:
+        filled_price = float(res.price or price)
+        live_sl = float(sl)
+        live_tp = float(tp)
+        print(f"Filled {sig['side']} {symbol} deal/order={ticket}, position not visible yet; reporting fill")
+    ok = _post_json("/api/public/bridge/trades", {
+        "signal_id": sig["id"],
+        "mt5_ticket": ticket or None,
+        "symbol": original_symbol,
+        "side": sig["side"],
+        "entry": filled_price,
+        "stop_loss": live_sl,
+        "take_profit": live_tp,
+        "lot": volume,
+        "status": "open",
+    })
+    if not ok:
+        print("WARNING: MT5 filled the order, but dashboard confirmation failed. The order is on MT5; keep bridge running so sync can catch up.")
     return True
 
 

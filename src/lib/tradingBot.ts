@@ -333,7 +333,7 @@ function runScan() {
   const dupWindowMs = 10 * 60_000;
   const now = Date.now();
   const hasRecentDup = (sym: string, side: "BUY" | "SELL") =>
-    recent.some((r) => r.symbol === sym && r.direction === side && r.status === "executed" && now - r.at < dupWindowMs);
+    recent.some((r) => r.symbol === sym && r.direction === side && (r.status === "queued" || r.status === "executed") && now - r.at < dupWindowMs);
 
   let opened = 0;
   let usedLot = openLot;
@@ -530,15 +530,15 @@ function runScan() {
         stopLoss: finalSL,
         takeProfit: finalTP,
         lot: finalLot,
-        status: "executed",
-        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  EXEC-LATENCY ${tSent - tGenerated}ms (signal→sent)`,
+        status: "queued",
+        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tSent - tGenerated}ms (waiting for bridge fill confirmation)`,
       });
       bot.pushLog({
         t: Date.now(),
-        level: "trade",
-        msg: `[${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tSent - tGenerated}ms)`,
+        level: "info",
+        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tSent - tGenerated}ms)`,
       });
-      toast.success(`Bot ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}% (${tSent - tGenerated}ms)`);
+      toast.success(`Queued to MT5: ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}%`);
     }
 
     // ---- 4) Resolve queue ack & record latency / failure ----

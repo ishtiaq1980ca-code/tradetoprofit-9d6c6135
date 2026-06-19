@@ -27,7 +27,8 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           }
         }
 
-        const freshCutoff = new Date(Date.now() - 2 * 60_000).toISOString();
+        const freshCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+        const retryCutoff = new Date(Date.now() - 20_000).toISOString();
         await supabaseAdmin
           .from("signals")
           .update({ status: "expired" })
@@ -35,13 +36,25 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           .is("executed_at", null)
           .lt("created_at", freshCutoff);
 
+        // If the bridge picked up a signal but crashed, lost network, or failed
+        // before reporting the MT5 result, do not let that signal disappear.
+        // Re-queue fresh "sent" signals after a short lease timeout so the
+        // next poll can execute/report them instead of letting them expire.
+        await supabaseAdmin
+          .from("signals")
+          .update({ status: "pending" })
+          .eq("status", "sent")
+          .is("executed_at", null)
+          .gte("created_at", freshCutoff)
+          .lt("created_at", retryCutoff);
+
         const { data: signals } = await supabaseAdmin
           .from("signals")
           .select("*")
           .eq("status", "pending")
           .gte("created_at", freshCutoff)
           .order("created_at", { ascending: true })
-          .limit(10);
+          .limit(6);
 
         if (signals?.length) {
           await supabaseAdmin
