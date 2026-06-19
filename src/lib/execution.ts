@@ -133,18 +133,25 @@ export function normalizeOrderPlan(args: {
 
   // Enforce broker minimum stop distance
   const min = spec.minStopDistance;
+  const rrKeep = origRR > 0.5 ? origRR : 1.8;
   if (Math.abs(entry - sl) < min) {
     const newSL = side === "BUY" ? entry - min : entry + min;
     sl = newSL;
     adjusted = true;
     notes.push(`SL widened to broker min distance (${min})`);
   }
-  if (Math.abs(tp - entry) < min) {
-    // Keep original RR if possible: TP = entry +/- max(min, slDist*origRR)
-    const newDist = Math.max(min, Math.abs(entry - sl) * (origRR || 1));
-    tp = side === "BUY" ? entry + newDist : entry - newDist;
-    adjusted = true;
-    notes.push(`TP widened to preserve R:R (${origRR.toFixed(2)})`);
+  // ALWAYS re-derive TP from the (possibly widened) SL distance so RR is
+  // preserved. Prevents the "TP=2pts / SL=12pts" inversion when SL gets
+  // widened to the broker min but TP stays at its original tiny distance.
+  {
+    const slDistFinal = Math.abs(entry - sl);
+    const tpDistFinal = Math.max(min, slDistFinal * rrKeep);
+    const newTP = side === "BUY" ? entry + tpDistFinal : entry - tpDistFinal;
+    if (Math.abs(newTP - tp) > spec.point / 2) {
+      tp = newTP;
+      adjusted = true;
+      notes.push(`TP rebuilt from final SL to preserve R:R ${rrKeep.toFixed(2)}`);
+    }
   }
 
   // Snap and final validate

@@ -246,9 +246,9 @@ export function detectTier(balance: number): 500 | 1000 | 2000 | null {
 
 /** Max simultaneous open 0.01 lots permitted by tier. */
 export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
-  if (tier === 2000) return 0.10; // 10 × 0.01
-  if (tier === 1000) return 0.06; // 6  × 0.01
-  if (tier === 500) return 0.03;  // 3  × 0.01
+  if (tier === 2000) return 0.20; // 20 × 0.01
+  if (tier === 1000) return 0.10; // 10 × 0.01
+  if (tier === 500) return 0.06;  // 6  × 0.01
   return 0;
 }
 
