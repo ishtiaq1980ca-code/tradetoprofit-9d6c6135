@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, ClipboardCheck, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal } from "lucide-react";
+import { Activity, BarChart3, ClipboardCheck, Coins, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useBot } from "@/lib/tradingBot";
