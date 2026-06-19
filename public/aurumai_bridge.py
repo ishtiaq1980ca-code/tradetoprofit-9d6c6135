@@ -46,6 +46,15 @@ SYMBOL_OVERRIDES = {
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
+MARKET_RETCODES = {
+    mt5.TRADE_RETCODE_MARKET_CLOSED,
+    mt5.TRADE_RETCODE_TRADE_DISABLED,
+    mt5.TRADE_RETCODE_NO_MONEY,
+    mt5.TRADE_RETCODE_INVALID_VOLUME,
+    mt5.TRADE_RETCODE_INVALID_STOPS,
+    mt5.TRADE_RETCODE_PRICE_CHANGED,
+    mt5.TRADE_RETCODE_REQUOTE,
+}
 
 
 def connect_mt5() -> bool:
@@ -176,6 +185,40 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     return round(sl, digits), round(tp, digits)
 
 
+def report_trade_failure(sig: dict, symbol: str, reason: str):
+    print(f"trade failed {sig.get('side')} {symbol}: {reason}")
+    try:
+        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+            "signal_id": sig.get("id"),
+            "mt5_ticket": None,
+            "symbol": sig.get("symbol") or symbol,
+            "side": sig.get("side"),
+            "entry": float(sig.get("entry") or sig.get("price") or 0),
+            "stop_loss": float(sig.get("stop_loss") or 0),
+            "take_profit": float(sig.get("take_profit") or 0),
+            "lot": float(sig.get("lot") or 0.01),
+            "status": "cancelled",
+        })
+    except Exception as e:
+        print(f"failure report failed: {e}")
+
+
+def _send_with_supported_filling(req: dict):
+    # Brokers differ by symbol: some reject IOC/FOK with retcode 10030.
+    # Try all common fill policies without delaying order placement.
+    tried = []
+    for filling in (mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN):
+        req["type_filling"] = filling
+        tried.append(str(filling))
+        res = mt5.order_send(req)
+        if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+            return res
+        if res is not None and res.retcode not in (10030, 10018):
+            return res
+    print(f"all filling modes rejected/failed: {', '.join(tried)}")
+    return res if 'res' in locals() else None
+
+
 def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
     symbol = resolve_symbol(original_symbol)
@@ -183,7 +226,14 @@ def execute_signal(sig: dict) -> bool:
         return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
-        print(f"no tick for {symbol}")
+        report_trade_failure(sig, symbol, "no live tick")
+        return False
+    info = mt5.symbol_info(symbol)
+    if info is None or not info.visible:
+        report_trade_failure(sig, symbol, "symbol not visible/available")
+        return False
+    if info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
+        report_trade_failure(sig, symbol, "symbol trade disabled by broker")
         return False
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
@@ -194,10 +244,16 @@ def execute_signal(sig: dict) -> bool:
         print(f"symbol_info failed for {symbol}")
         return False
     sl, tp = normalized
+    volume = float(sig["lot"])
+    min_vol = float(info.volume_min or 0.01)
+    step = float(info.volume_step or 0.01)
+    if volume < min_vol:
+        volume = min_vol
+    volume = round(round(volume / step) * step, 2)
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
-        "volume": float(sig["lot"]),
+        "volume": volume,
         "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
         "price": price,
         "sl": sl,
@@ -206,17 +262,21 @@ def execute_signal(sig: dict) -> bool:
         "magic": MAGIC,
         "comment": f"AurumAI {sig['confidence']:.0f}%",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
     }
-    res = mt5.order_send(req)
+    check = mt5.order_check(req)
+    if check is None:
+        report_trade_failure(sig, symbol, f"order_check failed: {mt5.last_error()}")
+        return False
+    if check.retcode not in (0, mt5.TRADE_RETCODE_DONE):
+        report_trade_failure(sig, symbol, f"order_check retcode={check.retcode} {check.comment}")
+        return False
+
+    res = _send_with_supported_filling(req)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
-        # Retry once with FOK if IOC was rejected
-        if res and res.retcode in (10030, 10018):
-            req["type_filling"] = mt5.ORDER_FILLING_FOK
-            res = mt5.order_send(req)
-    if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
-        print(f"order_send failed for {symbol}: {res.retcode if res else 'None'} {res.comment if res else ''} "
-              f"price={price} sl={sl} tp={tp}")
+        report_trade_failure(
+            sig, symbol,
+            f"order_send retcode={res.retcode if res else 'None'} {res.comment if res else ''} price={price} sl={sl} tp={tp}",
+        )
         return False
     print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price} sl={sl} tp={tp}")
     try:
