@@ -87,11 +87,16 @@ def report_account():
 _SYMBOL_CACHE: dict[str, str] = {}
 
 
-def _quote_currency_ok(name: str, want_quote: str) -> bool:
-    """Reject obvious wrong-quote variants (e.g. XAUEUR when we want XAUUSD)."""
+def _quote_currency_ok(name: str, original: str, want_quote: str) -> bool:
+    """Accept broker suffixes (EURUSDm, USDJPY.pro) but reject wrong-quote symbols."""
     other_quotes = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"}
     other_quotes.discard(want_quote)
     upper = name.upper()
+    wanted_pair = original.upper()
+    # Normal FX pairs include the base currency by design (EURUSD contains EUR),
+    # so only require that the exact pair appears before any broker suffix.
+    if len(wanted_pair) == 6 and wanted_pair[:3] in other_quotes:
+        return wanted_pair in upper
     if want_quote not in upper:
         return False
     for q in other_quotes:
@@ -125,7 +130,7 @@ def resolve_symbol(original: str) -> str | None:
     if original == "XAUUSD":
         candidates += ["GOLD", "Gold", "XAUUSDm", "XAUUSD.", "XAUUSD_", "XAUUSD#"]
     for c in candidates:
-        if _quote_currency_ok(c, want_quote) and mt5.symbol_select(c, True):
+        if _quote_currency_ok(c, original, want_quote) and mt5.symbol_select(c, True):
             _SYMBOL_CACHE[original] = c
             if c != original:
                 print(f"Mapped {original} -> broker symbol {c}")
@@ -133,7 +138,7 @@ def resolve_symbol(original: str) -> str | None:
     # broad search but filter out wrong-quote variants
     matches = mt5.symbols_get(f"*{base}*") or []
     for m in matches:
-        if _quote_currency_ok(m.name, want_quote) and mt5.symbol_select(m.name, True):
+        if _quote_currency_ok(m.name, original, want_quote) and mt5.symbol_select(m.name, True):
             _SYMBOL_CACHE[original] = m.name
             print(f"Mapped {original} -> broker symbol {m.name}")
             return m.name
@@ -176,14 +181,66 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     return round(sl, digits), round(tp, digits)
 
 
+def report_trade_failure(sig: dict, symbol: str, reason: str):
+    print(f"trade failed {sig.get('side')} {symbol}: {reason}")
+    try:
+        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+            "signal_id": sig.get("id"),
+            "mt5_ticket": None,
+            "symbol": sig.get("symbol") or symbol,
+            "side": sig.get("side"),
+            "entry": float(sig.get("entry") or sig.get("price") or 0),
+            "stop_loss": float(sig.get("stop_loss") or 0),
+            "take_profit": float(sig.get("take_profit") or 0),
+            "lot": float(sig.get("lot") or 0.01),
+            "status": "cancelled",
+            "failure_reason": reason,
+        })
+    except Exception as e:
+        print(f"failure report failed: {e}")
+
+
+def _send_with_supported_filling(req: dict):
+    # Brokers differ by symbol: some reject IOC/FOK with retcode 10030.
+    # Try all common fill policies without delaying order placement.
+    tried = []
+    for filling in (mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN):
+        req["type_filling"] = filling
+        tried.append(str(filling))
+        check = mt5.order_check(req)
+        if check is None:
+            print(f"order_check failed for filling={filling}: {mt5.last_error()}")
+            continue
+        if check.retcode not in (0, mt5.TRADE_RETCODE_DONE):
+            if check.retcode in (10030, 10018):
+                continue
+            print(f"order_check rejected filling={filling}: {check.retcode} {check.comment}")
+            return check
+        res = mt5.order_send(req)
+        if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+            return res
+        if res is not None and res.retcode not in (10030, 10018):
+            return res
+    print(f"all filling modes rejected/failed: {', '.join(tried)}")
+    return res if 'res' in locals() else None
+
+
 def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
     symbol = resolve_symbol(original_symbol)
     if symbol is None:
+        report_trade_failure(sig, original_symbol, "broker symbol not found; set SYMBOL_OVERRIDES to exact Market Watch symbol")
         return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
-        print(f"no tick for {symbol}")
+        report_trade_failure(sig, symbol, "no live tick")
+        return False
+    info = mt5.symbol_info(symbol)
+    if info is None or not info.visible:
+        report_trade_failure(sig, symbol, "symbol not visible/available")
+        return False
+    if info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
+        report_trade_failure(sig, symbol, "symbol trade disabled by broker")
         return False
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
@@ -194,10 +251,16 @@ def execute_signal(sig: dict) -> bool:
         print(f"symbol_info failed for {symbol}")
         return False
     sl, tp = normalized
+    volume = float(sig["lot"])
+    min_vol = float(info.volume_min or 0.01)
+    step = float(info.volume_step or 0.01)
+    if volume < min_vol:
+        volume = min_vol
+    volume = round(round(volume / step) * step, 2)
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
-        "volume": float(sig["lot"]),
+        "volume": volume,
         "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
         "price": price,
         "sl": sl,
@@ -206,17 +269,13 @@ def execute_signal(sig: dict) -> bool:
         "magic": MAGIC,
         "comment": f"AurumAI {sig['confidence']:.0f}%",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
     }
-    res = mt5.order_send(req)
+    res = _send_with_supported_filling(req)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
-        # Retry once with FOK if IOC was rejected
-        if res and res.retcode in (10030, 10018):
-            req["type_filling"] = mt5.ORDER_FILLING_FOK
-            res = mt5.order_send(req)
-    if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
-        print(f"order_send failed for {symbol}: {res.retcode if res else 'None'} {res.comment if res else ''} "
-              f"price={price} sl={sl} tp={tp}")
+        report_trade_failure(
+            sig, symbol,
+            f"order_send retcode={res.retcode if res else 'None'} {res.comment if res else ''} price={price} sl={sl} tp={tp}",
+        )
         return False
     print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price} sl={sl} tp={tp}")
     try:
