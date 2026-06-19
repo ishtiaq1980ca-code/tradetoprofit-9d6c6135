@@ -277,6 +277,7 @@ def execute_signal(sig: dict) -> bool:
     if volume < min_vol:
         volume = min_vol
     volume = round(round(volume / step) * step, 2)
+    sig_id = str(sig.get("id") or "")
     req = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
@@ -287,7 +288,7 @@ def execute_signal(sig: dict) -> bool:
         "tp": tp,
         "deviation": SLIPPAGE,
         "magic": MAGIC,
-        "comment": f"AurumAI {sig['confidence']:.0f}%",
+        "comment": f"AurumAI {sig_id[:8] or sig['confidence']:.0f}%" if not sig_id else f"AurumAI {sig_id[:8]}",
         "type_time": mt5.ORDER_TIME_GTC,
     }
     res = _send_with_supported_filling(req)
@@ -297,21 +298,40 @@ def execute_signal(sig: dict) -> bool:
             f"order_send retcode={res.retcode if res else 'None'} {res.comment if res else ''} price={price} sl={sl} tp={tp}",
         )
         return False
-    print(f"Filled {sig['side']} {symbol} ticket={res.order} price={res.price} sl={sl} tp={tp}")
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+    ticket = int(res.order or res.deal or 0)
+    position = None
+    for _ in range(5):
+        position = _find_position_after_fill(symbol, ticket, sig_id)
+        if position is not None:
+            break
+        time.sleep(0.2)
+    if position is not None:
+        ticket = int(position.ticket)
+        filled_price = float(position.price_open)
+        live_sl = float(position.sl or 0)
+        live_tp = float(position.tp or 0)
+        if live_sl <= 0 or live_tp <= 0:
+            print(f"Filled {sig['side']} {symbol} ticket={ticket}, but broker did not attach SL/TP; requested sl={sl} tp={tp}")
+        else:
+            print(f"Filled {sig['side']} {symbol} ticket={ticket} price={filled_price} sl={live_sl} tp={live_tp}")
+    else:
+        filled_price = float(res.price or price)
+        live_sl = float(sl)
+        live_tp = float(tp)
+        print(f"Filled {sig['side']} {symbol} deal/order={ticket}, position not visible yet; reporting fill")
+    ok = _post_json("/api/public/bridge/trades", {
             "signal_id": sig["id"],
-            "mt5_ticket": int(res.order),
+            "mt5_ticket": ticket or None,
             "symbol": original_symbol,
             "side": sig["side"],
-            "entry": float(res.price),
-            "stop_loss": float(sl),
-            "take_profit": float(tp),
-            "lot": float(sig["lot"]),
+            "entry": filled_price,
+            "stop_loss": live_sl,
+            "take_profit": live_tp,
+            "lot": volume,
             "status": "open",
         })
-    except Exception as e:
-        print(f"trade report failed: {e}")
+    if not ok:
+        print("WARNING: MT5 filled the order, but dashboard confirmation failed. The order is on MT5; keep bridge running so sync can catch up.")
     return True
 
 
