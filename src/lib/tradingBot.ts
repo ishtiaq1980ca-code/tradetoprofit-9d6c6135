@@ -312,8 +312,10 @@ function runScan() {
     }
   }
 
-  if (acc.positions.length >= bot.maxOpenTrades) {
-    bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades (${bot.maxOpenTrades}) reached — waiting` });
+  // Dynamic open-trade caps: FX max 4, XAUUSD max 2 (independent classes).
+  let slotInfo = computeOpenSlots(acc.positions);
+  if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Open-trade caps reached (FX ${slotInfo.fxOpen}/${slotInfo.fxMax}, XAU ${slotInfo.xauOpen}/${slotInfo.xauMax}) — waiting for closes` });
     return;
   }
 
@@ -330,14 +332,21 @@ function runScan() {
 
   let opened = 0;
   let usedLot = openLot;
-  const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
   const waitingMsgs: string[] = [];
 
   for (const sym of SYMBOLS) {
-    if (opened >= slots) break;
+    if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
+
+    // Per-class cap check
+    const classBlk = classBlock(sym, slotInfo);
+    if (classBlk) {
+      waitingMsgs.push(`${sym}: ${classBlk}`);
+      continue;
+    }
+
     if ((perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol) {
       waitingMsgs.push(`${sym}: per-symbol cap (${bot.maxTradesPerSymbol}) reached`);
       continue;
