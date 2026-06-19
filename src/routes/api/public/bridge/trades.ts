@@ -31,33 +31,36 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const d = parsed.data;
+        const { failure_reason: failureReason, ...tradeRow } = d;
+        const rejectedSignalUpdate = async () => {
+          if (!failureReason || !d.signal_id) return { status: "rejected", mt5_ticket: d.mt5_ticket ?? null };
+          const { data: sig } = await supabaseAdmin.from("signals").select("reason").eq("id", d.signal_id).maybeSingle();
+          return { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: `${sig?.reason ?? ""}\n  MT5-REJECT ${failureReason}`.trim() };
+        };
         if (d.mt5_ticket) {
           const { data: existing } = await supabaseAdmin.from("trades").select("id").eq("mt5_ticket", d.mt5_ticket).maybeSingle();
           if (existing) {
-            const { error } = await supabaseAdmin.from("trades").update(d).eq("id", existing.id);
+            const { error } = await supabaseAdmin.from("trades").update(tradeRow).eq("id", existing.id);
             if (error) return Response.json({ error: error.message }, { status: 500 });
             if (d.signal_id) {
-              const rejectedReason = d.failure_reason ? `\n  MT5-REJECT ${d.failure_reason}` : "";
               await supabaseAdmin
                 .from("signals")
                 .update(d.status === "open"
                   ? { status: "executed", mt5_ticket: d.mt5_ticket, executed_at: new Date().toISOString() }
-                  : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: `${(d as any).reason ?? ""}${rejectedReason}`.trim() })
+                  : await rejectedSignalUpdate())
                 .eq("id", d.signal_id);
             }
             return Response.json({ ok: true, updated: true });
           }
         }
-        const { failure_reason: failureReason, ...tradeRow } = d;
         const { data: ins, error } = await supabaseAdmin.from("trades").insert(tradeRow).select("id").single();
         if (error) return Response.json({ error: error.message }, { status: 500 });
         if (d.signal_id) {
-          const rejectedReason = failureReason ? `\n  MT5-REJECT ${failureReason}` : "";
           await supabaseAdmin
             .from("signals")
             .update(d.status === "open"
               ? { status: "executed", mt5_ticket: d.mt5_ticket ?? null, executed_at: new Date().toISOString() }
-              : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: rejectedReason.trim() })
+              : await rejectedSignalUpdate())
             .eq("id", d.signal_id);
         }
         return Response.json({ ok: true, id: ins.id });
