@@ -541,7 +541,7 @@ function runScan() {
       const tAck = Date.now();
       if (error) {
         useExecutionStats.getState().recordFailure({
-          at: tAck, symbol: sym, side: decision.side, code: "queue_failed", reason: error.message,
+          at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
         });
         useBot.getState().pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
         return;
