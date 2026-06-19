@@ -189,6 +189,29 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       if (price < lo && ind.adx >= profile.adxMin) return { side: "SELL", rationale: `Below prior session low ${lo.toFixed(5)}` };
       return { side: "FLAT", rationale: "Inside prior session range" };
     }
+    case "fx_multi_confirmation": {
+      // Multi-confirmation FX playbook:
+      //   Trend:      EMA50 vs EMA200
+      //   Location:   price on correct side of EMA50
+      //   Momentum:   RSI band (50-70 BUY / 30-50 SELL)
+      //   Entry:      MACD histogram cross / agreement
+      //   Volatility: ATR active + ADX above sideways floor
+      const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
+      const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
+      const atrActive = ind.atr > 0 && (ind.atr / price) * 100 >= profile.minAtrPct;
+      const notSideways = ind.adx >= profile.adxMin;
+      if (!atrActive) return { side: "FLAT", rationale: "ATR inactive (volatility too low)" };
+      if (!notSideways) return { side: "FLAT", rationale: `Sideways market (ADX ${ind.adx.toFixed(1)} < ${profile.adxMin})` };
+      const trendUpFx = ind.ema50 > ind.ema200;
+      const trendDnFx = ind.ema50 < ind.ema200;
+      if (trendUpFx && price > ind.ema50 && ind.rsi >= 50 && ind.rsi <= 70 && macdBull) {
+        return { side: "BUY", rationale: "EMA50>EMA200, price>EMA50, RSI 50-70, MACD bullish, ATR active" };
+      }
+      if (trendDnFx && price < ind.ema50 && ind.rsi >= 30 && ind.rsi <= 50 && macdBear) {
+        return { side: "SELL", rationale: "EMA50<EMA200, price<EMA50, RSI 30-50, MACD bearish, ATR active" };
+      }
+      return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
+    }
   }
 }
 
