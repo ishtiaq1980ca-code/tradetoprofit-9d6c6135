@@ -70,20 +70,6 @@ const COMMON = {
 };
 
 export const PAIR_PROFILES: Record<string, PairProfile> = {
-  EURUSD: {
-    ...COMMON,
-    symbol: "EURUSD",
-    strategy: "trend_pullback",
-    label: "EURUSD — Trend Pullback",
-    description: "Trade pullbacks to EMA50 in direction of EMA50>EMA200 trend, confirmed by RSI bounce.",
-    adxMin: 18,
-    atrSlMult: 1.5,
-    rrTarget: 2.0,
-    maxSpreadPct: 0.02,
-    minAtrPct: 0.03,
-    maxAtrPct: 1.2,
-    preferredSessions: ["London", "New York"],
-  },
   // ---- FX currency pairs: unified multi-confirmation playbook ----
   EURUSD: {
     ...COMMON,
