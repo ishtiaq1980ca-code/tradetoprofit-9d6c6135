@@ -20,6 +20,9 @@ import { getPairProfile, allProfiles } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
+import {
+  classBlock, computeOpenSlots, normalizeOrderPlan, useExecutionStats,
+} from "./execution";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
