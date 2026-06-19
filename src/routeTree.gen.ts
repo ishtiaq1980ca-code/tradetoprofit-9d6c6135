@@ -13,6 +13,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SignalsRouteImport } from './routes/signals'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PositionsRouteImport } from './routes/positions'
+import { Route as DecisionsRouteImport } from './routes/decisions'
 import { Route as BridgeRouteImport } from './routes/bridge'
 import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -40,6 +41,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const PositionsRoute = PositionsRouteImport.update({
   id: '/positions',
   path: '/positions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DecisionsRoute = DecisionsRouteImport.update({
+  id: '/decisions',
+  path: '/decisions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BridgeRoute = BridgeRouteImport.update({
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/decisions'
     | '/positions'
     | '/settings'
     | '/signals'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/decisions'
     | '/positions'
     | '/settings'
     | '/signals'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/decisions'
     | '/positions'
     | '/settings'
     | '/signals'
@@ -177,6 +189,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BacktestRoute: typeof BacktestRoute
   BridgeRoute: typeof BridgeRoute
+  DecisionsRoute: typeof DecisionsRoute
   PositionsRoute: typeof PositionsRoute
   SettingsRoute: typeof SettingsRoute
   SignalsRoute: typeof SignalsRoute
@@ -214,6 +227,13 @@ declare module '@tanstack/react-router' {
       path: '/positions'
       fullPath: '/positions'
       preLoaderRoute: typeof PositionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/decisions': {
+      id: '/decisions'
+      path: '/decisions'
+      fullPath: '/decisions'
+      preLoaderRoute: typeof DecisionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bridge': {
@@ -281,6 +301,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BacktestRoute: BacktestRoute,
   BridgeRoute: BridgeRoute,
+  DecisionsRoute: DecisionsRoute,
   PositionsRoute: PositionsRoute,
   SettingsRoute: SettingsRoute,
   SignalsRoute: SignalsRoute,
