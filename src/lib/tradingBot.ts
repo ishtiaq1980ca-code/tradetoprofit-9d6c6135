@@ -19,6 +19,7 @@ import { generateTradeDecision, MIN_CONFIDENCE } from "./signalGenerator";
 import { getPairProfile, allProfiles } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
+import { correlationGuard } from "./correlation";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
