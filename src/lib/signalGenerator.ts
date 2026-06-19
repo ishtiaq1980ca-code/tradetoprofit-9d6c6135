@@ -196,19 +196,37 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       //   Momentum:   RSI band (50-70 BUY / 30-50 SELL)
       //   Entry:      MACD histogram cross / agreement
       //   Volatility: ATR active + ADX above sideways floor
+      //   Session:    London / NY / overlap = normal; Asian-only = stricter
       const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
       const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
-      const atrActive = ind.atr > 0 && (ind.atr / price) * 100 >= profile.minAtrPct;
+      const atrPct = (ind.atr / price) * 100;
+      const atrActive = ind.atr > 0 && atrPct >= profile.minAtrPct;
       const notSideways = ind.adx >= profile.adxMin;
       if (!atrActive) return { side: "FLAT", rationale: "ATR inactive (volatility too low)" };
       if (!notSideways) return { side: "FLAT", rationale: `Sideways market (ADX ${ind.adx.toFixed(1)} < ${profile.adxMin})` };
+
+      // Session strength: London/NY = normal, Asian-only = require stronger confirmation
+      const sess = activeSessions();
+      const inLondonOrNY = sess.active.includes("London") || sess.active.includes("New York");
+      const asianOnly = !inLondonOrNY && (sess.active.includes("Tokyo") || sess.active.includes("Sydney"));
+      if (asianOnly) {
+        const strongAdx = ind.adx >= profile.adxMin * 1.5;
+        const strongAtr = atrPct >= profile.minAtrPct * 1.5;
+        if (!strongAdx || !strongAtr) {
+          return { side: "FLAT", rationale: `Asian session — requires stronger confirmation (ADX ${ind.adx.toFixed(1)} need ≥${(profile.adxMin * 1.5).toFixed(1)}, ATR% ${atrPct.toFixed(3)} need ≥${(profile.minAtrPct * 1.5).toFixed(3)})` };
+        }
+      }
+
       const trendUpFx = ind.ema50 > ind.ema200;
       const trendDnFx = ind.ema50 < ind.ema200;
+      const sessionTag = inLondonOrNY
+        ? (sess.active.includes("London") && sess.active.includes("New York") ? "London+NY overlap" : sess.active.includes("London") ? "London" : "New York")
+        : "Asian (strict)";
       if (trendUpFx && price > ind.ema50 && ind.rsi >= 50 && ind.rsi <= 70 && macdBull) {
-        return { side: "BUY", rationale: "EMA50>EMA200, price>EMA50, RSI 50-70, MACD bullish, ATR active" };
+        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50, RSI 50-70, MACD bullish, ATR active · ${sessionTag}` };
       }
       if (trendDnFx && price < ind.ema50 && ind.rsi >= 30 && ind.rsi <= 50 && macdBear) {
-        return { side: "SELL", rationale: "EMA50<EMA200, price<EMA50, RSI 30-50, MACD bearish, ATR active" };
+        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50, RSI 30-50, MACD bearish, ATR active · ${sessionTag}` };
       }
       return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
     }
