@@ -238,6 +238,19 @@ def _send_with_supported_filling(req: dict):
     return res if 'res' in locals() else None
 
 
+def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None):
+    positions = mt5.positions_get(symbol=symbol) or []
+    tagged = f"AurumAI {signal_id[:8]}" if signal_id else "AurumAI"
+    for p in positions:
+        if ticket and (p.ticket == ticket or p.identifier == ticket):
+            return p
+    for p in positions:
+        if p.magic == MAGIC and tagged in (p.comment or ""):
+            return p
+    aurum_positions = [p for p in positions if p.magic == MAGIC]
+    return aurum_positions[-1] if aurum_positions else None
+
+
 def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
     symbol = resolve_symbol(original_symbol)
