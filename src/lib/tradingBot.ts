@@ -118,7 +118,7 @@ export const useBot = create<BotStore>()(
       maxTradesPerSymbol: 2,
       maxDailyTrades: 20,
       pauseOnWeekend: true,
-      enabledSymbols: ["XAUUSD"],
+      enabledSymbols: ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"],
       useBuiltInStrategy: true,
       builtInFallback: true,
 
