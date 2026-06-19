@@ -87,11 +87,16 @@ def report_account():
 _SYMBOL_CACHE: dict[str, str] = {}
 
 
-def _quote_currency_ok(name: str, want_quote: str) -> bool:
-    """Reject obvious wrong-quote variants (e.g. XAUEUR when we want XAUUSD)."""
+def _quote_currency_ok(name: str, original: str, want_quote: str) -> bool:
+    """Accept broker suffixes (EURUSDm, USDJPY.pro) but reject wrong-quote symbols."""
     other_quotes = {"EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"}
     other_quotes.discard(want_quote)
     upper = name.upper()
+    wanted_pair = original.upper()
+    # Normal FX pairs include the base currency by design (EURUSD contains EUR),
+    # so only require that the exact pair appears before any broker suffix.
+    if len(wanted_pair) == 6 and wanted_pair[:3] in other_quotes:
+        return wanted_pair in upper
     if want_quote not in upper:
         return False
     for q in other_quotes:
@@ -125,7 +130,7 @@ def resolve_symbol(original: str) -> str | None:
     if original == "XAUUSD":
         candidates += ["GOLD", "Gold", "XAUUSDm", "XAUUSD.", "XAUUSD_", "XAUUSD#"]
     for c in candidates:
-        if _quote_currency_ok(c, want_quote) and mt5.symbol_select(c, True):
+        if _quote_currency_ok(c, original, want_quote) and mt5.symbol_select(c, True):
             _SYMBOL_CACHE[original] = c
             if c != original:
                 print(f"Mapped {original} -> broker symbol {c}")
@@ -133,7 +138,7 @@ def resolve_symbol(original: str) -> str | None:
     # broad search but filter out wrong-quote variants
     matches = mt5.symbols_get(f"*{base}*") or []
     for m in matches:
-        if _quote_currency_ok(m.name, want_quote) and mt5.symbol_select(m.name, True):
+        if _quote_currency_ok(m.name, original, want_quote) and mt5.symbol_select(m.name, True):
             _SYMBOL_CACHE[original] = m.name
             print(f"Mapped {original} -> broker symbol {m.name}")
             return m.name
