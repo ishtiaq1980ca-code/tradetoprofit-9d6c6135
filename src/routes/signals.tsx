@@ -46,6 +46,7 @@ function SignalsPage() {
   }, [feed.candles.XAUUSD?.length, filter, balance]);
 
   const execute = (s: HighConfidenceSignal) => {
+    if (s.side === "FLAT") return;
     const pos = open({
       symbol: s.symbol,
       side: s.side,
