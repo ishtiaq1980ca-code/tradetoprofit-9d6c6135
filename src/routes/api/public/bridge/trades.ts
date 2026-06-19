@@ -37,6 +37,11 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
           const { data: sig } = await supabaseAdmin.from("signals").select("reason").eq("id", d.signal_id).maybeSingle();
           return { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: `${sig?.reason ?? ""}\n  MT5-REJECT ${failureReason}`.trim() };
         };
+        const signalUpdateForStatus = async () => {
+          if (d.status === "open") return { status: "executed", mt5_ticket: d.mt5_ticket ?? null, executed_at: new Date().toISOString() };
+          if (d.status === "closed") return { status: "executed", mt5_ticket: d.mt5_ticket ?? null };
+          return rejectedSignalUpdate();
+        };
         if (d.mt5_ticket) {
           const { data: existing } = await supabaseAdmin.from("trades").select("id").eq("mt5_ticket", d.mt5_ticket).maybeSingle();
           if (existing) {
@@ -45,9 +50,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
             if (d.signal_id) {
               await supabaseAdmin
                 .from("signals")
-                .update(d.status === "open"
-                  ? { status: "executed", mt5_ticket: d.mt5_ticket, executed_at: new Date().toISOString() }
-                  : await rejectedSignalUpdate())
+                .update(await signalUpdateForStatus())
                 .eq("id", d.signal_id);
             }
             return Response.json({ ok: true, updated: true });
@@ -58,9 +61,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         if (d.signal_id) {
           await supabaseAdmin
             .from("signals")
-            .update(d.status === "open"
-              ? { status: "executed", mt5_ticket: d.mt5_ticket ?? null, executed_at: new Date().toISOString() }
-              : await rejectedSignalUpdate())
+            .update(await signalUpdateForStatus())
             .eq("id", d.signal_id);
         }
         return Response.json({ ok: true, id: ins.id });
