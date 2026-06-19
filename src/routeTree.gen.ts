@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SignalsRouteImport } from './routes/signals'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ReportRouteImport } from './routes/report'
 import { Route as PositionsRouteImport } from './routes/positions'
 import { Route as DecisionsRouteImport } from './routes/decisions'
 import { Route as BridgeRouteImport } from './routes/bridge'
@@ -36,6 +37,11 @@ const SignalsRoute = SignalsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportRoute = ReportRouteImport.update({
+  id: '/report',
+  path: '/report',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PositionsRoute = PositionsRouteImport.update({
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/bridge': typeof BridgeRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
+  '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/bridge': typeof BridgeRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
+  '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/bridge': typeof BridgeRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
+  '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/decisions'
     | '/positions'
+    | '/report'
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/decisions'
     | '/positions'
+    | '/report'
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/decisions'
     | '/positions'
+    | '/report'
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
@@ -191,6 +203,7 @@ export interface RootRouteChildren {
   BridgeRoute: typeof BridgeRoute
   DecisionsRoute: typeof DecisionsRoute
   PositionsRoute: typeof PositionsRoute
+  ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRoute
   SignalsRoute: typeof SignalsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -220,6 +233,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/report': {
+      id: '/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof ReportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/positions': {
@@ -303,6 +323,7 @@ const rootRouteChildren: RootRouteChildren = {
   BridgeRoute: BridgeRoute,
   DecisionsRoute: DecisionsRoute,
   PositionsRoute: PositionsRoute,
+  ReportRoute: ReportRoute,
   SettingsRoute: SettingsRoute,
   SignalsRoute: SignalsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
