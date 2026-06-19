@@ -24,7 +24,7 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { activeSessions } from "./sessions";
 
-export const MIN_CONFIDENCE = 75;
+export const MIN_CONFIDENCE = 65;
 
 export type ConfidenceBreakdown = {
   trend: number;       // 0..25
