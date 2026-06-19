@@ -22,6 +22,7 @@ import {
   type FilterResult,
 } from "./tradeFilters";
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
+import { activeSessions } from "./sessions";
 
 export const MIN_CONFIDENCE = 75;
 
