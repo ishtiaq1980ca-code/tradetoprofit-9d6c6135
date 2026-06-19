@@ -15,6 +15,7 @@ const baseNav = [
   { to: "/signals", label: "Signals", icon: Signal },
   { to: "/decisions", label: "Decisions", icon: ScrollText },
   { to: "/report", label: "Audit Report", icon: ClipboardCheck },
+  { to: "/currency-report", label: "Currency Report", icon: Coins },
   { to: "/positions", label: "Positions", icon: ListChecks },
   { to: "/backtest", label: "Backtest", icon: BarChart3 },
   { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
