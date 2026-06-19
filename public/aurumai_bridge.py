@@ -189,6 +189,7 @@ def report_trade_failure(sig: dict, symbol: str, reason: str):
             "take_profit": float(sig.get("take_profit") or 0),
             "lot": float(sig.get("lot") or 0.01),
             "status": "cancelled",
+            "failure_reason": reason,
         })
     except Exception as e:
         print(f"failure report failed: {e}")
