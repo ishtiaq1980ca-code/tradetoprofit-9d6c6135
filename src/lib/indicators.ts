@@ -145,3 +145,53 @@ export function detectLevels(candles: Candle[], lookback = 50, swing = 5): { sup
   }
   return { support: support.slice(-5), resistance: resistance.slice(-5) };
 }
+
+/** Bollinger Bands. Returns middle (SMA), upper, lower, and band width (%). */
+export function bollinger(
+  closes: number[],
+  period = 20,
+  stdMult = 2,
+): { middle: number[]; upper: number[]; lower: number[]; width: number[] } {
+  const middle = sma(closes, period);
+  const upper = new Array(closes.length).fill(NaN);
+  const lower = new Array(closes.length).fill(NaN);
+  const width = new Array(closes.length).fill(NaN);
+  for (let i = period - 1; i < closes.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const d = closes[j] - middle[i];
+      sum += d * d;
+    }
+    const sd = Math.sqrt(sum / period);
+    upper[i] = middle[i] + stdMult * sd;
+    lower[i] = middle[i] - stdMult * sd;
+    width[i] = ((upper[i] - lower[i]) / middle[i]) * 100;
+  }
+  return { middle, upper, lower, width };
+}
+
+/** Stochastic oscillator (%K and %D). */
+export function stochastic(
+  candles: Candle[],
+  kPeriod = 14,
+  dPeriod = 3,
+): { k: number[]; d: number[] } {
+  const k = new Array(candles.length).fill(NaN);
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      if (candles[j].high > hh) hh = candles[j].high;
+      if (candles[j].low < ll) ll = candles[j].low;
+    }
+    const range = hh - ll || 1e-9;
+    k[i] = ((candles[i].close - ll) / range) * 100;
+  }
+  // %D = SMA of %K
+  const validK: number[] = [];
+  for (const v of k) if (!isNaN(v)) validK.push(v);
+  const dValid = sma(validK, dPeriod);
+  const offset = k.length - validK.length;
+  const d = new Array(candles.length).fill(NaN);
+  for (let i = 0; i < dValid.length; i++) d[i + offset] = dValid[i];
+  return { k, d };
+}

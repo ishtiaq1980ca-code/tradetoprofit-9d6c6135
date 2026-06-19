@@ -28,6 +28,9 @@ const VOL: Record<string, number> = {
   AUDUSD: 0.00013,
   USDCAD: 0.00014,
   USDCHF: 0.00012,
+  NZDUSD: 0.00012,
+  EURJPY: 0.025,
+  GBPJPY: 0.030,
 };
 
 class PriceFeed {
