@@ -12,6 +12,9 @@ const BASE: Record<string, { price: number; vol: number }> = {
   AUDUSD: { price: 0.665, vol: 0.003 },
   USDCAD: { price: 1.368, vol: 0.003 },
   USDCHF: { price: 0.905, vol: 0.0028 },
+  NZDUSD: { price: 0.612, vol: 0.0028 },
+  EURJPY: { price: 169.8, vol: 0.6 },
+  GBPJPY: { price: 197.6, vol: 0.75 },
 };
 
 function mulberry32(seed: number) {

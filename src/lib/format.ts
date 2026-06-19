@@ -10,5 +10,16 @@ export const fmt = {
   },
 };
 
-export const SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"] as const;
+export const SYMBOLS = [
+  "XAUUSD",
+  "EURUSD",
+  "GBPUSD",
+  "USDJPY",
+  "AUDUSD",
+  "USDCAD",
+  "USDCHF",
+  "NZDUSD",
+  "EURJPY",
+  "GBPJPY",
+] as const;
 export type Symbol = (typeof SYMBOLS)[number];
