@@ -20,6 +20,9 @@ import { getPairProfile, allProfiles } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
+import {
+  classBlock, computeOpenSlots, normalizeOrderPlan, useExecutionStats,
+} from "./execution";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
@@ -309,8 +312,10 @@ function runScan() {
     }
   }
 
-  if (acc.positions.length >= bot.maxOpenTrades) {
-    bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades (${bot.maxOpenTrades}) reached — waiting` });
+  // Dynamic open-trade caps: FX max 4, XAUUSD max 2 (independent classes).
+  let slotInfo = computeOpenSlots(acc.positions);
+  if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Open-trade caps reached (FX ${slotInfo.fxOpen}/${slotInfo.fxMax}, XAU ${slotInfo.xauOpen}/${slotInfo.xauMax}) — waiting for closes` });
     return;
   }
 
@@ -327,14 +332,21 @@ function runScan() {
 
   let opened = 0;
   let usedLot = openLot;
-  const slots = Math.max(0, bot.maxOpenTrades - acc.positions.length);
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
   const waitingMsgs: string[] = [];
 
   for (const sym of SYMBOLS) {
-    if (opened >= slots) break;
+    if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
+
+    // Per-class cap check
+    const classBlk = classBlock(sym, slotInfo);
+    if (classBlk) {
+      waitingMsgs.push(`${sym}: ${classBlk}`);
+      continue;
+    }
+
     if ((perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol) {
       waitingMsgs.push(`${sym}: per-symbol cap (${bot.maxTradesPerSymbol}) reached`);
       continue;
@@ -434,13 +446,64 @@ function runScan() {
       continue;
     }
 
+    // ---- Reliability + price re-validation ----
+    const livePrice = priceFeed.state.prices[sym];
+    if (!livePrice || livePrice <= 0) {
+      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side as "BUY" | "SELL", code: "no_price", reason: "No live price available" });
+      useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  RELIABILITY no live price` });
+      waitingMsgs.push(`${sym}: no live price`);
+      continue;
+    }
+
+    // ---- SL/TP normalization against latest price ----
+    const norm = normalizeOrderPlan({
+      symbol: sym,
+      side: decision.side,
+      decisionEntry: decision.entry,
+      decisionSL: decision.stopLoss,
+      decisionTP: decision.takeProfit,
+      livePrice,
+      lot,
+      atr: decision.indicators.atr,
+    });
+    if (!norm.ok) {
+      useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side as "BUY" | "SELL", code: norm.code, reason: norm.reason });
+      useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  EXEC-REJECT [${norm.code}] ${norm.reason}` });
+      waitingMsgs.push(`${sym}: ${norm.code} (${norm.reason})`);
+      continue;
+    }
+
+    const finalEntry = norm.entry;
+    const finalSL = norm.stopLoss;
+    const finalTP = norm.takeProfit;
+    const finalLot = norm.lot;
+
+    // ---- 1) Fire the order to the MT5 bridge FIRST (minimum latency) ----
+    const tGenerated = decision.generatedAt;
+    const tSent = Date.now();
+    const insertPromise = supabase
+      .from("signals")
+      .insert({
+        symbol: sym,
+        side: decision.side,
+        entry: finalEntry,
+        stop_loss: finalSL,
+        take_profit: finalTP,
+        lot: finalLot,
+        confidence: decision.confidence,
+        risk_pct: bot.riskPct,
+        reason: decision.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : ""),
+        status: "pending",
+      });
+
+    // ---- 2) Update local paper position (optimistic) ----
     const pos = acc.open({
       symbol: sym,
       side: decision.side,
-      lot,
-      entry: decision.entry,
-      stopLoss: decision.stopLoss,
-      takeProfit: decision.takeProfit,
+      lot: finalLot,
+      entry: finalEntry,
+      stopLoss: finalSL,
+      takeProfit: finalTP,
       confidence: decision.confidence,
       reason: decision.reason,
       session: sess.primary,
@@ -449,41 +512,49 @@ function runScan() {
     if (pos) {
       perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
       openSymbols.add(sym);
-      useDecisionLog.getState().record({ ...baseLog, lot, status: "executed" });
+      slotInfo = computeOpenSlots(acc.positions);
+      opened++;
+      usedLot += finalLot;
+    }
 
+    // ---- 3) Heavy logging AFTER order has been fired ----
+    if (pos) {
+      useDecisionLog.getState().record({
+        ...baseLog,
+        entry: finalEntry,
+        stopLoss: finalSL,
+        takeProfit: finalTP,
+        lot: finalLot,
+        status: "executed",
+        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  EXEC-LATENCY ${tSent - tGenerated}ms (signal→sent)`,
+      });
       bot.pushLog({
         t: Date.now(),
         level: "trade",
-        msg: `[${decision.strategy}] ${decision.side} ${lot} ${sym} @ ${decision.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${decision.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${decision.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%)`,
+        msg: `[${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tSent - tGenerated}ms)`,
       });
-      toast.success(`Bot ${decision.side} ${lot} ${sym} @ ${decision.confidence}% (${decision.strategy})`);
-      opened++;
-      usedLot += lot;
-
-      // Enqueue signal for the MT5 bridge — unchanged contract.
-      supabase
-        .from("signals")
-        .insert({
-          symbol: sym,
-          side: decision.side,
-          entry: decision.entry,
-          stop_loss: decision.stopLoss,
-          take_profit: decision.takeProfit,
-          lot,
-          confidence: decision.confidence,
-          risk_pct: bot.riskPct,
-          reason: decision.reason,
-          status: "pending",
-        })
-        .then(({ error }) => {
-          if (error) {
-            useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `MT5 queue failed: ${error.message}` });
-          } else {
-            useBot.getState().pushLog({ t: Date.now(), level: "info", msg: `Signal queued for MT5 bridge → ${decision.side} ${sym}` });
-          }
-        });
+      toast.success(`Bot ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}% (${tSent - tGenerated}ms)`);
     }
+
+    // ---- 4) Resolve queue ack & record latency / failure ----
+    insertPromise.then(({ data, error }) => {
+      const tAck = Date.now();
+      if (error) {
+        useExecutionStats.getState().recordFailure({
+          at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
+        });
+        useBot.getState().pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
+        return;
+      }
+      useExecutionStats.getState().recordSent(tAck - tGenerated);
+      useBot.getState().pushLog({
+        t: tAck, level: "info",
+        msg: `Signal queued for MT5 bridge → ${decision.side} ${sym} (${tAck - tGenerated}ms signal→queued)`,
+      });
+      void data;
+    });
   }
+
 
   // Suppress unused warnings for legacy helpers retained for compatibility.
   void analyze; void calculateLot; void DEFAULT_PARAMS; void useStrategies; void strategiesForSymbol; void allProfiles;
@@ -530,6 +601,23 @@ export function BotEngine() {
     const unsub = useBot.subscribe((s, prev) => {
       if (s.enabled !== prev.enabled) syncEnabledToCloud(s.enabled);
     });
+    // Watch for bridge fill confirmations to record true fill latency
+    // (signal created_at → executed_at). Read-only subscription, no MT5
+    // changes are made here.
+    const fillCh = supabase
+      .channel("aurum-signal-fills")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "signals", filter: "status=eq.executed" },
+        (payload) => {
+          const row: any = payload.new;
+          if (!row?.created_at || !row?.executed_at) return;
+          const ms = new Date(row.executed_at).getTime() - new Date(row.created_at).getTime();
+          if (ms > 0 && ms < 5 * 60_000) useExecutionStats.getState().recordFill(ms);
+        },
+      )
+      .subscribe();
+
     const id = setInterval(() => {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
@@ -540,6 +628,7 @@ export function BotEngine() {
       clearInterval(id);
       unsub();
       authSub.subscription.unsubscribe();
+      supabase.removeChannel(fillCh);
     };
   }, []);
   return null;
