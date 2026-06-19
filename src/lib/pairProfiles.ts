@@ -13,7 +13,19 @@ export type StrategyKind =
   | "range_breakout"
   | "momentum"
   | "support_resistance"
-  | "session_breakout";
+  | "session_breakout"
+  | "fx_multi_confirmation";
+
+/** Pairs treated as FX currency pairs (not metals). They share the
+ *  multi-confirmation playbook + currency-specific risk caps. */
+export const FX_CURRENCY_PAIRS = [
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
+  "USDCAD", "USDCHF", "NZDUSD",
+] as const;
+export type FxCurrencyPair = (typeof FX_CURRENCY_PAIRS)[number];
+export function isFxCurrencyPair(symbol: string): symbol is FxCurrencyPair {
+  return (FX_CURRENCY_PAIRS as readonly string[]).includes(symbol);
+}
 
 export type PairProfile = {
   symbol: string;
