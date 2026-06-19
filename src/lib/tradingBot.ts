@@ -628,6 +628,7 @@ export function BotEngine() {
       clearInterval(id);
       unsub();
       authSub.subscription.unsubscribe();
+      supabase.removeChannel(fillCh);
     };
   }, []);
   return null;
