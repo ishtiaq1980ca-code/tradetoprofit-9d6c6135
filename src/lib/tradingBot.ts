@@ -19,6 +19,7 @@ import { generateTradeDecision, MIN_CONFIDENCE } from "./signalGenerator";
 import { getPairProfile, allProfiles } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
+import { correlationGuard } from "./correlation";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
@@ -401,6 +402,23 @@ function runScan() {
       waitingMsgs.push(`${sym}: same-direction trade in last 10 min`);
       continue;
     }
+
+    // Correlation guard — block stacking redundant FX exposure
+    const corr = correlationGuard(
+      acc.positions.map((p) => ({ symbol: p.symbol, side: p.side as "BUY" | "SELL" })),
+      sym,
+      decision.side,
+    );
+    if (corr.block) {
+      useDecisionLog.getState().record({
+        ...baseLog,
+        status: "blocked",
+        reason: `${baseLog.reason}\n  CORRELATION ${corr.reason}`,
+      });
+      waitingMsgs.push(`${sym}: ${corr.reason}`);
+      continue;
+    }
+
 
     const slDist = Math.abs(decision.entry - decision.stopLoss);
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }

@@ -37,11 +37,26 @@ function CurrencyReportPage() {
       const winRate = totalTrades ? (wins / totalTrades) * 100 : 0;
       const pnl = trades.reduce((s, t) => s + t.profit, 0);
       const rejected = recs.filter((r) => r.status === "rejected" || r.status === "blocked");
+
+      // Session approvals = executed records whose reason mentions London/NY/Asian tag.
+      const sessionApproved = recs.filter(
+        (r) => r.status === "executed" && /(London|New York|Asian)/i.test(r.reason),
+      ).length;
+      const sessionRejected = recs.filter(
+        (r) => /Asian session/i.test(r.reason) || /Session FAIL/i.test(r.reason) || /Session:FAIL/i.test(r.reason),
+      ).length;
+      const correlationBlocked = recs.filter(
+        (r) => r.status === "blocked" && /CORRELATION/i.test(r.reason),
+      ).length;
+
       const rejReasons = rejected.reduce<Record<string, number>>((acc, r) => {
-        const key = (r.reason.split("\n").find((l) => l.includes("REJECTED")) || r.reason).slice(0, 120);
+        const corr = r.reason.match(/CORRELATION[^\n]*/i)?.[0];
+        const rej = r.reason.split("\n").find((l) => l.includes("REJECTED"));
+        const key = (corr || rej || r.reason).slice(0, 140);
         acc[key] = (acc[key] || 0) + 1;
         return acc;
       }, {});
+
       return {
         symbol: sym,
         profile,
@@ -49,6 +64,9 @@ function CurrencyReportPage() {
         executed: recs.filter((r) => r.status === "executed").length,
         rejected: rejected.length,
         duplicates: recs.filter((r) => r.status === "duplicate").length,
+        sessionApproved,
+        sessionRejected,
+        correlationBlocked,
         trades: totalTrades,
         wins,
         losses,
@@ -131,6 +149,11 @@ function CurrencyReportPage() {
                   <Mini label="Trades" value={r.trades} />
                   <Mini label="W/L" value={`${r.wins}/${r.losses}`} />
                   <Mini label="Win Rate" value={`${r.winRate.toFixed(1)}%`} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <Mini label="Session ✓" value={r.sessionApproved} />
+                  <Mini label="Session ✗" value={r.sessionRejected} />
+                  <Mini label="Correlation block" value={r.correlationBlocked} />
                 </div>
 
                 {Object.keys(r.rejReasons).length > 0 && (
