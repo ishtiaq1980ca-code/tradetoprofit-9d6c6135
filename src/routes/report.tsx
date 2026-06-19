@@ -7,9 +7,10 @@ import { useDecisionLog } from "@/lib/decisionLog";
 import { useAccount } from "@/lib/paperTrading";
 import { useBot } from "@/lib/tradingBot";
 import { allProfiles } from "@/lib/pairProfiles";
+import { computeOpenSlots, useExecutionStats, avgMs } from "@/lib/execution";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ClipboardCheck, CheckCircle2, XCircle, ShieldAlert, Copy, TrendingUp, TrendingDown } from "lucide-react";
+import { ClipboardCheck, CheckCircle2, XCircle, ShieldAlert, Copy, TrendingUp, TrendingDown, Gauge, Layers } from "lucide-react";
 
 export const Route = createFileRoute("/report")({
   head: () => ({
