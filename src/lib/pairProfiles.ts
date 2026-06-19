@@ -198,20 +198,21 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
     maxAtrPct: 2.0,
     preferredSessions: ["London", "New York"],
   },
-  // XAUUSD falls back to a generic momentum profile if requested.
+  // XAUUSD — use the multi-confirmation playbook so gold trades alongside FX
+  // instead of waiting for rare momentum bursts.
   XAUUSD: {
     ...COMMON,
     symbol: "XAUUSD",
-    strategy: "momentum",
-    label: "XAUUSD — Momentum",
-    description: "Trade gold momentum bursts with wide ATR-based stops; confirm with MACD + ADX.",
-    adxMin: 14,
+    strategy: "fx_multi_confirmation",
+    label: "XAUUSD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active. Same logic as FX majors, wider ATR stop.",
+    adxMin: 10,
     atrSlMult: 2.0,
-    rrTarget: 1.8,
-    maxSpreadPct: 0.05,
-    minAtrPct: 0.015,
-    maxAtrPct: 2.5,
-    preferredSessions: ["London", "New York"],
+    rrTarget: 2.0,
+    maxSpreadPct: 0.08,
+    minAtrPct: 0.008,
+    maxAtrPct: 3.0,
+    preferredSessions: ["Sydney", "Tokyo", "London", "New York"],
   },
 };
 
