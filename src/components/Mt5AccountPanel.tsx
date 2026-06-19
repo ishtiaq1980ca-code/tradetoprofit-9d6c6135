@@ -37,7 +37,7 @@ export function Mt5AccountPanel() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  const fresh = snap ? Date.now() - new Date(snap.created_at).getTime() < 60_000 : false;
+  const fresh = snap ? Date.now() - new Date(snap.created_at).getTime() < 90_000 : false;
 
   return (
     <Card className="border-border/60 bg-card/70 backdrop-blur">
@@ -55,19 +55,26 @@ export function Mt5AccountPanel() {
             No MT5 data yet. Start <code>aurumai_bridge.py</code> on your trading PC — balance, equity and trades will appear here.
           </p>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field label="Balance" value={fmt.money(snap.balance)} />
-            <Field label="Equity" value={fmt.money(snap.equity)} />
-            <Field label="Free Margin" value={fmt.money(snap.free_margin)} />
-            <Field label="Open Positions" value={String(snap.open_positions)} />
-            <Field label="Used Margin" value={fmt.money(snap.margin)} />
-            <Field
-              label="Daily P/L"
-              value={fmt.money(snap.daily_pnl)}
-              tone={snap.daily_pnl >= 0 ? "bull" : "bear"}
-            />
-            <Field label="Mode" value={snap.mode.toUpperCase()} />
-            <Field label="Updated" value={new Date(snap.created_at).toLocaleTimeString()} />
+          <div className="space-y-3">
+            {!fresh && (
+              <p className="rounded-md border border-bear/30 bg-bear/10 px-3 py-2 text-sm text-bear">
+                MT5 bridge heartbeat is stale. Restart the updated <code>aurumai_bridge.py</code>; new signals are paused until MT5 reconnects.
+              </p>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Balance" value={fmt.money(snap.balance)} />
+              <Field label="Equity" value={fmt.money(snap.equity)} />
+              <Field label="Free Margin" value={fmt.money(snap.free_margin)} />
+              <Field label="Open Positions" value={String(snap.open_positions)} />
+              <Field label="Used Margin" value={fmt.money(snap.margin)} />
+              <Field
+                label="Daily P/L"
+                value={fmt.money(snap.daily_pnl)}
+                tone={snap.daily_pnl >= 0 ? "bull" : "bear"}
+              />
+              <Field label="Mode" value={snap.mode.toUpperCase()} />
+              <Field label="Updated" value={new Date(snap.created_at).toLocaleTimeString()} />
+            </div>
           </div>
         )}
       </CardContent>
