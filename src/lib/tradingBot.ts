@@ -601,6 +601,23 @@ export function BotEngine() {
     const unsub = useBot.subscribe((s, prev) => {
       if (s.enabled !== prev.enabled) syncEnabledToCloud(s.enabled);
     });
+    // Watch for bridge fill confirmations to record true fill latency
+    // (signal created_at → executed_at). Read-only subscription, no MT5
+    // changes are made here.
+    const fillCh = supabase
+      .channel("aurum-signal-fills")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "signals", filter: "status=eq.executed" },
+        (payload) => {
+          const row: any = payload.new;
+          if (!row?.created_at || !row?.executed_at) return;
+          const ms = new Date(row.executed_at).getTime() - new Date(row.created_at).getTime();
+          if (ms > 0 && ms < 5 * 60_000) useExecutionStats.getState().recordFill(ms);
+        },
+      )
+      .subscribe();
+
     const id = setInterval(() => {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
