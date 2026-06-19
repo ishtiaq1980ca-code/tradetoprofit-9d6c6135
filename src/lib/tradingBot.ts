@@ -403,6 +403,23 @@ function runScan() {
       continue;
     }
 
+    // Correlation guard — block stacking redundant FX exposure
+    const corr = correlationGuard(
+      acc.positions.map((p) => ({ symbol: p.symbol, side: p.side as "BUY" | "SELL" })),
+      sym,
+      decision.side,
+    );
+    if (corr.block) {
+      useDecisionLog.getState().record({
+        ...baseLog,
+        status: "blocked",
+        reason: `${baseLog.reason}\n  CORRELATION ${corr.reason}`,
+      });
+      waitingMsgs.push(`${sym}: ${corr.reason}`);
+      continue;
+    }
+
+
     const slDist = Math.abs(decision.entry - decision.stopLoss);
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
 
