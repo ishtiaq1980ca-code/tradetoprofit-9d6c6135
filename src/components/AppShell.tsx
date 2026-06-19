@@ -142,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
 
           {/* Mobile bottom tab bar */}
-          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-7" : "grid-cols-6")}>
+          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-8" : "grid-cols-7")}>
             {items.map((n) => {
               const Icon = n.icon;
               const active = pathname === n.to;
