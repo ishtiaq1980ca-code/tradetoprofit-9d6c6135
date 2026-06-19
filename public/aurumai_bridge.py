@@ -224,6 +224,7 @@ def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
     symbol = resolve_symbol(original_symbol)
     if symbol is None:
+        report_trade_failure(sig, original_symbol, "broker symbol not found; set SYMBOL_OVERRIDES to exact Market Watch symbol")
         return False
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
