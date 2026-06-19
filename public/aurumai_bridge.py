@@ -201,6 +201,15 @@ def _send_with_supported_filling(req: dict):
     for filling in (mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN):
         req["type_filling"] = filling
         tried.append(str(filling))
+        check = mt5.order_check(req)
+        if check is None:
+            print(f"order_check failed for filling={filling}: {mt5.last_error()}")
+            continue
+        if check.retcode not in (0, mt5.TRADE_RETCODE_DONE):
+            if check.retcode in (10030, 10018):
+                continue
+            print(f"order_check rejected filling={filling}: {check.retcode} {check.comment}")
+            return check
         res = mt5.order_send(req)
         if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
             return res
@@ -254,14 +263,6 @@ def execute_signal(sig: dict) -> bool:
         "comment": f"AurumAI {sig['confidence']:.0f}%",
         "type_time": mt5.ORDER_TIME_GTC,
     }
-    check = mt5.order_check(req)
-    if check is None:
-        report_trade_failure(sig, symbol, f"order_check failed: {mt5.last_error()}")
-        return False
-    if check.retcode not in (0, mt5.TRADE_RETCODE_DONE):
-        report_trade_failure(sig, symbol, f"order_check retcode={check.retcode} {check.comment}")
-        return False
-
     res = _send_with_supported_filling(req)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
         report_trade_failure(
