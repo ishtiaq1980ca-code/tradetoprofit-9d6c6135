@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, ClipboardCheck, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal } from "lucide-react";
+import { Activity, BarChart3, ClipboardCheck, Coins, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useBot } from "@/lib/tradingBot";
@@ -15,6 +15,7 @@ const baseNav = [
   { to: "/signals", label: "Signals", icon: Signal },
   { to: "/decisions", label: "Decisions", icon: ScrollText },
   { to: "/report", label: "Audit Report", icon: ClipboardCheck },
+  { to: "/currency-report", label: "Currency Report", icon: Coins },
   { to: "/positions", label: "Positions", icon: ListChecks },
   { to: "/backtest", label: "Backtest", icon: BarChart3 },
   { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
@@ -141,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
 
           {/* Mobile bottom tab bar */}
-          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-7" : "grid-cols-6")}>
+          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-8" : "grid-cols-7")}>
             {items.map((n) => {
               const Icon = n.icon;
               const active = pathname === n.to;

@@ -15,6 +15,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as PositionsRouteImport } from './routes/positions'
 import { Route as DecisionsRouteImport } from './routes/decisions'
+import { Route as CurrencyReportRouteImport } from './routes/currency-report'
 import { Route as BridgeRouteImport } from './routes/bridge'
 import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -52,6 +53,11 @@ const PositionsRoute = PositionsRouteImport.update({
 const DecisionsRoute = DecisionsRouteImport.update({
   id: '/decisions',
   path: '/decisions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CurrencyReportRoute = CurrencyReportRouteImport.update({
+  id: '/currency-report',
+  path: '/currency-report',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BridgeRoute = BridgeRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
+  '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/currency-report'
     | '/decisions'
     | '/positions'
     | '/report'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/currency-report'
     | '/decisions'
     | '/positions'
     | '/report'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/backtest'
     | '/bridge'
+    | '/currency-report'
     | '/decisions'
     | '/positions'
     | '/report'
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BacktestRoute: typeof BacktestRoute
   BridgeRoute: typeof BridgeRoute
+  CurrencyReportRoute: typeof CurrencyReportRoute
   DecisionsRoute: typeof DecisionsRoute
   PositionsRoute: typeof PositionsRoute
   ReportRoute: typeof ReportRoute
@@ -254,6 +267,13 @@ declare module '@tanstack/react-router' {
       path: '/decisions'
       fullPath: '/decisions'
       preLoaderRoute: typeof DecisionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/currency-report': {
+      id: '/currency-report'
+      path: '/currency-report'
+      fullPath: '/currency-report'
+      preLoaderRoute: typeof CurrencyReportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bridge': {
@@ -321,6 +341,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BacktestRoute: BacktestRoute,
   BridgeRoute: BridgeRoute,
+  CurrencyReportRoute: CurrencyReportRoute,
   DecisionsRoute: DecisionsRoute,
   PositionsRoute: PositionsRoute,
   ReportRoute: ReportRoute,

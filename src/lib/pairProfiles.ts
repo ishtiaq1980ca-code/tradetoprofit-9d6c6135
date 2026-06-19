@@ -13,7 +13,19 @@ export type StrategyKind =
   | "range_breakout"
   | "momentum"
   | "support_resistance"
-  | "session_breakout";
+  | "session_breakout"
+  | "fx_multi_confirmation";
+
+/** Pairs treated as FX currency pairs (not metals). They share the
+ *  multi-confirmation playbook + currency-specific risk caps. */
+export const FX_CURRENCY_PAIRS = [
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
+  "USDCAD", "USDCHF", "NZDUSD",
+] as const;
+export type FxCurrencyPair = (typeof FX_CURRENCY_PAIRS)[number];
+export function isFxCurrencyPair(symbol: string): symbol is FxCurrencyPair {
+  return (FX_CURRENCY_PAIRS as readonly string[]).includes(symbol);
+}
 
 export type PairProfile = {
   symbol: string;
@@ -58,12 +70,13 @@ const COMMON = {
 };
 
 export const PAIR_PROFILES: Record<string, PairProfile> = {
+  // ---- FX currency pairs: unified multi-confirmation playbook ----
   EURUSD: {
     ...COMMON,
     symbol: "EURUSD",
-    strategy: "trend_pullback",
-    label: "EURUSD — Trend Pullback",
-    description: "Trade pullbacks to EMA50 in direction of EMA50>EMA200 trend, confirmed by RSI bounce.",
+    strategy: "fx_multi_confirmation",
+    label: "EURUSD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active. No counter-trend / no sideways.",
     adxMin: 18,
     atrSlMult: 1.5,
     rrTarget: 2.0,
@@ -75,53 +88,67 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
   GBPUSD: {
     ...COMMON,
     symbol: "GBPUSD",
-    strategy: "breakout",
-    label: "GBPUSD — Breakout",
-    description: "Trade breakouts of the upper/lower Bollinger Band when ADX confirms expansion.",
-    adxMin: 22,
-    atrSlMult: 1.8,
-    rrTarget: 2.2,
+    strategy: "fx_multi_confirmation",
+    label: "GBPUSD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
+    adxMin: 20,
+    atrSlMult: 1.6,
+    rrTarget: 2.0,
     maxSpreadPct: 0.025,
-    minAtrPct: 0.05,
-    maxAtrPct: 1.5,
+    minAtrPct: 0.04,
+    maxAtrPct: 1.4,
     preferredSessions: ["London", "New York"],
   },
   USDJPY: {
     ...COMMON,
     symbol: "USDJPY",
-    strategy: "trend_following",
-    label: "USDJPY — Trend Following",
-    description: "Trade in the direction of EMA50>EMA200 with MACD confirmation, no counter-trend entries.",
+    strategy: "fx_multi_confirmation",
+    label: "USDJPY — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
     adxMin: 20,
-    atrSlMult: 1.7,
+    atrSlMult: 1.6,
     rrTarget: 2.0,
     maxSpreadPct: 0.02,
     minAtrPct: 0.03,
     maxAtrPct: 1.3,
-    preferredSessions: ["Tokyo", "London"],
+    preferredSessions: ["Tokyo", "London", "New York"],
   },
   AUDUSD: {
     ...COMMON,
     symbol: "AUDUSD",
-    strategy: "range_breakout",
-    label: "AUDUSD — Range Breakout",
-    description: "Detect Bollinger squeeze (low BB width) then trade the breakout direction.",
-    adxMin: 15,
-    atrSlMult: 1.6,
-    rrTarget: 1.8,
+    strategy: "fx_multi_confirmation",
+    label: "AUDUSD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
+    adxMin: 18,
+    atrSlMult: 1.5,
+    rrTarget: 2.0,
     maxSpreadPct: 0.025,
-    minAtrPct: 0.025,
+    minAtrPct: 0.03,
     maxAtrPct: 1.2,
-    preferredSessions: ["Sydney", "Tokyo", "London"],
+    preferredSessions: ["Sydney", "Tokyo", "London", "New York"],
   },
   USDCAD: {
     ...COMMON,
     symbol: "USDCAD",
-    strategy: "momentum",
-    label: "USDCAD — Momentum",
-    description: "Trade in direction of strong MACD histogram + Stochastic momentum confirmation.",
-    adxMin: 20,
-    atrSlMult: 1.7,
+    strategy: "fx_multi_confirmation",
+    label: "USDCAD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
+    adxMin: 18,
+    atrSlMult: 1.5,
+    rrTarget: 2.0,
+    maxSpreadPct: 0.025,
+    minAtrPct: 0.03,
+    maxAtrPct: 1.3,
+    preferredSessions: ["London", "New York"],
+  },
+  USDCHF: {
+    ...COMMON,
+    symbol: "USDCHF",
+    strategy: "fx_multi_confirmation",
+    label: "USDCHF — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
+    adxMin: 18,
+    atrSlMult: 1.5,
     rrTarget: 2.0,
     maxSpreadPct: 0.025,
     minAtrPct: 0.03,
@@ -131,17 +158,18 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
   NZDUSD: {
     ...COMMON,
     symbol: "NZDUSD",
-    strategy: "support_resistance",
-    label: "NZDUSD — Support / Resistance",
-    description: "Reversal trades at detected swing-high/low levels confirmed by Stochastic exhaustion.",
-    adxMin: 12,
-    atrSlMult: 1.4,
-    rrTarget: 1.8,
+    strategy: "fx_multi_confirmation",
+    label: "NZDUSD — Multi-Confirmation",
+    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active.",
+    adxMin: 16,
+    atrSlMult: 1.5,
+    rrTarget: 2.0,
     maxSpreadPct: 0.03,
     minAtrPct: 0.025,
-    maxAtrPct: 1.1,
+    maxAtrPct: 1.2,
     preferredSessions: ["Sydney", "Tokyo", "New York"],
   },
+  // Cross-JPY pairs keep prior playbooks
   EURJPY: {
     ...COMMON,
     symbol: "EURJPY",
