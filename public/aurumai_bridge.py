@@ -46,15 +46,6 @@ SYMBOL_OVERRIDES = {
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
-MARKET_RETCODES = {
-    mt5.TRADE_RETCODE_MARKET_CLOSED,
-    mt5.TRADE_RETCODE_TRADE_DISABLED,
-    mt5.TRADE_RETCODE_NO_MONEY,
-    mt5.TRADE_RETCODE_INVALID_VOLUME,
-    mt5.TRADE_RETCODE_INVALID_STOPS,
-    mt5.TRADE_RETCODE_PRICE_CHANGED,
-    mt5.TRADE_RETCODE_REQUOTE,
-}
 
 
 def connect_mt5() -> bool:
