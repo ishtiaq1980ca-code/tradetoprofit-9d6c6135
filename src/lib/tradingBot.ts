@@ -102,7 +102,7 @@ export const useBot = create<BotStore>()(
     (set, get) => ({
       enabled: false,
       scanIntervalMs: 8_000,
-      minConfidence: 75,
+      minConfidence: 65,
       riskPct: 3,
       maxDailyLossPct: 5,
       atrSlMult: 2.5,
