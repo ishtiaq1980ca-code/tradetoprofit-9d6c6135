@@ -37,11 +37,26 @@ function CurrencyReportPage() {
       const winRate = totalTrades ? (wins / totalTrades) * 100 : 0;
       const pnl = trades.reduce((s, t) => s + t.profit, 0);
       const rejected = recs.filter((r) => r.status === "rejected" || r.status === "blocked");
+
+      // Session approvals = executed records whose reason mentions London/NY/Asian tag.
+      const sessionApproved = recs.filter(
+        (r) => r.status === "executed" && /(London|New York|Asian)/i.test(r.reason),
+      ).length;
+      const sessionRejected = recs.filter(
+        (r) => /Asian session/i.test(r.reason) || /Session FAIL/i.test(r.reason) || /Session:FAIL/i.test(r.reason),
+      ).length;
+      const correlationBlocked = recs.filter(
+        (r) => r.status === "blocked" && /CORRELATION/i.test(r.reason),
+      ).length;
+
       const rejReasons = rejected.reduce<Record<string, number>>((acc, r) => {
-        const key = (r.reason.split("\n").find((l) => l.includes("REJECTED")) || r.reason).slice(0, 120);
+        const corr = r.reason.match(/CORRELATION[^\n]*/i)?.[0];
+        const rej = r.reason.split("\n").find((l) => l.includes("REJECTED"));
+        const key = (corr || rej || r.reason).slice(0, 140);
         acc[key] = (acc[key] || 0) + 1;
         return acc;
       }, {});
+
       return {
         symbol: sym,
         profile,
@@ -49,6 +64,9 @@ function CurrencyReportPage() {
         executed: recs.filter((r) => r.status === "executed").length,
         rejected: rejected.length,
         duplicates: recs.filter((r) => r.status === "duplicate").length,
+        sessionApproved,
+        sessionRejected,
+        correlationBlocked,
         trades: totalTrades,
         wins,
         losses,
