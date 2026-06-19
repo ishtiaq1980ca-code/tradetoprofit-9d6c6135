@@ -15,6 +15,10 @@ import { SYMBOLS } from "./format";
 import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
 import { supabase } from "@/integrations/supabase/client";
+import { generateTradeDecision, MIN_CONFIDENCE } from "./signalGenerator";
+import { getPairProfile, allProfiles } from "./pairProfiles";
+import { useDecisionLog } from "./decisionLog";
+import { DEFAULT_RISK } from "./riskEngine";
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
@@ -313,23 +317,12 @@ function runScan() {
   const perSymCount: Record<string, number> = {};
   for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
 
-  const baseParams = {
-    ...DEFAULT_PARAMS,
-    minConfidence: bot.minConfidence,
-    atrSlMult: bot.atrSlMult,
-    atrTpMult: bot.atrTpMult,
-    emaFast: bot.emaFast,
-    emaSlow: bot.emaSlow,
-    rsiPeriod: bot.rsiPeriod,
-    rsiBuyMax: bot.rsiBuyMax,
-    rsiSellMin: bot.rsiSellMin,
-    useMacd: bot.useMacd,
-    adxMin: bot.adxMin,
-  };
-
-  // Refresh admin-defined strategies (cached, soft TTL inside the store)
-  useStrategies.getState().fetch().catch(() => { /* offline ok */ });
-  const customList = useStrategies.getState().list;
+  // Duplicate prevention — track recent decisions per symbol+side for 10 min.
+  const recent = useDecisionLog.getState().records;
+  const dupWindowMs = 10 * 60_000;
+  const now = Date.now();
+  const hasRecentDup = (sym: string, side: "BUY" | "SELL") =>
+    recent.some((r) => r.symbol === sym && r.direction === side && r.status === "executed" && now - r.at < dupWindowMs);
 
   let opened = 0;
   let usedLot = openLot;
@@ -340,111 +333,142 @@ function runScan() {
   for (const sym of SYMBOLS) {
     if (opened >= slots) break;
     if (!allowed.has(sym)) continue;
+    if (!getPairProfile(sym)) continue;
     if ((perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol) {
       waitingMsgs.push(`${sym}: per-symbol cap (${bot.maxTradesPerSymbol}) reached`);
       continue;
     }
     const candles = priceFeed.state.candles[sym];
-    if (!candles || candles.length < 40) {
-      waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/40 bars)`);
+    if (!candles || candles.length < 220) {
+      waitingMsgs.push(`${sym}: warming up (${candles?.length ?? 0}/220 bars)`);
       continue;
     }
 
-    // Build the strategy list for this symbol. Custom admin strategies run
-    // first (in priority order). If none fire and built-in fallback is on,
-    // the built-in engine runs as a last resort. When no customs match the
-    // symbol at all, built-in runs directly (still gated by its on/off flag).
-    const customs = strategiesForSymbol(sym, customList);
-    const runs: Array<{ id: string; name: string; params: typeof baseParams }> = [...customs];
-    const allowBuiltIn = bot.useBuiltInStrategy && (customs.length === 0 || bot.builtInFallback);
-    if (allowBuiltIn) {
-      runs.push({ id: "built-in", name: "Built-in", params: baseParams });
-    }
-    if (runs.length === 0) {
-      waitingMsgs.push(`${sym}: no strategy enabled (custom off & built-in off)`);
+    // Run the high-confidence generator with this pair's profile.
+    const decision = generateTradeDecision(sym, candles, acc.balance, {
+      minConfidence: Math.max(bot.minConfidence, MIN_CONFIDENCE),
+      risk: { ...DEFAULT_RISK, riskPct: bot.riskPct, maxDailyLossPct: bot.maxDailyLossPct },
+    });
+    if (!decision) continue;
+
+    // Always log the decision (accepted or rejected) so the user can audit.
+    const baseLog = {
+      symbol: sym,
+      direction: decision.side,
+      strategy: decision.strategy,
+      confidence: decision.confidence,
+      reason: decision.reason,
+      indicators: {
+        EMA50: +decision.indicators.ema50.toFixed(5),
+        EMA100: +decision.indicators.ema100.toFixed(5),
+        EMA200: +decision.indicators.ema200.toFixed(5),
+        RSI: +decision.indicators.rsi.toFixed(2),
+        MACD_hist: +decision.indicators.macdHist.toFixed(5),
+        ADX: +decision.indicators.adx.toFixed(2),
+        ATR: +decision.indicators.atr.toFixed(5),
+        BB_upper: +decision.indicators.bbUpper.toFixed(5),
+        BB_lower: +decision.indicators.bbLower.toFixed(5),
+        Stoch_K: +decision.indicators.stochK.toFixed(2),
+        Stoch_D: +decision.indicators.stochD.toFixed(2),
+      },
+      filters: decision.filters,
+      entry: decision.entry,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      lot: decision.lot,
+      riskPct: decision.riskPct,
+      riskReward: decision.riskReward,
+    } as const;
+
+    if (!decision.accepted || decision.side === "FLAT") {
+      useDecisionLog.getState().record({
+        ...baseLog,
+        status: decision.rejectionReason?.startsWith("Confidence") ? "rejected" : "blocked",
+      });
+      waitingMsgs.push(`${sym}: ${decision.rejectionReason ?? "not aligned"}`);
       continue;
     }
 
-    let chosen: { sig: ReturnType<typeof analyze>; stratName: string } | null = null;
-    let lastWhy = "";
-    for (const r of runs) {
-      const s = analyze(sym, candles, r.params);
-      if (s.side !== "FLAT") { chosen = { sig: s, stratName: r.name }; break; }
-      lastWhy = s.blockers[0] ?? `confidence ${s.confidence}% < ${r.params.minConfidence}%`;
-    }
-    if (!chosen) {
-      waitingMsgs.push(`${sym}: ${lastWhy || "no strategy fired"}`);
+    // Duplicate prevention — block re-entering the same symbol/side too soon
+    // (separate from the per-symbol cap, which still applies).
+    if (openSymbols.has(sym) && (perSymCount[sym] ?? 0) > 0) {
+      useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
+      waitingMsgs.push(`${sym}: position already open (duplicate prevention)`);
       continue;
     }
-    const sig = chosen.sig;
+    if (hasRecentDup(sym, decision.side)) {
+      useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
+      waitingMsgs.push(`${sym}: same-direction trade in last 10 min`);
+      continue;
+    }
 
-    const slDist = Math.abs(sig.entry - sig.stopLoss);
+    const slDist = Math.abs(decision.entry - decision.stopLoss);
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
+
     let lot = bot.useTierLimits
       ? 0.01
       : bot.lotMode === "fixed"
         ? Math.max(0.01, bot.fixedLot)
-        : calculateLot(sym, acc.balance, bot.riskPct, slDist);
+        : decision.lot;
     if (bot.useTierLimits && usedLot + lot > lotCap + 1e-9) {
+      useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  TIER CAP would be exceeded` });
       waitingMsgs.push(`${sym}: would exceed tier cap`);
       continue;
     }
+
     const pos = acc.open({
       symbol: sym,
-      side: sig.side as "BUY" | "SELL",
+      side: decision.side,
       lot,
-      entry: sig.entry,
-      stopLoss: sig.stopLoss,
-      takeProfit: sig.takeProfit,
-      confidence: sig.confidence,
-      reason: `[${chosen.stratName}] ${sig.reasons.slice(0, 2).join(" · ")}`,
+      entry: decision.entry,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      confidence: decision.confidence,
+      reason: decision.reason,
       session: sess.primary,
     });
-    if (pos) perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
 
     if (pos) {
+      perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
+      openSymbols.add(sym);
+      useDecisionLog.getState().record({ ...baseLog, lot, status: "executed" });
+
       bot.pushLog({
         t: Date.now(),
         level: "trade",
-        msg: `[${chosen.stratName}] Opened ${sig.side} ${lot} ${sym} @ ${sig.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${sig.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${sig.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${sig.confidence}%)`,
+        msg: `[${decision.strategy}] ${decision.side} ${lot} ${sym} @ ${decision.entry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${decision.takeProfit.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${decision.stopLoss.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%)`,
       });
-      toast.success(`Bot [${chosen.stratName}]: ${sig.side} ${lot} ${sym}`);
+      toast.success(`Bot ${decision.side} ${lot} ${sym} @ ${decision.confidence}% (${decision.strategy})`);
       opened++;
       usedLot += lot;
 
-      // Enqueue signal for the MT5 bridge so the same trade gets placed on
-      // the live/demo MT5 account. Fire-and-forget; bridge polls the DB.
+      // Enqueue signal for the MT5 bridge — unchanged contract.
       supabase
         .from("signals")
         .insert({
           symbol: sym,
-          side: sig.side,
-          entry: sig.entry,
-          stop_loss: sig.stopLoss,
-          take_profit: sig.takeProfit,
+          side: decision.side,
+          entry: decision.entry,
+          stop_loss: decision.stopLoss,
+          take_profit: decision.takeProfit,
           lot,
-          confidence: sig.confidence,
+          confidence: decision.confidence,
           risk_pct: bot.riskPct,
-          reason: `[${chosen.stratName}] ${sig.reasons.slice(0, 2).join(" · ")}`,
+          reason: decision.reason,
           status: "pending",
         })
         .then(({ error }) => {
           if (error) {
-            useBot.getState().pushLog({
-              t: Date.now(),
-              level: "warn",
-              msg: `MT5 queue failed: ${error.message}`,
-            });
+            useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `MT5 queue failed: ${error.message}` });
           } else {
-            useBot.getState().pushLog({
-              t: Date.now(),
-              level: "info",
-              msg: `Signal queued for MT5 bridge → ${sig.side} ${sym}`,
-            });
+            useBot.getState().pushLog({ t: Date.now(), level: "info", msg: `Signal queued for MT5 bridge → ${decision.side} ${sym}` });
           }
         });
     }
   }
+
+  // Suppress unused warnings for legacy helpers retained for compatibility.
+  void analyze; void calculateLot; void DEFAULT_PARAMS; void useStrategies; void strategiesForSymbol; void allProfiles;
 
   // Emit a single consolidated "waiting" log per scan so the user always sees
   // why the bot didn't fire (throttled — only when nothing opened).
