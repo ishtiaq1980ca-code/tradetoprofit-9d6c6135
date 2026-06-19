@@ -278,6 +278,10 @@ def execute_signal(sig: dict) -> bool:
     if info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
         report_trade_failure(sig, symbol, "symbol trade disabled by broker")
         return False
+    already_open = _find_position_after_fill(symbol, None, str(sig.get("id") or ""), allow_latest=False)
+    if already_open is not None:
+        print(f"Signal {sig.get('id')} already has MT5 position ticket={already_open.ticket}; confirming instead of opening duplicate")
+        return _report_open_position(sig, original_symbol, already_open)
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
     normalized = _normalize_stops(symbol, is_buy, price,
@@ -336,16 +340,16 @@ def execute_signal(sig: dict) -> bool:
         live_tp = float(tp)
         print(f"Filled {sig['side']} {symbol} deal/order={ticket}, position not visible yet; reporting fill")
     ok = _post_json("/api/public/bridge/trades", {
-            "signal_id": sig["id"],
-            "mt5_ticket": ticket or None,
-            "symbol": original_symbol,
-            "side": sig["side"],
-            "entry": filled_price,
-            "stop_loss": live_sl,
-            "take_profit": live_tp,
-            "lot": volume,
-            "status": "open",
-        })
+        "signal_id": sig["id"],
+        "mt5_ticket": ticket or None,
+        "symbol": original_symbol,
+        "side": sig["side"],
+        "entry": filled_price,
+        "stop_loss": live_sl,
+        "take_profit": live_tp,
+        "lot": volume,
+        "status": "open",
+    })
     if not ok:
         print("WARNING: MT5 filled the order, but dashboard confirmation failed. The order is on MT5; keep bridge running so sync can catch up.")
     return True
