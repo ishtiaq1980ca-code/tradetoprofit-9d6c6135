@@ -172,12 +172,15 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 3,
-      migrate: (persisted: any) => {
+      version: 4,
+      migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
-          // Force 3% risk and 75% confidence floor going forward.
           persisted.riskPct = 3;
           persisted.minConfidence = 75;
+          // v4: enable FX currency pairs alongside XAUUSD
+          if (version < 4 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
+            persisted.enabledSymbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"];
+          }
         }
         return persisted;
       },
