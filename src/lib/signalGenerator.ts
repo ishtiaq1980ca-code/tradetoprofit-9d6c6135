@@ -191,11 +191,13 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       return { side: "FLAT", rationale: "Inside prior session range" };
     }
     case "fx_multi_confirmation": {
-      // Multi-confirmation FX playbook:
+      // Multi-confirmation FX playbook with anti-chase guard:
       //   Trend:      EMA50 vs EMA200
-      //   Location:   price on correct side of EMA50
-      //   Momentum:   RSI band (50-70 BUY / 30-50 SELL)
-      //   Entry:      MACD histogram cross / agreement
+      //   Location:   price on correct side of EMA50, but NOT over-extended
+      //   Momentum:   RSI band (tightened: 50-65 BUY / 35-50 SELL) — avoid exhaustion
+      //   Entry:      MACD histogram agreement
+      //   Exhaustion: Stoch not at extreme in trade direction
+      //   No-chase:   price within 1.5×ATR of EMA50 (else we'd buy tops / sell bottoms)
       //   Volatility: ATR active + ADX above sideways floor
       //   Session:    London / NY / overlap = normal; Asian-only = stricter
       const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
@@ -218,16 +220,26 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
         }
       }
 
+      // Anti-chase: how far is price from EMA50 in ATR units?
+      const distFromEma50Atr = Math.abs(price - ind.ema50) / Math.max(ind.atr, 1e-9);
+      const overExtended = distFromEma50Atr > 1.5;
+      const stochOverbought = ind.stochK > 80;
+      const stochOversold = ind.stochK < 20;
+
       const trendUpFx = ind.ema50 > ind.ema200;
       const trendDnFx = ind.ema50 < ind.ema200;
       const sessionTag = inLondonOrNY
         ? (sess.active.includes("London") && sess.active.includes("New York") ? "London+NY overlap" : sess.active.includes("London") ? "London" : "New York")
         : "Asian (strict)";
-      if (trendUpFx && price > ind.ema50 && ind.rsi >= 50 && ind.rsi <= 70 && macdBull) {
-        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50, RSI 50-70, MACD bullish, ATR active · ${sessionTag}` };
+      if (trendUpFx && price > ind.ema50 && ind.rsi >= 50 && ind.rsi <= 65 && macdBull) {
+        if (overExtended) return { side: "FLAT", rationale: `BUY skipped — price ${distFromEma50Atr.toFixed(2)}×ATR above EMA50 (chasing top, wait for pullback)` };
+        if (stochOverbought) return { side: "FLAT", rationale: `BUY skipped — Stoch %K ${ind.stochK.toFixed(1)} overbought (exhaustion risk)` };
+        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI 50-65, MACD bullish, Stoch healthy · ${sessionTag}` };
       }
-      if (trendDnFx && price < ind.ema50 && ind.rsi >= 30 && ind.rsi <= 50 && macdBear) {
-        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50, RSI 30-50, MACD bearish, ATR active · ${sessionTag}` };
+      if (trendDnFx && price < ind.ema50 && ind.rsi >= 35 && ind.rsi <= 50 && macdBear) {
+        if (overExtended) return { side: "FLAT", rationale: `SELL skipped — price ${distFromEma50Atr.toFixed(2)}×ATR below EMA50 (chasing bottom, wait for pullback)` };
+        if (stochOversold) return { side: "FLAT", rationale: `SELL skipped — Stoch %K ${ind.stochK.toFixed(1)} oversold (exhaustion risk)` };
+        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI 35-50, MACD bearish, Stoch healthy · ${sessionTag}` };
       }
       return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
     }
