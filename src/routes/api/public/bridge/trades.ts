@@ -16,6 +16,7 @@ const Schema = z.object({
   pips: z.number().nullable().optional(),
   status: z.enum(["open", "closed", "cancelled"]).default("open"),
   closed_at: z.string().datetime().nullable().optional(),
+  failure_reason: z.string().max(500).nullable().optional(),
 });
 
 export const Route = createFileRoute("/api/public/bridge/trades")({
@@ -36,24 +37,27 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
             const { error } = await supabaseAdmin.from("trades").update(d).eq("id", existing.id);
             if (error) return Response.json({ error: error.message }, { status: 500 });
             if (d.signal_id) {
+              const rejectedReason = d.failure_reason ? `\n  MT5-REJECT ${d.failure_reason}` : "";
               await supabaseAdmin
                 .from("signals")
                 .update(d.status === "open"
                   ? { status: "executed", mt5_ticket: d.mt5_ticket, executed_at: new Date().toISOString() }
-                  : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null })
+                  : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: `${(d as any).reason ?? ""}${rejectedReason}`.trim() })
                 .eq("id", d.signal_id);
             }
             return Response.json({ ok: true, updated: true });
           }
         }
-        const { data: ins, error } = await supabaseAdmin.from("trades").insert(d).select("id").single();
+        const { failure_reason: failureReason, ...tradeRow } = d;
+        const { data: ins, error } = await supabaseAdmin.from("trades").insert(tradeRow).select("id").single();
         if (error) return Response.json({ error: error.message }, { status: 500 });
         if (d.signal_id) {
+          const rejectedReason = failureReason ? `\n  MT5-REJECT ${failureReason}` : "";
           await supabaseAdmin
             .from("signals")
             .update(d.status === "open"
               ? { status: "executed", mt5_ticket: d.mt5_ticket ?? null, executed_at: new Date().toISOString() }
-              : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null })
+              : { status: "rejected", mt5_ticket: d.mt5_ticket ?? null, reason: rejectedReason.trim() })
             .eq("id", d.signal_id);
         }
         return Response.json({ ok: true, id: ins.id });
