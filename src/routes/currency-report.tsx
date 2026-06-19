@@ -150,6 +150,11 @@ function CurrencyReportPage() {
                   <Mini label="W/L" value={`${r.wins}/${r.losses}`} />
                   <Mini label="Win Rate" value={`${r.winRate.toFixed(1)}%`} />
                 </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <Mini label="Session ✓" value={r.sessionApproved} />
+                  <Mini label="Session ✗" value={r.sessionRejected} />
+                  <Mini label="Correlation block" value={r.correlationBlocked} />
+                </div>
 
                 {Object.keys(r.rejReasons).length > 0 && (
                   <div className="rounded-md border border-border/60 bg-card/40 p-2">
