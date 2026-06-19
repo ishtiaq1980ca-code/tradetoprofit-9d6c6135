@@ -73,10 +73,27 @@ def connect_mt5() -> bool:
     return True
 
 
-def report_account():
+def mt5_ready() -> bool:
+    """Keep the terminal connection alive before polling/placing trades."""
+    if mt5.account_info() is not None:
+        return True
+    print(f"MT5 connection stale/lost: {mt5.last_error()} — reconnecting")
+    try:
+        mt5.shutdown()
+    except Exception:
+        pass
+    time.sleep(1)
+    return connect_mt5()
+
+
+def report_account() -> bool:
+    if not mt5_ready():
+        print("Account heartbeat skipped: MT5 is not connected")
+        return False
     info = mt5.account_info()
     if info is None:
-        return
+        print(f"MT5 account_info failed: {mt5.last_error()}")
+        return False
     now = dt.datetime.now(dt.UTC)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     history = mt5.history_deals_get(today, now) or []
@@ -91,7 +108,7 @@ def report_account():
         "daily_pnl": float(daily_pnl),
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
     }
-    _post_json("/api/public/bridge/account", payload)
+    return _post_json("/api/public/bridge/account", payload)
 
 
 _SYMBOL_CACHE: dict[str, str] = {}
@@ -263,6 +280,9 @@ def _report_open_position(sig: dict, original_symbol: str, position) -> bool:
 
 def execute_signal(sig: dict) -> bool:
     original_symbol = sig["symbol"]
+    if not mt5_ready():
+        print(f"Skipping {sig.get('side')} {original_symbol}: MT5 terminal is offline")
+        return False
     symbol = resolve_symbol(original_symbol)
     if symbol is None:
         report_trade_failure(sig, original_symbol, "broker symbol not found; set SYMBOL_OVERRIDES to exact Market Watch symbol")
@@ -390,6 +410,19 @@ def main():
     last_acct = 0
     while True:
         try:
+            if not mt5_ready():
+                time.sleep(POLL_SEC)
+                continue
+
+            # Send a fresh heartbeat before taking any signal lease. If this
+            # stops updating, the dashboard correctly shows MT5 as stale and
+            # the browser bot will pause new queues instead of pretending the
+            # trade was executed.
+            if time.time() - last_acct > 15:
+                report_account()
+                sync_closed_trades()
+                last_acct = time.time()
+
             r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
             if r.ok:
                 try:
@@ -406,11 +439,6 @@ def main():
                 print(f"poll HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             print(f"poll failed: {e}")
-
-        if time.time() - last_acct > 15:
-            report_account()
-            sync_closed_trades()
-            last_acct = time.time()
 
         time.sleep(POLL_SEC)
 

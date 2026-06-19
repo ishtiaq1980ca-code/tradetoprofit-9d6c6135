@@ -11,6 +11,20 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
         const { data: settings } = await supabaseAdmin.from("bot_settings").select("*").eq("id", 1).maybeSingle();
         if (!settings?.enabled) return Response.json({ enabled: false, signals: [] });
 
+        // Do not lease signals to a dead/stale bridge. The Python bridge posts
+        // an account heartbeat before polling; if that heartbeat is old, MT5 is
+        // offline or the old script is still running and trades would be missed.
+        const { data: latestSnap } = await supabaseAdmin
+          .from("account_snapshots")
+          .select("created_at")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const heartbeatAgeMs = latestSnap?.created_at ? Date.now() - new Date(latestSnap.created_at).getTime() : Infinity;
+        if (heartbeatAgeMs > 90_000) {
+          return Response.json({ enabled: false, reason: "mt5_stale", signals: [] });
+        }
+
         // Daily loss kill switch
         const today = new Date(); today.setUTCHours(0, 0, 0, 0);
         const { data: snaps } = await supabaseAdmin

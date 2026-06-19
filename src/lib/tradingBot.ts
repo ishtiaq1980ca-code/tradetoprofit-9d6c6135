@@ -27,6 +27,23 @@ import {
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
+let latestMt5HeartbeatAt = 0;
+const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
+
+async function refreshMt5Heartbeat() {
+  const { data } = await supabase
+    .from("account_snapshots")
+    .select("created_at")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const ts = data?.[0]?.created_at;
+  latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : 0;
+}
+
+function mt5HeartbeatFresh() {
+  return latestMt5HeartbeatAt > 0 && Date.now() - latestMt5HeartbeatAt < MT5_HEARTBEAT_MAX_AGE_MS;
+}
+
 type BotStore = {
   enabled: boolean;
   scanIntervalMs: number;
@@ -266,6 +283,13 @@ function runScan() {
   // License gate — bot will not place trades without a valid token
   if (!bot.licenseValid) {
     bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: no active license token" });
+    return;
+  }
+
+  // Never mark trades as queued while the MT5 bridge is offline/stale. This
+  // prevents the app from showing trades that cannot be executed on MT5.
+  if (!mt5HeartbeatFresh()) {
+    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge stale/offline — restart the updated aurumai_bridge.py" });
     return;
   }
 
@@ -598,9 +622,12 @@ export function BotEngine() {
     // Without waiting for the session, the cloud switch can stay off even while
     // the browser bot is active, so the MT5 bridge receives no signals.
     supabase.auth.getSession().then(() => syncEnabledToCloud(useBot.getState().enabled));
+    refreshMt5Heartbeat();
+    const heartbeatId = setInterval(refreshMt5Heartbeat, 15_000);
     const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         syncEnabledToCloud(useBot.getState().enabled);
+        refreshMt5Heartbeat();
       }
     });
     const unsub = useBot.subscribe((s, prev) => {
@@ -631,6 +658,7 @@ export function BotEngine() {
     }, 2_000);
     return () => {
       clearInterval(id);
+      clearInterval(heartbeatId);
       unsub();
       authSub.subscription.unsubscribe();
       supabase.removeChannel(fillCh);
