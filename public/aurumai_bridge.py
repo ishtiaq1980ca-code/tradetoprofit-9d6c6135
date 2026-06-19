@@ -91,10 +91,7 @@ def report_account():
         "daily_pnl": float(daily_pnl),
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
     }
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/account", json=payload, headers=HEADERS, timeout=10)
-    except Exception as e:
-        print(f"account report failed: {e}")
+    _post_json("/api/public/bridge/account", payload)
 
 
 _SYMBOL_CACHE: dict[str, str] = {}
@@ -196,8 +193,7 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
 
 def report_trade_failure(sig: dict, symbol: str, reason: str):
     print(f"trade failed {sig.get('side')} {symbol}: {reason}")
-    try:
-        requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+    _post_json("/api/public/bridge/trades", {
             "signal_id": sig.get("id"),
             "mt5_ticket": None,
             "symbol": sig.get("symbol") or symbol,
@@ -209,8 +205,6 @@ def report_trade_failure(sig: dict, symbol: str, reason: str):
             "status": "cancelled",
             "failure_reason": reason,
         })
-    except Exception as e:
-        print(f"failure report failed: {e}")
 
 
 def _send_with_supported_filling(req: dict):
