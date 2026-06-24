@@ -119,7 +119,7 @@ export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 2_000,
+      scanIntervalMs: 1_000,
       minConfidence: 65,
       riskPct: 3,
       maxDailyLossPct: 5,
@@ -190,7 +190,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 6,
+      version: 7,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -201,8 +201,8 @@ export const useBot = create<BotStore>()(
           if (version < 4 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
             persisted.enabledSymbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"];
           }
-          if (version < 6 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 2_000) {
-            persisted.scanIntervalMs = 2_000;
+          if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
+            persisted.scanIntervalMs = 1_000;
           }
         }
         return persisted;
@@ -659,7 +659,7 @@ export function BotEngine() {
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       void runScan();
-    }, 500);
+    }, 250);
     return () => {
       clearInterval(id);
       clearInterval(heartbeatId);

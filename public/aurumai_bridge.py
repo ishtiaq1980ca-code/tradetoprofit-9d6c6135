@@ -133,6 +133,7 @@ def report_account() -> bool:
 
 
 _SYMBOL_CACHE: dict[str, str] = {}
+_FILLING_CACHE: dict[str, int] = {}
 
 
 def _quote_currency_ok(name: str, original: str, want_quote: str) -> bool:
@@ -525,7 +526,7 @@ def sync_closed_trades():
             continue
         seen.add(d.position_id)
         try:
-            requests.post(f"{BASE_URL}/api/public/bridge/trades", headers=HEADERS, timeout=10, json={
+            SESSION.post(f"{BASE_URL}/api/public/bridge/trades", timeout=10, json={
                 "mt5_ticket": int(d.position_id),
                 "symbol": d.symbol,
                 "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",  # OUT is opposite
@@ -552,9 +553,9 @@ def main():
                 time.sleep(POLL_SEC)
                 continue
 
-            # Keep a recent heartbeat, but do not let account/history sync sit
-            # in front of signal polling; that was adding avoidable delay.
-            if time.time() - last_acct > 15:
+            # First heartbeat unlocks server polling. Later heartbeats are sent
+            # after polling so account/history sync does not delay execution.
+            if last_acct == 0:
                 report_account()
                 last_acct = time.time()
 
@@ -570,6 +571,10 @@ def main():
                     print(f"Bot disabled by server: {data['reason']}")
             else:
                 print(f"poll failed: {err}")
+
+            if time.time() - last_acct > 15:
+                report_account()
+                last_acct = time.time()
 
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
