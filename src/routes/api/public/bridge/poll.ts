@@ -1,6 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
+const MIN_BRIDGE_RR = 2.0;
+
+function signalRiskError(signal: any): string | null {
+  const side = signal.side;
+  const entry = Number(signal.entry);
+  const sl = Number(signal.stop_loss);
+  const tp = Number(signal.take_profit);
+  if (!Number.isFinite(entry) || !Number.isFinite(sl) || !Number.isFinite(tp) || entry <= 0) return "invalid signal prices";
+  if (side === "BUY" && !(sl < entry && entry < tp)) return `invalid BUY stops: sl=${sl} entry=${entry} tp=${tp}`;
+  if (side === "SELL" && !(tp < entry && entry < sl)) return `invalid SELL stops: tp=${tp} entry=${entry} sl=${sl}`;
+  const rr = Math.abs(tp - entry) / Math.max(Math.abs(entry - sl), 1e-9);
+  if (rr < MIN_BRIDGE_RR) return `TP/SL ratio ${rr.toFixed(2)} below minimum ${MIN_BRIDGE_RR.toFixed(1)}`;
+  return null;
+}
+
 export const Route = createFileRoute("/api/public/bridge/poll")({
   server: {
     handlers: {
@@ -70,14 +85,31 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           .order("created_at", { ascending: true })
           .limit(20);
 
-        if (signals?.length) {
+        const executableSignals = [];
+        const rejectedSignals: Array<{ id: string; reason: string }> = [];
+        for (const signal of signals ?? []) {
+          const reason = signalRiskError(signal);
+          if (reason) rejectedSignals.push({ id: signal.id, reason });
+          else executableSignals.push(signal);
+        }
+
+        if (rejectedSignals.length) {
+          await Promise.all(rejectedSignals.map((signal) =>
+            supabaseAdmin
+              .from("signals")
+              .update({ status: "rejected", reason: `SERVER-REJECT ${signal.reason}` })
+              .eq("id", signal.id),
+          ));
+        }
+
+        if (executableSignals.length) {
           await supabaseAdmin
             .from("signals")
             .update({ status: "sent" })
-            .in("id", signals.map((s) => s.id));
+            .in("id", executableSignals.map((s) => s.id));
         }
 
-        return Response.json({ enabled: true, mode: settings.account_mode, signals: signals ?? [] });
+        return Response.json({ enabled: true, mode: settings.account_mode, signals: executableSignals });
       },
     },
   },

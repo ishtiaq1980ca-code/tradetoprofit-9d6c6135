@@ -32,13 +32,13 @@ MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
 POLL_SEC     = 0.5                                # how often to poll for new signals
-SLIPPAGE     = 10                                 # in points; keep low so late/bad fills are rejected
+SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
 MAX_ENTRY_DRIFT_PCT = 0.0003                      # 0.03% — reject if live price moved too far from signal entry in either direction
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
-MIN_RISK_REWARD = 1.5                             # never send trades where TP is tiny compared with SL
+MIN_RISK_REWARD = 2.0                             # all pairs: TP must be at least 2× SL distance
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -210,11 +210,11 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     return round(sl, digits), round(tp, digits)
 
 
-def report_trade_failure(sig: dict, symbol: str, reason: str):
+def report_trade_failure(sig: dict, symbol: str, reason: str, mt5_ticket: int | None = None):
     print(f"trade failed {sig.get('side')} {symbol}: {reason}")
     _post_json("/api/public/bridge/trades", {
             "signal_id": sig.get("id"),
-            "mt5_ticket": None,
+            "mt5_ticket": mt5_ticket,
             "symbol": sig.get("symbol") or symbol,
             "side": sig.get("side"),
             "entry": float(sig.get("entry") or sig.get("price") or 0),
@@ -224,6 +224,49 @@ def report_trade_failure(sig: dict, symbol: str, reason: str):
             "status": "cancelled",
             "failure_reason": reason,
         })
+
+
+def _close_position(position, reason: str) -> bool:
+    tick = mt5.symbol_info_tick(position.symbol)
+    if tick is None:
+        print(f"cannot close bad fill ticket={position.ticket}: no live tick ({reason})")
+        return False
+    is_buy_position = position.type == mt5.POSITION_TYPE_BUY
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": position.symbol,
+        "position": position.ticket,
+        "volume": position.volume,
+        "type": mt5.ORDER_TYPE_SELL if is_buy_position else mt5.ORDER_TYPE_BUY,
+        "price": tick.bid if is_buy_position else tick.ask,
+        "deviation": SLIPPAGE,
+        "magic": MAGIC,
+        "comment": "AurumAI risk-close",
+        "type_time": mt5.ORDER_TIME_GTC,
+    }
+    res = _send_with_supported_filling(req)
+    if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+        print(f"closed bad fill ticket={position.ticket}: {reason}")
+        return True
+    print(f"FAILED to close bad fill ticket={position.ticket}: {reason}; retcode={res.retcode if res else 'None'} {res.comment if res else ''}")
+    return False
+
+
+def _modify_position_stops(position, sl: float, tp: float) -> bool:
+    req = {
+        "action": mt5.TRADE_ACTION_SLTP,
+        "symbol": position.symbol,
+        "position": position.ticket,
+        "sl": sl,
+        "tp": tp,
+        "magic": MAGIC,
+        "comment": "AurumAI RR-fix",
+    }
+    res = mt5.order_send(req)
+    if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+        return True
+    print(f"SLTP modify failed ticket={position.ticket}: retcode={res.retcode if res else 'None'} {res.comment if res else ''}")
+    return False
 
 
 def _send_with_supported_filling(req: dict):
@@ -388,6 +431,42 @@ def execute_signal(sig: dict) -> bool:
         filled_price = float(position.price_open)
         live_sl = float(position.sl or 0)
         live_tp = float(position.tp or 0)
+
+        if sig_entry > 0:
+            fill_drift = abs((filled_price - sig_entry) / sig_entry)
+            if fill_drift < 0.05 and fill_drift > MAX_ENTRY_DRIFT_PCT:
+                reason = f"bad MT5 fill: filled={filled_price} vs signal_entry={sig_entry} drift={fill_drift*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%"
+                _close_position(position, reason)
+                report_trade_failure(sig, symbol, reason, ticket)
+                return False
+
+        fixed = _normalize_stops(symbol, is_buy, filled_price, sig_sl, sig_tp, sig_entry, spread)
+        if fixed is None:
+            reason = "could not recalculate SL/TP after fill"
+            _close_position(position, reason)
+            report_trade_failure(sig, symbol, reason, ticket)
+            return False
+        fixed_sl, fixed_tp = fixed
+        fixed_rr = abs(fixed_tp - filled_price) / max(abs(filled_price - fixed_sl), info.point or 0.00001)
+        if fixed_rr < MIN_RISK_REWARD or (is_buy and not (fixed_sl < filled_price < fixed_tp)) or ((not is_buy) and not (fixed_tp < filled_price < fixed_sl)):
+            reason = f"post-fill SL/TP invalid: fill={filled_price} sl={fixed_sl} tp={fixed_tp} RR={fixed_rr:.2f}"
+            _close_position(position, reason)
+            report_trade_failure(sig, symbol, reason, ticket)
+            return False
+        if abs(live_sl - fixed_sl) >= (info.point or 0.00001) or abs(live_tp - fixed_tp) >= (info.point or 0.00001):
+            if not _modify_position_stops(position, fixed_sl, fixed_tp):
+                reason = f"broker accepted entry but rejected safe SL/TP: fill={filled_price} sl={fixed_sl} tp={fixed_tp}"
+                _close_position(position, reason)
+                report_trade_failure(sig, symbol, reason, ticket)
+                return False
+            refreshed = _find_position_after_fill(symbol, ticket, sig_id, allow_latest=False)
+            if refreshed is not None:
+                position = refreshed
+                live_sl = float(position.sl or fixed_sl)
+                live_tp = float(position.tp or fixed_tp)
+            else:
+                live_sl = fixed_sl
+                live_tp = fixed_tp
         if live_sl <= 0 or live_tp <= 0:
             print(f"Filled {sig['side']} {symbol} ticket={ticket}, but broker did not attach SL/TP; requested sl={sl} tp={tp}")
         else:

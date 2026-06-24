@@ -34,6 +34,8 @@ const SPECS: Record<string, SymbolSpec> = {
   XAUUSD: XAU,
 };
 
+export const MIN_EXECUTION_RR = 2.0;
+
 export function getSymbolSpec(symbol: string): SymbolSpec {
   return SPECS[symbol] ?? FX5;
 }
@@ -138,7 +140,7 @@ export function normalizeOrderPlan(args: {
   const spread = Math.max(estimatedSpread(symbol, entry), spec.point * 2);
   const minSL = Math.max(spec.minStopDistance, spread * 2, spec.point * 10);
   const minTP = Math.max(spec.minStopDistance, spread * 3, spec.point * 10);
-  const rrKeep = origRR > 0.5 ? origRR : 1.8;
+  const rrKeep = Math.max(MIN_EXECUTION_RR, origRR > 0.5 ? origRR : MIN_EXECUTION_RR);
   if (Math.abs(entry - sl) < minSL) {
     const newSL = side === "BUY" ? entry - minSL : entry + minSL;
     sl = newSL;
@@ -170,6 +172,10 @@ export function normalizeOrderPlan(args: {
   }
   if (Math.abs(entry - sl) < minSL - 1e-9 || Math.abs(tp - entry) < minTP - 1e-9) {
     return { ok: false, code: "stops_too_close", reason: `Stops below spread-aware min SL ${minSL.toFixed(spec.digits)} / TP ${minTP.toFixed(spec.digits)}` };
+  }
+  const finalRR = Math.abs(tp - entry) / Math.max(Math.abs(entry - sl), spec.point);
+  if (finalRR < MIN_EXECUTION_RR) {
+    return { ok: false, code: "stops_too_close", reason: `TP/SL ratio ${finalRR.toFixed(2)} below minimum ${MIN_EXECUTION_RR.toFixed(1)}` };
   }
 
   // Volume
