@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BRIDGE_VERSION = 2026062404                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026062405                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
@@ -36,10 +36,10 @@ POLL_SEC     = 0.2                                # turbo polling; server also r
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
-MAX_ENTRY_DRIFT_PCT = 0.0003                      # 0.03% — reject if live price moved too far from signal entry in either direction
-MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
-MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
-MIN_RISK_REWARD = 2.0                             # all pairs: TP must be at least 2× SL distance
+MAX_ENTRY_DRIFT_PCT = 0.0008                      # 0.08% — drift tolerance before rejecting stale signal
+MIN_TP_SPREAD_MULT = 2.0                          # TP must be at least 2× live spread from entry
+MIN_SL_SPREAD_MULT = 1.5                          # SL must be at least 1.5× live spread from entry
+MIN_RISK_REWARD = 1.2                             # all pairs: TP must be at least 1.2× SL distance
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -214,7 +214,7 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     original_tp_dist = abs(sig_entry - tp) if sig_entry > 0 else abs(price - tp)
     rr = original_tp_dist / max(original_sl_dist, point)
     if not (MIN_RISK_REWARD <= rr <= 6.0):
-        rr = 2.0
+        rr = MIN_RISK_REWARD
 
     # Always rebuild SL/TP around the actual broker fill price. If we keep the
     # old dashboard TP after price has moved, SELL entries can end up with a TP
