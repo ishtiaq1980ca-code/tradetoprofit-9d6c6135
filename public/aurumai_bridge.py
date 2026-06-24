@@ -31,10 +31,11 @@ BRIDGE_TOKEN = ""                                 # paste your active Bridge tok
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 2                                  # how often to poll for new signals
+POLL_SEC     = 1                                  # how often to poll for new signals
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
+MAX_ENTRY_DRIFT_PCT = 0.0015                      # 0.15% — reject fills if live price drifted too far from signal entry
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
