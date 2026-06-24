@@ -29,6 +29,7 @@ type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
+let scanInFlight = false;
 
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
@@ -118,7 +119,7 @@ export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 8_000,
+      scanIntervalMs: 2_000,
       minConfidence: 65,
       riskPct: 3,
       maxDailyLossPct: 5,
@@ -189,7 +190,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 5,
+      version: 6,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -199,6 +200,9 @@ export const useBot = create<BotStore>()(
           // v4: enable FX currency pairs alongside XAUUSD
           if (version < 4 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
             persisted.enabledSymbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"];
+          }
+          if (version < 6 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 2_000) {
+            persisted.scanIntervalMs = 2_000;
           }
         }
         return persisted;
