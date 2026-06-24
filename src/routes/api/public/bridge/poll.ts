@@ -41,8 +41,8 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           }
         }
 
-        const freshCutoff = new Date(Date.now() - 30_000).toISOString();
-        const retryCutoff = new Date(Date.now() - 8_000).toISOString();
+        const freshCutoff = new Date(Date.now() - 20_000).toISOString();
+        const retryCutoff = new Date(Date.now() - 3_000).toISOString();
         await supabaseAdmin
           .from("signals")
           .update({ status: "expired" })
@@ -68,7 +68,7 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           .eq("status", "pending")
           .gte("created_at", freshCutoff)
           .order("created_at", { ascending: true })
-          .limit(6);
+          .limit(20);
 
         if (signals?.length) {
           await supabaseAdmin
