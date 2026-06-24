@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BRIDGE_VERSION = 2026062404                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026062405                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
@@ -36,7 +36,8 @@ POLL_SEC     = 0.2                                # turbo polling; server also r
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
-MAX_ENTRY_DRIFT_PCT = 0.0003                      # 0.03% — reject if live price moved too far from signal entry in either direction
+MAX_ADVERSE_ENTRY_DRIFT_PCT = 0.0005              # 0.05% adverse move allowed before rejecting stale entries
+MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0025            # 0.25% favorable move allowed; SL/TP are rebuilt around live MT5 fill
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 2.0                             # all pairs: TP must be at least 2× SL distance
@@ -228,6 +229,39 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     return round(sl, digits), round(tp, digits)
 
 
+def _entry_drift_reject_reason(is_buy: bool, live_price: float, sig_entry: float,
+                               sig_sl: float, spread: float, label: str) -> str | None:
+    """Reject only genuinely stale/bad prices.
+
+    The old bridge used one tiny 0.03% drift limit in both directions. That
+    blocked valid momentum fills after the price moved in the trade's favor.
+    We now keep adverse moves tight, allow larger favorable moves, and still
+    rebuild SL/TP around the actual MT5 price so TP stays spread-aware.
+    """
+    if sig_entry <= 0 or live_price <= 0:
+        return None
+    drift = (live_price - sig_entry) / sig_entry
+    if abs(drift) >= 0.05:
+        return None  # different quote scale / broker symbol variant; stop normalization handles it
+
+    # If price has already invalidated the idea by crossing the original SL,
+    # do not chase it. Favorable movement is allowed up to the wider limit.
+    if (is_buy and live_price <= sig_sl) or ((not is_buy) and live_price >= sig_sl):
+        return f"stale signal: {label}={live_price} already crossed original SL {sig_sl}"
+
+    adverse = (is_buy and drift < 0) or ((not is_buy) and drift > 0)
+    base_limit = MAX_ADVERSE_ENTRY_DRIFT_PCT if adverse else MAX_FAVORABLE_ENTRY_DRIFT_PCT
+    spread_pct = abs(spread / sig_entry) if sig_entry > 0 else 0
+    limit = max(base_limit, spread_pct * (4 if adverse else 10))
+    if abs(drift) > limit:
+        direction = "adverse" if adverse else "favorable"
+        return (
+            f"stale signal: {label}={live_price} vs signal_entry={sig_entry} "
+            f"{direction}_drift={abs(drift)*100:.3f}% > {limit*100:.2f}%"
+        )
+    return None
+
+
 def report_trade_failure(sig: dict, symbol: str, reason: str, mt5_ticket: int | None = None):
     print(f"trade failed {sig.get('side')} {symbol}: {reason}")
     _post_json("/api/public/bridge/trades", {
@@ -383,19 +417,12 @@ def execute_signal(sig: dict) -> bool:
             report_trade_failure(sig, symbol, f"invalid SELL plan: tp={sig_tp} entry={sig_entry} sl={sig_sl}")
             return False
 
-    # Reject stale fills in BOTH directions. If price runs toward TP before MT5
-    # fills, opening late is still a bad chase trade with tiny remaining TP.
+    # Reject stale fills adaptively. Adverse moves stay tight; favorable moves
+    # are allowed because SL/TP are rebuilt around the live MT5 entry below.
     if sig_entry > 0:
-        drift = (price - sig_entry) / sig_entry
-        same_scale = abs(drift) < 0.05  # different scale = different broker symbol, handled by _normalize_stops
-        if same_scale and abs(drift) > MAX_ENTRY_DRIFT_PCT:
-            report_trade_failure(
-                sig, symbol,
-                f"stale signal: live={price} vs signal_entry={sig_entry} drift={abs(drift)*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
-            )
-            return False
-        if same_scale and ((is_buy and price >= sig_tp) or ((not is_buy) and price <= sig_tp)):
-            report_trade_failure(sig, symbol, f"stale signal: live price {price} already passed original TP {sig_tp}")
+        stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
+        if stale_reason:
+            report_trade_failure(sig, symbol, stale_reason)
             return False
     normalized = _normalize_stops(symbol, is_buy, price,
                                   sig_sl, sig_tp,
@@ -454,9 +481,9 @@ def execute_signal(sig: dict) -> bool:
         live_tp = float(position.tp or 0)
 
         if sig_entry > 0:
-            fill_drift = abs((filled_price - sig_entry) / sig_entry)
-            if fill_drift < 0.05 and fill_drift > MAX_ENTRY_DRIFT_PCT:
-                reason = f"bad MT5 fill: filled={filled_price} vs signal_entry={sig_entry} drift={fill_drift*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%"
+            stale_reason = _entry_drift_reject_reason(is_buy, filled_price, sig_entry, sig_sl, spread, "filled")
+            if stale_reason:
+                reason = stale_reason.replace("stale signal", "bad MT5 fill", 1)
                 _close_position(position, reason)
                 report_trade_failure(sig, symbol, reason, ticket)
                 return False
