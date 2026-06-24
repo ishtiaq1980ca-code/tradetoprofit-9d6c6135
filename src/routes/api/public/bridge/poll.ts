@@ -41,8 +41,8 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           }
         }
 
-        const freshCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
-        const retryCutoff = new Date(Date.now() - 20_000).toISOString();
+        const freshCutoff = new Date(Date.now() - 30_000).toISOString();
+        const retryCutoff = new Date(Date.now() - 8_000).toISOString();
         await supabaseAdmin
           .from("signals")
           .update({ status: "expired" })
