@@ -305,9 +305,22 @@ def execute_signal(sig: dict) -> bool:
         return _report_open_position(sig, original_symbol, already_open)
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
+    sig_entry = float(sig.get("entry") or sig.get("price") or 0)
+    # Reject stale fills — if price has drifted past the signal entry by more
+    # than MAX_ENTRY_DRIFT_PCT in the adverse direction, the edge is gone.
+    if sig_entry > 0:
+        drift = (price - sig_entry) / sig_entry
+        adverse = drift if is_buy else -drift  # positive = price moved against us
+        same_scale = abs(drift) < 0.05  # different scale = different broker symbol, handled by _normalize_stops
+        if same_scale and adverse > MAX_ENTRY_DRIFT_PCT:
+            report_trade_failure(
+                sig, symbol,
+                f"stale signal: live={price} vs signal_entry={sig_entry} drift={adverse*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
+            )
+            return False
     normalized = _normalize_stops(symbol, is_buy, price,
                                   float(sig["stop_loss"]), float(sig["take_profit"]),
-                                  float(sig.get("entry") or sig.get("price") or 0))
+                                  sig_entry)
     if normalized is None:
         print(f"symbol_info failed for {symbol}")
         return False
