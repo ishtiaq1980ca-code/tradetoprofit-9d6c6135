@@ -565,7 +565,7 @@ async function runScan() {
       usedLot += finalLot;
     }
 
-    // ---- 3) Heavy logging AFTER order has been fired ----
+    // ---- 3) Logging after order has been queued ----
     if (pos) {
       useDecisionLog.getState().record({
         ...baseLog,
@@ -574,33 +574,15 @@ async function runScan() {
         takeProfit: finalTP,
         lot: finalLot,
         status: "queued",
-        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tSent - tGenerated}ms (waiting for bridge fill confirmation)`,
+        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tAck - tGenerated}ms (db queue ${tAck - tInsertStart}ms, waiting for bridge fill confirmation)`,
       });
       bot.pushLog({
         t: Date.now(),
         level: "info",
-        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tSent - tGenerated}ms)`,
+        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tAck - tGenerated}ms)`,
       });
       toast.success(`Queued to MT5: ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}%`);
     }
-
-    // ---- 4) Resolve queue ack & record latency / failure ----
-    insertPromise.then(({ data, error }) => {
-      const tAck = Date.now();
-      if (error) {
-        useExecutionStats.getState().recordFailure({
-          at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
-        });
-        useBot.getState().pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
-        return;
-      }
-      useExecutionStats.getState().recordSent(tAck - tGenerated);
-      useBot.getState().pushLog({
-        t: tAck, level: "info",
-        msg: `Signal queued for MT5 bridge → ${decision.side} ${sym} (${tAck - tGenerated}ms signal→queued)`,
-      });
-      void data;
-    });
   }
 
 
