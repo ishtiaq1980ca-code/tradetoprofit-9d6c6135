@@ -658,8 +658,8 @@ export function BotEngine() {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
-      runScan();
-    }, 2_000);
+      void runScan();
+    }, 500);
     return () => {
       clearInterval(id);
       clearInterval(heartbeatId);
@@ -672,5 +672,5 @@ export function BotEngine() {
 }
 
 export function triggerManualScan() {
-  runScan();
+  void runScan();
 }
