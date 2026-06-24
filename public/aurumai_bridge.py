@@ -32,12 +32,13 @@ MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
 POLL_SEC     = 0.5                                # how often to poll for new signals
-SLIPPAGE     = 20                                 # in points
+SLIPPAGE     = 10                                 # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
-MAX_ENTRY_DRIFT_PCT = 0.0010                      # 0.10% — reject fills if live price drifted too far from signal entry
+MAX_ENTRY_DRIFT_PCT = 0.0003                      # 0.03% — reject if live price moved too far from signal entry in either direction
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
+MIN_RISK_REWARD = 1.5                             # never send trades where TP is tiny compared with SL
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -194,29 +195,16 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     original_sl_dist = abs(sig_entry - sl) if sig_entry > 0 else abs(price - sl)
     original_tp_dist = abs(sig_entry - tp) if sig_entry > 0 else abs(price - tp)
     rr = original_tp_dist / max(original_sl_dist, point)
-    if not (0.8 <= rr <= 6.0):
+    if not (MIN_RISK_REWARD <= rr <= 6.0):
         rr = 2.0
 
-    # If the broker symbol is on a very different price scale (different quote
-    # currency, contract size, etc.), the SL/TP from the dashboard signal will
-    # be meaningless. Rebuild them around the live price preserving the
-    # original SL/TP distance.
-    if sig_entry > 0 and abs(price - sig_entry) / sig_entry > 0.05:
-        sl_dist = abs(sig_entry - sl)
-        tp_dist = abs(sig_entry - tp)
-        sl = price - sl_dist if is_buy else price + sl_dist
-        tp = price + tp_dist if is_buy else price - tp_dist
-
-    # Enforce broker/spread minimum distance. A TP inside the live spread can
-    # appear hit on the chart but not close in MT5 because BUY closes on Bid
-    # and SELL closes on Ask.
-    if is_buy:
-        if price - sl < min_sl_dist: sl = price - min_sl_dist
-    else:
-        if sl - price < min_sl_dist: sl = price + min_sl_dist
-
-    sl_dist = abs(price - sl)
-    tp_dist = max(min_tp_dist, sl_dist * rr)
+    # Always rebuild SL/TP around the actual broker fill price. If we keep the
+    # old dashboard TP after price has moved, SELL entries can end up with a TP
+    # only a few points away while SL remains huge. Re-anchoring preserves the
+    # intended risk distance and guarantees TP is on the profitable side.
+    sl_dist = max(original_sl_dist, min_sl_dist)
+    tp_dist = max(original_tp_dist, min_tp_dist, sl_dist * rr)
+    sl = price - sl_dist if is_buy else price + sl_dist
     tp = price + tp_dist if is_buy else price - tp_dist
 
     return round(sl, digits), round(tp, digits)
@@ -320,25 +308,47 @@ def execute_signal(sig: dict) -> bool:
     price = tick.ask if is_buy else tick.bid
     spread = abs(float(tick.ask) - float(tick.bid))
     sig_entry = float(sig.get("entry") or sig.get("price") or 0)
-    # Reject stale fills — if price has drifted past the signal entry by more
-    # than MAX_ENTRY_DRIFT_PCT in the adverse direction, the edge is gone.
+    sig_sl = float(sig["stop_loss"])
+    sig_tp = float(sig["take_profit"])
+    # Reject malformed or already-consumed signals before MT5 order_send.
+    if sig_entry > 0:
+        if is_buy and not (sig_sl < sig_entry < sig_tp):
+            report_trade_failure(sig, symbol, f"invalid BUY plan: sl={sig_sl} entry={sig_entry} tp={sig_tp}")
+            return False
+        if (not is_buy) and not (sig_tp < sig_entry < sig_sl):
+            report_trade_failure(sig, symbol, f"invalid SELL plan: tp={sig_tp} entry={sig_entry} sl={sig_sl}")
+            return False
+
+    # Reject stale fills in BOTH directions. If price runs toward TP before MT5
+    # fills, opening late is still a bad chase trade with tiny remaining TP.
     if sig_entry > 0:
         drift = (price - sig_entry) / sig_entry
-        adverse = drift if is_buy else -drift  # positive = price moved against us
         same_scale = abs(drift) < 0.05  # different scale = different broker symbol, handled by _normalize_stops
-        if same_scale and adverse > MAX_ENTRY_DRIFT_PCT:
+        if same_scale and abs(drift) > MAX_ENTRY_DRIFT_PCT:
             report_trade_failure(
                 sig, symbol,
-                f"stale signal: live={price} vs signal_entry={sig_entry} drift={adverse*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
+                f"stale signal: live={price} vs signal_entry={sig_entry} drift={abs(drift)*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
             )
             return False
+        if same_scale and ((is_buy and price >= sig_tp) or ((not is_buy) and price <= sig_tp)):
+            report_trade_failure(sig, symbol, f"stale signal: live price {price} already passed original TP {sig_tp}")
+            return False
     normalized = _normalize_stops(symbol, is_buy, price,
-                                  float(sig["stop_loss"]), float(sig["take_profit"]),
+                                  sig_sl, sig_tp,
                                   sig_entry, spread)
     if normalized is None:
         print(f"symbol_info failed for {symbol}")
         return False
     sl, tp = normalized
+    sl_dist = abs(price - sl)
+    tp_dist = abs(tp - price)
+    rr_final = tp_dist / max(sl_dist, info.point or 0.00001)
+    if rr_final < MIN_RISK_REWARD:
+        report_trade_failure(sig, symbol, f"risk/reward too small after normalization: RR={rr_final:.2f} price={price} sl={sl} tp={tp}")
+        return False
+    if (is_buy and not (sl < price < tp)) or ((not is_buy) and not (tp < price < sl)):
+        report_trade_failure(sig, symbol, f"normalized stops invalid: price={price} sl={sl} tp={tp}")
+        return False
     volume = float(sig["lot"])
     min_vol = float(info.volume_min or 0.01)
     step = float(info.volume_step or 0.01)
