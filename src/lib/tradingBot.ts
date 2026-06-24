@@ -280,7 +280,10 @@ export function currentTier(): 500 | 1000 | 2000 | null {
   return detectTier(acc.balance);
 }
 
-function runScan() {
+async function runScan() {
+  if (scanInFlight) return;
+  scanInFlight = true;
+  try {
   const bot = useBot.getState();
   const acc = useAccount.getState();
 
@@ -596,6 +599,9 @@ function runScan() {
   // why the bot didn't fire (throttled — only when nothing opened).
   if (opened === 0 && waitingMsgs.length) {
     bot.pushLog({ t: Date.now(), level: "info", msg: `Waiting — ${waitingMsgs.slice(0, 3).join(" | ")}` });
+  }
+  } finally {
+    scanInFlight = false;
   }
 }
 
