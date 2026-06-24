@@ -31,10 +31,11 @@ BRIDGE_TOKEN = ""                                 # paste your active Bridge tok
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 2                                  # how often to poll for new signals
+POLL_SEC     = 1                                  # how often to poll for new signals
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
+MAX_ENTRY_DRIFT_PCT = 0.0015                      # 0.15% — reject fills if live price drifted too far from signal entry
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -304,9 +305,22 @@ def execute_signal(sig: dict) -> bool:
         return _report_open_position(sig, original_symbol, already_open)
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
+    sig_entry = float(sig.get("entry") or sig.get("price") or 0)
+    # Reject stale fills — if price has drifted past the signal entry by more
+    # than MAX_ENTRY_DRIFT_PCT in the adverse direction, the edge is gone.
+    if sig_entry > 0:
+        drift = (price - sig_entry) / sig_entry
+        adverse = drift if is_buy else -drift  # positive = price moved against us
+        same_scale = abs(drift) < 0.05  # different scale = different broker symbol, handled by _normalize_stops
+        if same_scale and adverse > MAX_ENTRY_DRIFT_PCT:
+            report_trade_failure(
+                sig, symbol,
+                f"stale signal: live={price} vs signal_entry={sig_entry} drift={adverse*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
+            )
+            return False
     normalized = _normalize_stops(symbol, is_buy, price,
                                   float(sig["stop_loss"]), float(sig["take_profit"]),
-                                  float(sig.get("entry") or sig.get("price") or 0))
+                                  sig_entry)
     if normalized is None:
         print(f"symbol_info failed for {symbol}")
         return False
