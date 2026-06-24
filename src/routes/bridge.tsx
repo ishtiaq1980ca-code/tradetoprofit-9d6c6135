@@ -3,7 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Copy, CheckCircle2 } from "lucide-react";
+import { Download, Copy, CheckCircle2, Database, MonitorUp, Radar, ShieldCheck, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLicense } from "@/hooks/useLicense";
@@ -77,6 +77,22 @@ function BridgePage() {
           </CardContent>
         </Card>
 
+        <Card className="border-border/60 bg-card/70">
+          <CardHeader><CardTitle className="text-base">Signal pipeline</CardTitle></CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid gap-3 md:grid-cols-5">
+              <PipelineStep icon={<Radar className="h-4 w-4" />} title="Scan" text="Browser bot scans live candles every 1s." />
+              <PipelineStep icon={<Database className="h-4 w-4" />} title="Queue" text="Accepted signal is written to the backend signals queue." />
+              <PipelineStep icon={<Zap className="h-4 w-4" />} title="Lease" text="Bridge polls every 0.2s and leases fresh pending signals." />
+              <PipelineStep icon={<MonitorUp className="h-4 w-4" />} title="MT5" text="Python sends the order directly into the local MT5 terminal." />
+              <PipelineStep icon={<ShieldCheck className="h-4 w-4" />} title="Confirm" text="MT5 fill, SL and TP are reported back to the dashboard." />
+            </div>
+            <div className="rounded-md border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-muted-foreground">
+              Signals do not go directly from the website to MT5 because MT5 runs on your Windows machine. The backend queue is the handoff point; the updated bridge keeps one HTTPS session open, polls faster, skips MT5 pre-check round trips, and refuses old bridge versions that can create bad SL/TP.
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-bear/30 bg-card/70">
           <CardHeader><CardTitle className="text-base text-bear">Safety notes</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
@@ -112,6 +128,18 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
         <div className="font-medium">{title}</div>
         <div className="text-sm text-muted-foreground">{children}</div>
       </div>
+    </div>
+  );
+}
+
+function PipelineStep({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40 p-3">
+      <div className="mb-2 flex items-center gap-2 text-gold">
+        {icon}
+        <span className="text-xs font-semibold uppercase tracking-wider">{title}</span>
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">{text}</p>
     </div>
   );
 }

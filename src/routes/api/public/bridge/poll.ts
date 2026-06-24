@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
 const MIN_BRIDGE_RR = 2.0;
+const MIN_BRIDGE_VERSION = 2026062404;
 
 function signalRiskError(signal: any): string | null {
   const side = signal.side;
@@ -22,6 +23,19 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
       GET: async ({ request }) => {
         const unauth = await checkBridgeAuth(request);
         if (unauth) return unauth;
+        const bridgeVersion = Number(request.headers.get("x-aurum-bridge-version") ?? 0);
+        if (!Number.isFinite(bridgeVersion) || bridgeVersion < MIN_BRIDGE_VERSION) {
+          return Response.json(
+            {
+              enabled: false,
+              reason: "bridge_update_required",
+              requiredVersion: MIN_BRIDGE_VERSION,
+              message: "Download the latest aurumai_bridge.py from the MT5 Bridge page.",
+              signals: [],
+            },
+            { status: 426 },
+          );
+        }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: settings } = await supabaseAdmin.from("bot_settings").select("*").eq("id", 1).maybeSingle();
         if (!settings?.enabled) return Response.json({ enabled: false, signals: [] });
@@ -31,7 +45,7 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
         // offline or the old script is still running and trades would be missed.
         const { data: latestSnap } = await supabaseAdmin
           .from("account_snapshots")
-          .select("created_at")
+          .select("balance,daily_pnl,created_at")
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -42,15 +56,8 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
 
         // Daily loss kill switch
         const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-        const { data: snaps } = await supabaseAdmin
-          .from("account_snapshots")
-          .select("balance,daily_pnl,created_at")
-          .gte("created_at", today.toISOString())
-          .order("created_at", { ascending: false })
-          .limit(1);
-        const snap = snaps?.[0];
-        if (snap && snap.balance > 0) {
-          const lossPct = -(Number(snap.daily_pnl) / Number(snap.balance)) * 100;
+        if (latestSnap?.created_at && new Date(latestSnap.created_at) >= today && Number(latestSnap.balance) > 0) {
+          const lossPct = -(Number(latestSnap.daily_pnl) / Number(latestSnap.balance)) * 100;
           if (lossPct >= Number(settings.max_daily_loss)) {
             return Response.json({ enabled: false, reason: "daily_loss_limit", signals: [] });
           }
