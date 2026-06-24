@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { isFxCurrencyPair } from "./pairProfiles";
+import { estimatedSpread } from "./tradeFilters";
 
 // --------------------------- Symbol specs ---------------------------------
 
@@ -131,26 +132,30 @@ export function normalizeOrderPlan(args: {
   sl = side === "BUY" ? entry - slDist : entry + slDist;
   tp = side === "BUY" ? entry + tpDist : entry - tpDist;
 
-  // Enforce broker minimum stop distance
-  const min = spec.minStopDistance;
+  // Enforce broker/spread minimum distances. MT5 BUY positions close at Bid
+  // and SELL positions close at Ask, so TP must cover spread or chart touch
+  // may not close the broker position.
+  const spread = Math.max(estimatedSpread(symbol, entry), spec.point * 2);
+  const minSL = Math.max(spec.minStopDistance, spread * 2, spec.point * 10);
+  const minTP = Math.max(spec.minStopDistance, spread * 3, spec.point * 10);
   const rrKeep = origRR > 0.5 ? origRR : 1.8;
-  if (Math.abs(entry - sl) < min) {
-    const newSL = side === "BUY" ? entry - min : entry + min;
+  if (Math.abs(entry - sl) < minSL) {
+    const newSL = side === "BUY" ? entry - minSL : entry + minSL;
     sl = newSL;
     adjusted = true;
-    notes.push(`SL widened to broker min distance (${min})`);
+    notes.push(`SL widened to spread-aware min (${minSL.toFixed(spec.digits)})`);
   }
   // ALWAYS re-derive TP from the (possibly widened) SL distance so RR is
   // preserved. Prevents the "TP=2pts / SL=12pts" inversion when SL gets
   // widened to the broker min but TP stays at its original tiny distance.
   {
     const slDistFinal = Math.abs(entry - sl);
-    const tpDistFinal = Math.max(min, slDistFinal * rrKeep);
+    const tpDistFinal = Math.max(minTP, slDistFinal * rrKeep);
     const newTP = side === "BUY" ? entry + tpDistFinal : entry - tpDistFinal;
     if (Math.abs(newTP - tp) > spec.point / 2) {
       tp = newTP;
       adjusted = true;
-      notes.push(`TP rebuilt from final SL to preserve R:R ${rrKeep.toFixed(2)}`);
+      notes.push(`TP rebuilt to cover spread and preserve R:R ${rrKeep.toFixed(2)}`);
     }
   }
 
@@ -163,8 +168,8 @@ export function normalizeOrderPlan(args: {
   if (side === "SELL" && !(sl > entry && tp < entry)) {
     return { ok: false, code: "invalid_tp", reason: "SELL normalized SL/TP collapsed" };
   }
-  if (Math.abs(entry - sl) < min - 1e-9 || Math.abs(tp - entry) < min - 1e-9) {
-    return { ok: false, code: "stops_too_close", reason: `Stops below broker min ${min}` };
+  if (Math.abs(entry - sl) < minSL - 1e-9 || Math.abs(tp - entry) < minTP - 1e-9) {
+    return { ok: false, code: "stops_too_close", reason: `Stops below spread-aware min SL ${minSL.toFixed(spec.digits)} / TP ${minTP.toFixed(spec.digits)}` };
   }
 
   // Volume
