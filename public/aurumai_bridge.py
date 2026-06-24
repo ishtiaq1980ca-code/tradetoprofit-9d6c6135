@@ -26,12 +26,13 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
+BRIDGE_VERSION = 2026062404                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 0.5                                # how often to poll for new signals
+POLL_SEC     = 0.2                                # turbo polling; server also rejects stale fills
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
@@ -49,13 +50,15 @@ SYMBOL_OVERRIDES = {
 }
 # ==================================
 
-HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
+HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}", "X-Aurum-Bridge-Version": str(BRIDGE_VERSION)}
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 
 
 def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
     """Post to the dashboard and print server-side validation errors."""
     try:
-        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=HEADERS, timeout=timeout)
+        r = SESSION.post(f"{BASE_URL}{path}", json=payload, timeout=timeout)
         if not r.ok:
             print(f"POST {path} HTTP {r.status_code}: {r.text[:240]}")
             return False
@@ -63,6 +66,20 @@ def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
     except Exception as e:
         print(f"POST {path} failed: {e}")
         return False
+
+
+def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
+    """GET JSON through one persistent HTTPS session for lower latency."""
+    try:
+        r = SESSION.get(f"{BASE_URL}{path}", timeout=timeout)
+        if not r.ok:
+            return False, None, f"HTTP {r.status_code}: {r.text[:160]}"
+        try:
+            return True, r.json(), ""
+        except Exception:
+            return False, None, f"non-JSON response. Check BASE_URL; current value is {BASE_URL}"
+    except Exception as e:
+        return False, None, str(e)
 
 
 def connect_mt5() -> bool:
@@ -270,23 +287,26 @@ def _modify_position_stops(position, sl: float, tp: float) -> bool:
 
 
 def _send_with_supported_filling(req: dict):
-    # Brokers differ by symbol: some reject IOC/FOK with retcode 10030.
-    # Try all common fill policies without delaying order placement.
+    # Brokers differ by symbol: some reject IOC/FOK with retcode 10030. Send
+    # directly and cache the working fill policy; order_check adds avoidable MT5
+    # round-trips and increases entry drift.
+    symbol = req.get("symbol")
+    cached = _FILLING_CACHE.get(symbol) if symbol else None
+    policies = []
+    if cached is not None:
+        policies.append(cached)
+    for p in (mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN):
+        if p not in policies:
+            policies.append(p)
     tried = []
-    for filling in (mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN):
+    res = None
+    for filling in policies:
         req["type_filling"] = filling
         tried.append(str(filling))
-        check = mt5.order_check(req)
-        if check is None:
-            print(f"order_check failed for filling={filling}: {mt5.last_error()}")
-            continue
-        if check.retcode not in (0, mt5.TRADE_RETCODE_DONE):
-            if check.retcode in (10030, 10018):
-                continue
-            print(f"order_check rejected filling={filling}: {check.retcode} {check.comment}")
-            return check
         res = mt5.order_send(req)
         if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+            if symbol:
+                _FILLING_CACHE[symbol] = filling
             return res
         if res is not None and res.retcode not in (10030, 10018):
             return res
@@ -523,30 +543,23 @@ def sync_closed_trades():
 def main():
     if not connect_mt5():
         sys.exit(1)
-    print(f"AurumAI bridge online, polling {BASE_URL} every {POLL_SEC}s")
+    print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     last_acct = 0
+    last_closed_sync = 0
     while True:
         try:
             if not mt5_ready():
                 time.sleep(POLL_SEC)
                 continue
 
-            # Send a fresh heartbeat before taking any signal lease. If this
-            # stops updating, the dashboard correctly shows MT5 as stale and
-            # the browser bot will pause new queues instead of pretending the
-            # trade was executed.
+            # Keep a recent heartbeat, but do not let account/history sync sit
+            # in front of signal polling; that was adding avoidable delay.
             if time.time() - last_acct > 15:
                 report_account()
-                sync_closed_trades()
                 last_acct = time.time()
 
-            r = requests.get(f"{BASE_URL}/api/public/bridge/poll", headers=HEADERS, timeout=10)
-            if r.ok:
-                try:
-                    data = r.json()
-                except Exception:
-                    print(f"poll returned non-JSON. Check BASE_URL; current value is {BASE_URL}")
-                    data = {"enabled": False, "signals": []}
+            ok, data, err = _get_json("/api/public/bridge/poll", timeout=5)
+            if ok and data is not None:
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
@@ -556,7 +569,11 @@ def main():
                 elif data.get("reason"):
                     print(f"Bot disabled by server: {data['reason']}")
             else:
-                print(f"poll HTTP {r.status_code}: {r.text[:160]}")
+                print(f"poll failed: {err}")
+
+            if time.time() - last_closed_sync > 60:
+                sync_closed_trades()
+                last_closed_sync = time.time()
         except Exception as e:
             print(f"poll failed: {e}")
 
