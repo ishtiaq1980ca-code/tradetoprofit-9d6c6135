@@ -514,10 +514,10 @@ async function runScan() {
     const finalTP = norm.takeProfit;
     const finalLot = norm.lot;
 
-    // ---- 1) Fire the order to the MT5 bridge FIRST (minimum latency) ----
+    // ---- 1) Queue the order for MT5 bridge and wait for DB ack ----
     const tGenerated = decision.generatedAt;
-    const tSent = Date.now();
-    const insertPromise = supabase
+    const tInsertStart = Date.now();
+    const { error } = await supabase
       .from("signals")
       .insert({
         symbol: sym,
@@ -532,7 +532,19 @@ async function runScan() {
         status: "pending",
       });
 
-    // ---- 2) Update local paper position (optimistic) ----
+    const tAck = Date.now();
+    if (error) {
+      useExecutionStats.getState().recordFailure({
+        at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
+      });
+      useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  MT5-QUEUE-FAILED ${error.message}` });
+      bot.pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
+      waitingMsgs.push(`${sym}: queue failed`);
+      continue;
+    }
+    useExecutionStats.getState().recordSent(tAck - tGenerated);
+
+    // ---- 2) Update local paper position after queue success ----
     const pos = acc.open({
       symbol: sym,
       side: decision.side,
