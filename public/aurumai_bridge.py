@@ -417,19 +417,12 @@ def execute_signal(sig: dict) -> bool:
             report_trade_failure(sig, symbol, f"invalid SELL plan: tp={sig_tp} entry={sig_entry} sl={sig_sl}")
             return False
 
-    # Reject stale fills in BOTH directions. If price runs toward TP before MT5
-    # fills, opening late is still a bad chase trade with tiny remaining TP.
+    # Reject stale fills adaptively. Adverse moves stay tight; favorable moves
+    # are allowed because SL/TP are rebuilt around the live MT5 entry below.
     if sig_entry > 0:
-        drift = (price - sig_entry) / sig_entry
-        same_scale = abs(drift) < 0.05  # different scale = different broker symbol, handled by _normalize_stops
-        if same_scale and abs(drift) > MAX_ENTRY_DRIFT_PCT:
-            report_trade_failure(
-                sig, symbol,
-                f"stale signal: live={price} vs signal_entry={sig_entry} drift={abs(drift)*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%",
-            )
-            return False
-        if same_scale and ((is_buy and price >= sig_tp) or ((not is_buy) and price <= sig_tp)):
-            report_trade_failure(sig, symbol, f"stale signal: live price {price} already passed original TP {sig_tp}")
+        stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
+        if stale_reason:
+            report_trade_failure(sig, symbol, stale_reason)
             return False
     normalized = _normalize_stops(symbol, is_buy, price,
                                   sig_sl, sig_tp,
@@ -488,9 +481,9 @@ def execute_signal(sig: dict) -> bool:
         live_tp = float(position.tp or 0)
 
         if sig_entry > 0:
-            fill_drift = abs((filled_price - sig_entry) / sig_entry)
-            if fill_drift < 0.05 and fill_drift > MAX_ENTRY_DRIFT_PCT:
-                reason = f"bad MT5 fill: filled={filled_price} vs signal_entry={sig_entry} drift={fill_drift*100:.3f}% > {MAX_ENTRY_DRIFT_PCT*100:.2f}%"
+            stale_reason = _entry_drift_reject_reason(is_buy, filled_price, sig_entry, sig_sl, spread, "filled")
+            if stale_reason:
+                reason = stale_reason.replace("stale signal", "bad MT5 fill", 1)
                 _close_position(position, reason)
                 report_trade_failure(sig, symbol, reason, ticket)
                 return False
