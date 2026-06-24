@@ -29,6 +29,7 @@ type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
+let scanInFlight = false;
 
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
@@ -118,7 +119,7 @@ export const useBot = create<BotStore>()(
   persist(
     (set, get) => ({
       enabled: false,
-      scanIntervalMs: 8_000,
+      scanIntervalMs: 2_000,
       minConfidence: 65,
       riskPct: 3,
       maxDailyLossPct: 5,
@@ -189,7 +190,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 5,
+      version: 6,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -199,6 +200,9 @@ export const useBot = create<BotStore>()(
           // v4: enable FX currency pairs alongside XAUUSD
           if (version < 4 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
             persisted.enabledSymbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"];
+          }
+          if (version < 6 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 2_000) {
+            persisted.scanIntervalMs = 2_000;
           }
         }
         return persisted;
@@ -276,7 +280,10 @@ export function currentTier(): 500 | 1000 | 2000 | null {
   return detectTier(acc.balance);
 }
 
-function runScan() {
+async function runScan() {
+  if (scanInFlight) return;
+  scanInFlight = true;
+  try {
   const bot = useBot.getState();
   const acc = useAccount.getState();
 
@@ -507,10 +514,10 @@ function runScan() {
     const finalTP = norm.takeProfit;
     const finalLot = norm.lot;
 
-    // ---- 1) Fire the order to the MT5 bridge FIRST (minimum latency) ----
+    // ---- 1) Queue the order for MT5 bridge and wait for DB ack ----
     const tGenerated = decision.generatedAt;
-    const tSent = Date.now();
-    const insertPromise = supabase
+    const tInsertStart = Date.now();
+    const { error } = await supabase
       .from("signals")
       .insert({
         symbol: sym,
@@ -525,7 +532,19 @@ function runScan() {
         status: "pending",
       });
 
-    // ---- 2) Update local paper position (optimistic) ----
+    const tAck = Date.now();
+    if (error) {
+      useExecutionStats.getState().recordFailure({
+        at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
+      });
+      useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  MT5-QUEUE-FAILED ${error.message}` });
+      bot.pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
+      waitingMsgs.push(`${sym}: queue failed`);
+      continue;
+    }
+    useExecutionStats.getState().recordSent(tAck - tGenerated);
+
+    // ---- 2) Update local paper position after queue success ----
     const pos = acc.open({
       symbol: sym,
       side: decision.side,
@@ -546,7 +565,7 @@ function runScan() {
       usedLot += finalLot;
     }
 
-    // ---- 3) Heavy logging AFTER order has been fired ----
+    // ---- 3) Logging after order has been queued ----
     if (pos) {
       useDecisionLog.getState().record({
         ...baseLog,
@@ -555,33 +574,15 @@ function runScan() {
         takeProfit: finalTP,
         lot: finalLot,
         status: "queued",
-        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tSent - tGenerated}ms (waiting for bridge fill confirmation)`,
+        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tAck - tGenerated}ms (db queue ${tAck - tInsertStart}ms, waiting for bridge fill confirmation)`,
       });
       bot.pushLog({
         t: Date.now(),
         level: "info",
-        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tSent - tGenerated}ms)`,
+        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tAck - tGenerated}ms)`,
       });
       toast.success(`Queued to MT5: ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}%`);
     }
-
-    // ---- 4) Resolve queue ack & record latency / failure ----
-    insertPromise.then(({ data, error }) => {
-      const tAck = Date.now();
-      if (error) {
-        useExecutionStats.getState().recordFailure({
-          at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
-        });
-        useBot.getState().pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
-        return;
-      }
-      useExecutionStats.getState().recordSent(tAck - tGenerated);
-      useBot.getState().pushLog({
-        t: tAck, level: "info",
-        msg: `Signal queued for MT5 bridge → ${decision.side} ${sym} (${tAck - tGenerated}ms signal→queued)`,
-      });
-      void data;
-    });
   }
 
 
@@ -592,6 +593,9 @@ function runScan() {
   // why the bot didn't fire (throttled — only when nothing opened).
   if (opened === 0 && waitingMsgs.length) {
     bot.pushLog({ t: Date.now(), level: "info", msg: `Waiting — ${waitingMsgs.slice(0, 3).join(" | ")}` });
+  }
+  } finally {
+    scanInFlight = false;
   }
 }
 
@@ -654,8 +658,8 @@ export function BotEngine() {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
-      runScan();
-    }, 2_000);
+      void runScan();
+    }, 500);
     return () => {
       clearInterval(id);
       clearInterval(heartbeatId);
@@ -668,5 +672,5 @@ export function BotEngine() {
 }
 
 export function triggerManualScan() {
-  runScan();
+  void runScan();
 }
