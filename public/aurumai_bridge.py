@@ -31,11 +31,13 @@ BRIDGE_TOKEN = ""                                 # paste your active Bridge tok
 MT5_LOGIN    = 0                                  # your MT5 demo account number
 MT5_PASS     = ""                                 # your MT5 password
 MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
-POLL_SEC     = 1                                  # how often to poll for new signals
+POLL_SEC     = 0.5                                # how often to poll for new signals
 SLIPPAGE     = 20                                 # in points
 MAGIC        = 770077                             # unique magic number for AurumAI trades
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
-MAX_ENTRY_DRIFT_PCT = 0.0015                      # 0.15% — reject fills if live price drifted too far from signal entry
+MAX_ENTRY_DRIFT_PCT = 0.0010                      # 0.10% — reject fills if live price drifted too far from signal entry
+MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
+MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -180,13 +182,20 @@ def resolve_symbol(original: str) -> str | None:
 
 
 def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: float,
-                     sig_entry: float) -> tuple[float, float] | None:
+                     sig_entry: float, spread: float) -> tuple[float, float] | None:
     info = mt5.symbol_info(symbol)
     if info is None:
         return None
     point = info.point or 0.01
     digits = info.digits or 2
     min_dist = max(info.trade_stops_level, 10) * point  # broker minimum
+    min_sl_dist = max(min_dist, spread * MIN_SL_SPREAD_MULT, point * 10)
+    min_tp_dist = max(min_dist, spread * MIN_TP_SPREAD_MULT, point * 10)
+    original_sl_dist = abs(sig_entry - sl) if sig_entry > 0 else abs(price - sl)
+    original_tp_dist = abs(sig_entry - tp) if sig_entry > 0 else abs(price - tp)
+    rr = original_tp_dist / max(original_sl_dist, point)
+    if not (0.8 <= rr <= 6.0):
+        rr = 2.0
 
     # If the broker symbol is on a very different price scale (different quote
     # currency, contract size, etc.), the SL/TP from the dashboard signal will
@@ -198,13 +207,17 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
         sl = price - sl_dist if is_buy else price + sl_dist
         tp = price + tp_dist if is_buy else price - tp_dist
 
-    # Enforce broker minimum distance
+    # Enforce broker/spread minimum distance. A TP inside the live spread can
+    # appear hit on the chart but not close in MT5 because BUY closes on Bid
+    # and SELL closes on Ask.
     if is_buy:
-        if price - sl < min_dist: sl = price - min_dist
-        if tp - price < min_dist: tp = price + min_dist
+        if price - sl < min_sl_dist: sl = price - min_sl_dist
     else:
-        if sl - price < min_dist: sl = price + min_dist
-        if price - tp < min_dist: tp = price - min_dist
+        if sl - price < min_sl_dist: sl = price + min_sl_dist
+
+    sl_dist = abs(price - sl)
+    tp_dist = max(min_tp_dist, sl_dist * rr)
+    tp = price + tp_dist if is_buy else price - tp_dist
 
     return round(sl, digits), round(tp, digits)
 
@@ -305,6 +318,7 @@ def execute_signal(sig: dict) -> bool:
         return _report_open_position(sig, original_symbol, already_open)
     is_buy = sig["side"] == "BUY"
     price = tick.ask if is_buy else tick.bid
+    spread = abs(float(tick.ask) - float(tick.bid))
     sig_entry = float(sig.get("entry") or sig.get("price") or 0)
     # Reject stale fills — if price has drifted past the signal entry by more
     # than MAX_ENTRY_DRIFT_PCT in the adverse direction, the edge is gone.
@@ -320,7 +334,7 @@ def execute_signal(sig: dict) -> bool:
             return False
     normalized = _normalize_stops(symbol, is_buy, price,
                                   float(sig["stop_loss"]), float(sig["take_profit"]),
-                                  sig_entry)
+                                  sig_entry, spread)
     if normalized is None:
         print(f"symbol_info failed for {symbol}")
         return False
@@ -447,6 +461,9 @@ def main():
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
+                    # Poll again immediately after a burst so queued signals do
+                    # not wait for another sleep cycle.
+                    continue
                 elif data.get("reason"):
                     print(f"Bot disabled by server: {data['reason']}")
             else:
