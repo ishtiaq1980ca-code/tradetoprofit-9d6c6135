@@ -214,7 +214,7 @@ def _normalize_stops(symbol: str, is_buy: bool, price: float, sl: float, tp: flo
     original_tp_dist = abs(sig_entry - tp) if sig_entry > 0 else abs(price - tp)
     rr = original_tp_dist / max(original_sl_dist, point)
     if not (MIN_RISK_REWARD <= rr <= 6.0):
-        rr = 2.0
+        rr = MIN_RISK_REWARD
 
     # Always rebuild SL/TP around the actual broker fill price. If we keep the
     # old dashboard TP after price has moved, SELL entries can end up with a TP
