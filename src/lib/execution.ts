@@ -138,8 +138,8 @@ export function normalizeOrderPlan(args: {
   // and SELL positions close at Ask, so TP must cover spread or chart touch
   // may not close the broker position.
   const spread = Math.max(estimatedSpread(symbol, entry), spec.point * 2);
-  const minSL = Math.max(spec.minStopDistance, spread * 2, spec.point * 10);
-  const minTP = Math.max(spec.minStopDistance, spread * 3, spec.point * 10);
+  const minSL = Math.max(spec.minStopDistance, spread * 1.5, spec.point * 10);
+  const minTP = Math.max(spec.minStopDistance, spread * 2, spec.point * 10);
   const rrKeep = Math.max(MIN_EXECUTION_RR, origRR > 0.5 ? origRR : MIN_EXECUTION_RR);
   if (Math.abs(entry - sl) < minSL) {
     const newSL = side === "BUY" ? entry - minSL : entry + minSL;
