@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowDown, ArrowUp, Bot, Pause, Play, Wallet, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Pause, Play, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
-import { PaperAccountPerformance, LiveAccountsPerformance } from "@/components/AccountPerformance";
+import { LiveAccountsPerformance } from "@/components/AccountPerformance";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -138,12 +138,8 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-1">
-          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)} · ${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} />
-        </section>
-
-        <PaperAccountPerformance />
         <LiveAccountsPerformance />
+
 
         <SessionBadge />
 
@@ -322,20 +318,4 @@ function Dashboard() {
   );
 }
 
-function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; label: string; value: string; hint?: string; tone?: "bull" | "bear" }) {
-  return (
-    <Card className="border-border/60 bg-card/70">
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
-          <span>{label}</span>
-          <Icon className="h-4 w-4 opacity-60" />
-        </div>
-        <div className={cn("mt-2 font-mono-tabular text-2xl font-semibold", tone === "bull" && "text-bull", tone === "bear" && "text-bear")}>
-          {value}
-        </div>
-        {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-      </CardContent>
-    </Card>
-  );
-}
 
