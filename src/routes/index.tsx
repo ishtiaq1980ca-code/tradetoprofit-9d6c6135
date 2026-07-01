@@ -318,20 +318,4 @@ function Dashboard() {
   );
 }
 
-function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; label: string; value: string; hint?: string; tone?: "bull" | "bear" }) {
-  return (
-    <Card className="border-border/60 bg-card/70">
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
-          <span>{label}</span>
-          <Icon className="h-4 w-4 opacity-60" />
-        </div>
-        <div className={cn("mt-2 font-mono-tabular text-2xl font-semibold", tone === "bull" && "text-bull", tone === "bear" && "text-bear")}>
-          {value}
-        </div>
-        {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-      </CardContent>
-    </Card>
-  );
-}
 
