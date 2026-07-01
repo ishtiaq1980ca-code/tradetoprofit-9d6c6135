@@ -31,6 +31,7 @@ export type Database = {
           name: string | null
           open_positions: number
           server: string | null
+          user_id: string | null
         }
         Insert: {
           balance: number
@@ -48,6 +49,7 @@ export type Database = {
           name?: string | null
           open_positions?: number
           server?: string | null
+          user_id?: string | null
         }
         Update: {
           balance?: number
@@ -65,6 +67,7 @@ export type Database = {
           name?: string | null
           open_positions?: number
           server?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
