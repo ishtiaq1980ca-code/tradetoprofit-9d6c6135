@@ -190,7 +190,7 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v8",
+      name: "aurum-bot-v7",
       version: 8,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
