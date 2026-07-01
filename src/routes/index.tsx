@@ -6,7 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
-import { PaperAccountPerformance } from "@/components/AccountPerformance";
+import { PaperAccountPerformance, LiveAccountsPerformance } from "@/components/AccountPerformance";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +46,7 @@ function Dashboard() {
   const floating = floatingPnl(positions, feed.prices);
   const equity = balance + floating;
   const closed = history;
-  const totalPnl = balance - startingBalance + floating;
+  
 
   // Drawdown from peak equity
   const equityCurve = useMemo(() => {
@@ -138,12 +138,12 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)}`} />
-          <Stat icon={Wallet} label="Total P&L" value={fmt.money(totalPnl)} hint={`${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} tone={totalPnl >= 0 ? "bull" : "bear"} />
+        <section className="grid gap-4 md:grid-cols-1">
+          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)} · ${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} />
         </section>
 
         <PaperAccountPerformance />
+        <LiveAccountsPerformance />
 
         <SessionBadge />
 
