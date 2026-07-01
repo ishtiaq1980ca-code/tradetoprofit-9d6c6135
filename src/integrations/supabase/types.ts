@@ -17,36 +17,54 @@ export type Database = {
       account_snapshots: {
         Row: {
           balance: number
+          company: string | null
           created_at: string
+          currency: string | null
           daily_pnl: number
           equity: number
           free_margin: number
           id: string
+          leverage: number | null
+          login: string | null
           margin: number
           mode: string
+          name: string | null
           open_positions: number
+          server: string | null
         }
         Insert: {
           balance: number
+          company?: string | null
           created_at?: string
+          currency?: string | null
           daily_pnl?: number
           equity: number
           free_margin?: number
           id?: string
+          leverage?: number | null
+          login?: string | null
           margin?: number
           mode?: string
+          name?: string | null
           open_positions?: number
+          server?: string | null
         }
         Update: {
           balance?: number
+          company?: string | null
           created_at?: string
+          currency?: string | null
           daily_pnl?: number
           equity?: number
           free_margin?: number
           id?: string
+          leverage?: number | null
+          login?: string | null
           margin?: number
           mode?: string
+          name?: string | null
           open_positions?: number
+          server?: string | null
         }
         Relationships: []
       }

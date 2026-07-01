@@ -131,6 +131,12 @@ def report_account() -> bool:
         "open_positions": len(positions),
         "daily_pnl": float(daily_pnl),
         "mode": "demo" if "demo" in (info.server or "").lower() else "real",
+        "login": str(getattr(info, "login", "") or ""),
+        "name": str(getattr(info, "name", "") or ""),
+        "server": str(getattr(info, "server", "") or ""),
+        "company": str(getattr(info, "company", "") or ""),
+        "currency": str(getattr(info, "currency", "") or ""),
+        "leverage": int(getattr(info, "leverage", 0) or 0),
     }
     return _post_json("/api/public/bridge/account", payload)
 

@@ -10,6 +10,12 @@ const Schema = z.object({
   open_positions: z.number().int().default(0),
   daily_pnl: z.number().default(0),
   mode: z.enum(["demo", "real"]).default("demo"),
+  login: z.union([z.string(), z.number()]).optional().transform((v) => (v === undefined ? undefined : String(v))),
+  name: z.string().optional(),
+  server: z.string().optional(),
+  company: z.string().optional(),
+  currency: z.string().optional(),
+  leverage: z.number().int().optional(),
 });
 
 export const Route = createFileRoute("/api/public/bridge/account")({
