@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Pause, Play, Wallet, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
+import { PaperAccountPerformance } from "@/components/AccountPerformance";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "@/lib/strategy";
-import { fmt, SYMBOLS } from "@/lib/format";
+import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { floatingPnl, pnlOf, useAccount } from "@/lib/paperTrading";
@@ -38,32 +39,14 @@ function Dashboard() {
   const close = useAccount((s) => s.close);
   const reset = useAccount((s) => s.reset);
 
-  const signals = useMemo(() => {
-    return SYMBOLS.map((s) => {
-      const candles = feed.candles[s] ?? [];
-      if (candles.length < 60) return { symbol: s, candles, signal: null as any, price: feed.prices[s] ?? 0 };
-      return { symbol: s, candles, signal: analyze(s, candles, DEFAULT_PARAMS), price: feed.prices[s] ?? candles[candles.length - 1].close };
-    });
-    // re-evaluate strategy on candle additions, not on every tick
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feed.candles.XAUUSD?.length]);
+  // Strategy scan removed from dashboard.
+  const signals: never[] = useMemo(() => [], []);
+  void signals;
 
   const floating = floatingPnl(positions, feed.prices);
   const equity = balance + floating;
   const closed = history;
-  const wins = closed.filter((t) => t.profit > 0).length;
-  const losses = closed.length - wins;
-  const winRate = closed.length ? (wins / closed.length) * 100 : 0;
-  const grossWin = closed.filter((t) => t.profit > 0).reduce((s, t) => s + t.profit, 0);
-  const grossLoss = Math.abs(closed.filter((t) => t.profit < 0).reduce((s, t) => s + t.profit, 0));
-  const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
   const totalPnl = balance - startingBalance + floating;
-
-
-  // Today's P/L (closed today + floating)
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const dailyClosed = closed.filter((t) => t.closedAt >= todayStart.getTime()).reduce((s, t) => s + t.profit, 0);
-  const dailyPnl = dailyClosed + floating;
 
   // Drawdown from peak equity
   const equityCurve = useMemo(() => {
@@ -155,12 +138,12 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2">
           <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)}`} />
-          <Stat icon={Activity} label="Floating P&L" value={fmt.money(floating)} hint={`${positions.length} open`} tone={floating >= 0 ? "bull" : "bear"} />
-          <Stat icon={TrendingUp} label="Today P&L" value={fmt.money(dailyPnl)} hint={fmt.pct((dailyPnl / startingBalance) * 100)} tone={dailyPnl >= 0 ? "bull" : "bear"} />
-          <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · PF ${isFinite(profitFactor) ? profitFactor.toFixed(2) : "∞"} · DD ${drawdown.toFixed(1)}%`} />
+          <Stat icon={Wallet} label="Total P&L" value={fmt.money(totalPnl)} hint={`${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} tone={totalPnl >= 0 ? "bull" : "bear"} />
         </section>
+
+        <PaperAccountPerformance />
 
         <SessionBadge />
 
@@ -334,21 +317,6 @@ function Dashboard() {
           </Card>
         </section>
 
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Live Strategy Scan</h2>
-            <a href="/signals">
-              <Button variant="outline" size="sm">
-                <Zap className="mr-1.5 h-3.5 w-3.5" /> All signals
-              </Button>
-            </a>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {signals.map((s) => (
-              <SymbolCard key={s.symbol} symbol={s.symbol} price={s.price} signal={s.signal} />
-            ))}
-          </div>
-        </section>
       </div>
     </AppShell>
   );
@@ -371,69 +339,3 @@ function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; l
   );
 }
 
-function SignalPill({ signal }: { signal: ReturnType<typeof analyze> | null }) {
-  if (!signal) return <span className="text-[10px] text-muted-foreground">warming up…</span>;
-  const tone = signal.side === "BUY" ? "bull" : signal.side === "SELL" ? "bear" : "flat";
-  return (
-    <div className={cn(
-      "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium",
-      tone === "bull" && "border-bull/40 bg-bull/10 text-bull",
-      tone === "bear" && "border-bear/40 bg-bear/10 text-bear",
-      tone === "flat" && "border-border bg-muted text-muted-foreground",
-    )}>
-      {signal.side === "BUY" && <ArrowUp className="h-3.5 w-3.5" />}
-      {signal.side === "SELL" && <ArrowDown className="h-3.5 w-3.5" />}
-      {signal.side} · {signal.confidence}%
-    </div>
-  );
-}
-
-function SymbolCard({ symbol, price, signal }: { symbol: string; price: number; signal: ReturnType<typeof analyze> | null }) {
-  return (
-    <Card className={cn("border-border/60 bg-card/70 transition-colors", symbol === "XAUUSD" && "border-gold/30")}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">{symbol}</div>
-            <div className="mt-0.5 font-mono-tabular text-xl font-semibold">{fmt.price(price, symbol)}</div>
-          </div>
-          <SignalPill signal={signal} />
-        </div>
-        {signal && (
-          <>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-              <FilterChip label="Trend" ok={signal.filters.trend} />
-              <FilterChip label="Momentum" ok={signal.filters.momentum} />
-              <FilterChip label="Structure" ok={signal.filters.structure} />
-            </div>
-            {signal.side !== "FLAT" && (
-              <div className="mt-3 space-y-1 rounded-md border border-border/60 bg-background/40 p-2.5 text-[11px] font-mono-tabular">
-                <Row k="Entry" v={fmt.price(signal.entry, symbol)} />
-                <Row k="SL" v={fmt.price(signal.stopLoss, symbol)} tone="bear" />
-                <Row k="TP" v={fmt.price(signal.takeProfit, symbol)} tone="bull" />
-                <Row k="R:R" v={`${signal.riskReward.toFixed(2)}`} />
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Row({ k, v, tone }: { k: string; v: string; tone?: "bull" | "bear" }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{k}</span>
-      <span className={cn(tone === "bull" && "text-bull", tone === "bear" && "text-bear")}>{v}</span>
-    </div>
-  );
-}
-
-function FilterChip({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <div className={cn("flex items-center justify-center rounded-md border py-1", ok ? "border-bull/30 bg-bull/5 text-bull" : "border-border text-muted-foreground")}>
-      {label}
-    </div>
-  );
-}
