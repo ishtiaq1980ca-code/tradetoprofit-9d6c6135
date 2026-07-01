@@ -138,12 +138,8 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-1">
-          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)} · ${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} />
-        </section>
-
-        <PaperAccountPerformance />
         <LiveAccountsPerformance />
+
 
         <SessionBadge />
 
