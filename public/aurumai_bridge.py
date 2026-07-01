@@ -40,7 +40,7 @@ MAX_ADVERSE_ENTRY_DRIFT_PCT = 0.0020              # 0.20% adverse move allowed �
 MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0060            # 0.60% favorable move allowed; SL/TP are rebuilt around live MT5 fill
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
-MIN_RISK_REWARD = 2.0                             # all pairs: TP must be at least 2× SL distance
+MIN_RISK_REWARD = 1.8                             # all pairs: TP must be at least 1.8× SL distance (matches server floor)
 USD_TRAIL_TRIGGER = 1.0                           # start protecting once floating profit is at least +$1
 USD_TRAIL_STEP = 1.0                              # at +$2 lock +$1, at +$3 lock +$2, etc.
 
