@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
-const MIN_BRIDGE_RR = 2.0;
+const MIN_BRIDGE_RR = 1.8;
 const MIN_BRIDGE_VERSION = 2026062405;
 
 function signalRiskError(signal: any): string | null {
