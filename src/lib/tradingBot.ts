@@ -373,9 +373,10 @@ async function runScan() {
   const perSymCount: Record<string, number> = {};
   for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
 
-  // Duplicate prevention — track recent decisions per symbol+side for 10 min.
+  // Duplicate prevention — short cooldown per symbol+side. Keep it tight so a
+  // bridge rejection/expiry does not freeze signal generation for 10 minutes.
   const recent = useDecisionLog.getState().records;
-  const dupWindowMs = 10 * 60_000;
+  const dupWindowMs = 2 * 60_000;
   const now = Date.now();
   const hasRecentDup = (sym: string, side: "BUY" | "SELL") =>
     recent.some((r) => r.symbol === sym && r.direction === side && (r.status === "queued" || r.status === "executed") && now - r.at < dupWindowMs);
