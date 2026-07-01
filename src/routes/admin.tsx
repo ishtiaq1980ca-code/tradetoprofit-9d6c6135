@@ -12,6 +12,7 @@ import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { toast } from "sonner";
 import { ShieldCheck, KeyRound, Users, Trash2, Plus } from "lucide-react";
 import { StrategyAdmin } from "@/components/StrategyAdmin";
+import { LiveAccountsPerformance } from "@/components/AccountPerformance";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Admin — AurumAI" }] }),
@@ -105,6 +106,8 @@ function AdminBody() {
         </div>
         <Badge variant="outline" className="border-gold/40 text-gold"><ShieldCheck className="h-3 w-3 mr-1" /> Admin</Badge>
       </header>
+
+      <LiveAccountsPerformance />
 
       <Card className="border-border/60 bg-card/70">
         <CardHeader><CardTitle className="text-base flex items-center gap-2"><Plus className="h-4 w-4" /> Generate Token</CardTitle></CardHeader>
