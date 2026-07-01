@@ -279,7 +279,7 @@ export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
 
 export function currentTier(): 500 | 1000 | 2000 | null {
   const bot = useBot.getState();
-  let acc = useAccount.getState();
+  const acc = useAccount.getState();
   if (bot.tierMode === "manual") return bot.manualTier;
   return detectTier(acc.balance);
 }
@@ -289,7 +289,7 @@ async function runScan() {
   scanInFlight = true;
   try {
   const bot = useBot.getState();
-  const acc = useAccount.getState();
+  let acc = useAccount.getState();
 
   // License gate — bot will not place trades without a valid token
   if (!bot.licenseValid) {
