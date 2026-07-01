@@ -136,7 +136,7 @@ export const useBot = create<BotStore>()(
       rsiSellMin: 15,
       useMacd: false,
       adxMin: 12,
-      maxOpenTrades: 4,
+      maxOpenTrades: 10,
       maxTradesPerSymbol: 2,
       maxDailyTrades: 20,
       pauseOnWeekend: true,
@@ -194,19 +194,22 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 8,
+      version: 9,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
-          if (version < 8 || typeof persisted.minConfidence !== "number" || persisted.minConfidence > MIN_CONFIDENCE) {
+          if (version < 9 || typeof persisted.minConfidence !== "number") {
             persisted.minConfidence = MIN_CONFIDENCE;
           }
-          // v4: enable FX currency pairs alongside XAUUSD
           if (version < 8 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
             persisted.enabledSymbols = ALL_TRADE_SYMBOLS;
           }
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
+          }
+          // v9: cap concurrent trades to 10
+          if (version < 9 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 10) {
+            persisted.maxOpenTrades = 10;
           }
         }
         return persisted;
