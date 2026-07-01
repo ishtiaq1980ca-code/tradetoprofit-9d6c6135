@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, ArrowDown, ArrowUp, Bot, Pause, Play, ShieldCheck, TrendingUp, Wallet, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Pause, Play, Wallet, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
+import { PaperAccountPerformance } from "@/components/AccountPerformance";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "@/lib/strategy";
-import { fmt, SYMBOLS } from "@/lib/format";
+import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { floatingPnl, pnlOf, useAccount } from "@/lib/paperTrading";
@@ -38,15 +39,9 @@ function Dashboard() {
   const close = useAccount((s) => s.close);
   const reset = useAccount((s) => s.reset);
 
-  const signals = useMemo(() => {
-    return SYMBOLS.map((s) => {
-      const candles = feed.candles[s] ?? [];
-      if (candles.length < 60) return { symbol: s, candles, signal: null as any, price: feed.prices[s] ?? 0 };
-      return { symbol: s, candles, signal: analyze(s, candles, DEFAULT_PARAMS), price: feed.prices[s] ?? candles[candles.length - 1].close };
-    });
-    // re-evaluate strategy on candle additions, not on every tick
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feed.candles.XAUUSD?.length]);
+  // Strategy scan removed from dashboard.
+  const signals: never[] = useMemo(() => [], []);
+  void signals;
 
   const floating = floatingPnl(positions, feed.prices);
   const equity = balance + floating;
@@ -155,12 +150,12 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2">
           <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)}`} />
-          <Stat icon={Activity} label="Floating P&L" value={fmt.money(floating)} hint={`${positions.length} open`} tone={floating >= 0 ? "bull" : "bear"} />
-          <Stat icon={TrendingUp} label="Today P&L" value={fmt.money(dailyPnl)} hint={fmt.pct((dailyPnl / startingBalance) * 100)} tone={dailyPnl >= 0 ? "bull" : "bear"} />
-          <Stat icon={ShieldCheck} label="Win Rate" value={`${winRate.toFixed(1)}%`} hint={`${wins} W / ${losses} L · PF ${isFinite(profitFactor) ? profitFactor.toFixed(2) : "∞"} · DD ${drawdown.toFixed(1)}%`} />
+          <Stat icon={Wallet} label="Total P&L" value={fmt.money(totalPnl)} hint={`${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} tone={totalPnl >= 0 ? "bull" : "bear"} />
         </section>
+
+        <PaperAccountPerformance />
 
         <SessionBadge />
 
@@ -334,21 +329,6 @@ function Dashboard() {
           </Card>
         </section>
 
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Live Strategy Scan</h2>
-            <a href="/signals">
-              <Button variant="outline" size="sm">
-                <Zap className="mr-1.5 h-3.5 w-3.5" /> All signals
-              </Button>
-            </a>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {signals.map((s) => (
-              <SymbolCard key={s.symbol} symbol={s.symbol} price={s.price} signal={s.signal} />
-            ))}
-          </div>
-        </section>
       </div>
     </AppShell>
   );
