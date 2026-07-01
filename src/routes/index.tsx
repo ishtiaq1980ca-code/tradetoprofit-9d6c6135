@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowDown, ArrowUp, Bot, Pause, Play, Wallet, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Pause, Play, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
-import { PaperAccountPerformance, LiveAccountsPerformance } from "@/components/AccountPerformance";
+import { LiveAccountsPerformance } from "@/components/AccountPerformance";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
