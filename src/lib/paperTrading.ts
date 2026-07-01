@@ -75,7 +75,10 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      trailTriggerUsd: 3,
+      // Trigger at +$1 floating profit. Step $1 => at $1 SL lands at entry
+      // (breakeven, worst case = $0), at $2 SL locks $1 profit, at $3 SL
+      // locks $2, etc. SL ratchets up only, never widens.
+      trailTriggerUsd: 1,
       trailStepUsd: 1,
       useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
@@ -203,11 +206,14 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 2,
+      version: 3,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
           // Force auto-trailing on for all users going forward.
           persisted.useUsdTrail = true;
+          // v3: tighten trail trigger to $1 so break-even locks immediately.
+          persisted.trailTriggerUsd = 1;
+          persisted.trailStepUsd = 1;
         }
         return persisted;
       },
