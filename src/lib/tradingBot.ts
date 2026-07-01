@@ -300,7 +300,7 @@ async function runScan() {
   // Never mark trades as queued while the MT5 bridge is offline/stale. This
   // prevents the app from showing trades that cannot be executed on MT5.
   if (!mt5HeartbeatFresh()) {
-    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge stale/offline — restart the updated aurumai_bridge.py" });
+    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running" });
     return;
   }
 
