@@ -75,7 +75,10 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      trailTriggerUsd: 3,
+      // Trigger at +$1 floating profit. Step $1 => at $1 SL lands at entry
+      // (breakeven, worst case = $0), at $2 SL locks $1 profit, at $3 SL
+      // locks $2, etc. SL ratchets up only, never widens.
+      trailTriggerUsd: 1,
       trailStepUsd: 1,
       useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
