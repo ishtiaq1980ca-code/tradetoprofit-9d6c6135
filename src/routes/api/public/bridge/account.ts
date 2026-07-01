@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { checkBridgeAuth } from "@/lib/bridge-auth.server";
+import { resolveBridgeAuth } from "@/lib/bridge-auth.server";
 
 const Schema = z.object({
   balance: z.number(),
@@ -22,13 +22,13 @@ export const Route = createFileRoute("/api/public/bridge/account")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const unauth = await checkBridgeAuth(request);
-        if (unauth) return unauth;
+        const auth = await resolveBridgeAuth(request);
+        if ("response" in auth) return auth.response;
         const body = await request.json();
         const parsed = Schema.safeParse(body);
         if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { error } = await supabaseAdmin.from("account_snapshots").insert(parsed.data);
+        const { error } = await supabaseAdmin.from("account_snapshots").insert({ ...parsed.data, user_id: auth.userId });
         if (error) return Response.json({ error: error.message }, { status: 500 });
         return Response.json({ ok: true });
       },
