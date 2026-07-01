@@ -46,7 +46,7 @@ function Dashboard() {
   const floating = floatingPnl(positions, feed.prices);
   const equity = balance + floating;
   const closed = history;
-  const totalPnl = balance - startingBalance + floating;
+  
 
   // Drawdown from peak equity
   const equityCurve = useMemo(() => {
