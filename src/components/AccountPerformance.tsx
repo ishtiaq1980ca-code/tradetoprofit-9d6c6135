@@ -133,38 +133,56 @@ export function LiveAccountsPerformance() {
       const monthAgo = new Date(Date.now() - 32 * 24 * 3600 * 1000).toISOString();
       const { data, error } = await supabase
         .from("account_snapshots")
-        .select("balance, equity, mode, created_at")
+        .select("balance, equity, mode, login, name, server, company, currency, created_at")
         .gte("created_at", monthAgo)
         .order("created_at", { ascending: true })
-        .limit(5000);
+        .limit(10000);
       if (cancelled) return;
       if (error) { setErr(error.message); return; }
-      const byMode = new Map<string, { balance: number; created_at: string }[]>();
+
+      type Snap = { balance: number; created_at: string; login: string | null; name: string | null; server: string | null; company: string | null; currency: string | null; mode: string };
+      // Group by login (fallback to mode if login missing on older snapshots)
+      const byKey = new Map<string, Snap[]>();
       for (const r of data ?? []) {
-        const arr = byMode.get(r.mode) ?? [];
-        arr.push({ balance: Number(r.equity ?? r.balance), created_at: r.created_at });
-        byMode.set(r.mode, arr);
+        const key = (r.login && String(r.login).trim()) || `mode:${r.mode}`;
+        const arr = byKey.get(key) ?? [];
+        arr.push({
+          balance: Number(r.equity ?? r.balance),
+          created_at: r.created_at,
+          login: r.login ?? null,
+          name: r.name ?? null,
+          server: r.server ?? null,
+          company: r.company ?? null,
+          currency: r.currency ?? null,
+          mode: r.mode,
+        });
+        byKey.set(key, arr);
       }
+
       const now = Date.now();
-      const findAtOrBefore = (arr: { balance: number; created_at: string }[], t: number) => {
+      const findAtOrBefore = (arr: Snap[], t: number) => {
         let best = arr[0]?.balance ?? 0;
         for (const p of arr) {
           if (new Date(p.created_at).getTime() <= t) best = p.balance; else break;
         }
         return best;
       };
+
       const out: Row[] = [];
-      for (const [mode, arr] of byMode.entries()) {
+      for (const [, arr] of byKey.entries()) {
         if (arr.length === 0) continue;
+        const last = arr[arr.length - 1];
         const starting = arr[0].balance;
-        const current = arr[arr.length - 1].balance;
+        const current = last.balance;
         const dayRef = findAtOrBefore(arr, now - 24 * 3600 * 1000);
         const weekRef = findAtOrBefore(arr, now - 7 * 24 * 3600 * 1000);
         const monthRef = findAtOrBefore(arr, now - 30 * 24 * 3600 * 1000);
         const base = starting || 1;
+        const loginLabel = last.login ? `#${last.login}` : (last.mode === "real" ? "MT5 Live" : "MT5 Demo");
+        const nameLabel = last.name || last.company || last.server || (last.mode === "real" ? "Live Account" : "Demo Account");
         out.push({
-          label: mode === "real" ? "MT5 Live Account" : "MT5 Demo Account",
-          mode,
+          label: `${nameLabel} · ${loginLabel}`,
+          mode: `${last.mode.toUpperCase()}${last.server ? ` · ${last.server}` : ""}${last.currency ? ` · ${last.currency}` : ""}`,
           starting,
           current,
           currentUsd: current,
@@ -174,7 +192,13 @@ export function LiveAccountsPerformance() {
           totalUsd: current - starting,
         });
       }
-      out.sort((a, b) => (a.mode === "real" ? -1 : 1));
+      // Live accounts first, then by highest current balance
+      out.sort((a, b) => {
+        const aLive = a.mode.startsWith("REAL") ? 0 : 1;
+        const bLive = b.mode.startsWith("REAL") ? 0 : 1;
+        if (aLive !== bLive) return aLive - bLive;
+        return b.current - a.current;
+      });
       setRows(out);
     };
     load();
@@ -184,11 +208,11 @@ export function LiveAccountsPerformance() {
 
   return (
     <div className="space-y-2">
-      <PerformanceTable rows={rows} title="Live Accounts Performance" hint="Grouped by MT5 mode · updates every 30s" />
+      <PerformanceTable rows={rows} title="Live Accounts Performance" hint="Real MT5 accounts · updates every 30s" />
       {err && <div className="text-xs text-bear px-1">{err}</div>}
       {rows.length > 0 && (
         <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider text-muted-foreground px-1">
-          <Badge variant="outline">Baseline = earliest snapshot in the last 30 days</Badge>
+          <Badge variant="outline">Grouped by MT5 login · baseline = earliest snapshot in the last 30 days</Badge>
         </div>
       )}
     </div>
