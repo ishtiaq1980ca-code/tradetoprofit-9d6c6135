@@ -34,7 +34,7 @@ const SPECS: Record<string, SymbolSpec> = {
   XAUUSD: XAU,
 };
 
-export const MIN_EXECUTION_RR = 2.0;
+export const MIN_EXECUTION_RR = 1.9;
 
 export function getSymbolSpec(symbol: string): SymbolSpec {
   return SPECS[symbol] ?? FX5;
