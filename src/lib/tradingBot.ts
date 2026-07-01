@@ -124,7 +124,7 @@ export const useBot = create<BotStore>()(
     (set, get) => ({
       enabled: false,
       scanIntervalMs: 1_000,
-      minConfidence: 40,
+      minConfidence: 60,
       riskPct: 3,
       maxDailyLossPct: 5,
       atrSlMult: 2.5,
@@ -194,11 +194,12 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 9,
+      version: 10,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
-          if (version < 9 || typeof persisted.minConfidence !== "number") {
+          // v10: force minConfidence floor to 60 for all users
+          if (version < 10 || typeof persisted.minConfidence !== "number" || persisted.minConfidence < MIN_CONFIDENCE) {
             persisted.minConfidence = MIN_CONFIDENCE;
           }
           if (version < 8 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
@@ -207,7 +208,6 @@ export const useBot = create<BotStore>()(
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
           }
-          // v9: cap concurrent trades to 10
           if (version < 9 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 10) {
             persisted.maxOpenTrades = 10;
           }

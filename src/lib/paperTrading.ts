@@ -75,12 +75,12 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      // Trigger at +$1 floating profit. Step $1 => at $1 SL lands at entry
-      // (breakeven, worst case = $0), at $2 SL locks $1 profit, at $3 SL
-      // locks $2, etc. SL ratchets up only, never widens.
+      // Default to R-based trailing (BE @ 0.5R, partial @ 1R, trail 1R behind).
+      // USD-based trail was too tight for FX at 0.01 lots (locks within pips
+      // of entry and gets stopped by spread), so paper trades kept dying.
       trailTriggerUsd: 1,
       trailStepUsd: 1,
-      useUsdTrail: true,
+      useUsdTrail: false,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
       setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
       setUseUsdTrail: (v) => set({ useUsdTrail: v }),
@@ -206,12 +206,12 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 3,
+      version: 4,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // Force auto-trailing on for all users going forward.
-          persisted.useUsdTrail = true;
-          // v3: tighten trail trigger to $1 so break-even locks immediately.
+          // v4: switch back to R-based trailing. USD $1 trail was too tight
+          // for FX at 0.01 lots and killed paper trades near breakeven.
+          persisted.useUsdTrail = false;
           persisted.trailTriggerUsd = 1;
           persisted.trailStepUsd = 1;
         }
