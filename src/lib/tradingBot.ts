@@ -564,6 +564,15 @@ async function runScan() {
     // future scans. The decision log remains the duplicate/cooldown guard.
     perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
     openSymbols.add(sym);
+    const isXauQueued = sym === "XAUUSD" || sym === "GOLD";
+    slotInfo = {
+      ...slotInfo,
+      xauOpen: slotInfo.xauOpen + (isXauQueued ? 1 : 0),
+      xauAvailable: Math.max(0, slotInfo.xauAvailable - (isXauQueued ? 1 : 0)),
+      fxOpen: slotInfo.fxOpen + (isXauQueued ? 0 : 1),
+      fxAvailable: Math.max(0, slotInfo.fxAvailable - (isXauQueued ? 0 : 1)),
+      totalOpen: slotInfo.totalOpen + 1,
+    };
     opened++;
     usedLot += finalLot;
 
