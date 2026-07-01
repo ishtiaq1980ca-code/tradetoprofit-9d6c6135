@@ -189,7 +189,7 @@ export function normalizeOrderPlan(args: {
 
 // --------------------------- Dynamic open-trade caps ----------------------
 
-export const MAX_OPEN_FX = 4;
+export const MAX_OPEN_FX = 8;
 export const MAX_OPEN_XAU = 2;
 
 export type OpenTradeSlots = {
