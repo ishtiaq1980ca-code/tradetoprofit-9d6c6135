@@ -30,6 +30,7 @@ type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 let latestMt5HeartbeatAt = 0;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
+const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
@@ -120,7 +121,7 @@ export const useBot = create<BotStore>()(
     (set, get) => ({
       enabled: false,
       scanIntervalMs: 1_000,
-      minConfidence: 65,
+      minConfidence: 40,
       riskPct: 3,
       maxDailyLossPct: 5,
       atrSlMult: 2.5,
@@ -136,7 +137,7 @@ export const useBot = create<BotStore>()(
       maxTradesPerSymbol: 2,
       maxDailyTrades: 20,
       pauseOnWeekend: true,
-      enabledSymbols: ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"],
+      enabledSymbols: ALL_TRADE_SYMBOLS,
       useBuiltInStrategy: true,
       builtInFallback: true,
 
@@ -189,17 +190,17 @@ export const useBot = create<BotStore>()(
       clearLog: () => set({ log: [] }),
     }),
     {
-      name: "aurum-bot-v7",
-      version: 7,
+      name: "aurum-bot-v8",
+      version: 8,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
-          if (version < 5 || typeof persisted.minConfidence !== "number" || persisted.minConfidence > 65) {
-            persisted.minConfidence = 65;
+          if (version < 8 || typeof persisted.minConfidence !== "number" || persisted.minConfidence > MIN_CONFIDENCE) {
+            persisted.minConfidence = MIN_CONFIDENCE;
           }
           // v4: enable FX currency pairs alongside XAUUSD
-          if (version < 4 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
-            persisted.enabledSymbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY"];
+          if (version < 8 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {
+            persisted.enabledSymbols = ALL_TRADE_SYMBOLS;
           }
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
@@ -368,7 +369,7 @@ async function runScan() {
 
   let opened = 0;
   let usedLot = openLot;
-  const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : SYMBOLS);
+  const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : ALL_TRADE_SYMBOLS);
   const waitingMsgs: string[] = [];
 
   for (const sym of SYMBOLS) {
