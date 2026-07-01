@@ -28,6 +28,7 @@ import {
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
+let latestMt5OpenPositions: number | null = null;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
@@ -35,11 +36,13 @@ const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
     .from("account_snapshots")
-    .select("created_at")
+    .select("created_at,open_positions")
     .order("created_at", { ascending: false })
     .limit(1);
-  const ts = data?.[0]?.created_at;
+  const snap = data?.[0];
+  const ts = snap?.created_at;
   latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : 0;
+  latestMt5OpenPositions = typeof snap?.open_positions === "number" ? snap.open_positions : null;
 }
 
 function mt5HeartbeatFresh() {
@@ -276,7 +279,7 @@ export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
 
 export function currentTier(): 500 | 1000 | 2000 | null {
   const bot = useBot.getState();
-  const acc = useAccount.getState();
+  let acc = useAccount.getState();
   if (bot.tierMode === "manual") return bot.manualTier;
   return detectTier(acc.balance);
 }
@@ -299,6 +302,16 @@ async function runScan() {
   if (!mt5HeartbeatFresh()) {
     bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge stale/offline — restart the updated aurumai_bridge.py" });
     return;
+  }
+
+  // When MT5 is connected, the browser must not keep old virtual/paper
+  // positions from previous rejected/expired queue attempts. Those stale local
+  // positions were making the bot think trade slots were full, so no new
+  // signals were created even while the bridge account was actually flat.
+  if (latestMt5OpenPositions === 0 && acc.positions.length > 0) {
+    useAccount.setState({ positions: [] });
+    acc = useAccount.getState();
+    bot.pushLog({ t: Date.now(), level: "info", msg: "Synced with MT5: cleared stale local paper positions (MT5 has 0 open trades)" });
   }
 
   // Daily reset
@@ -545,45 +558,31 @@ async function runScan() {
     }
     useExecutionStats.getState().recordSent(tAck - tGenerated);
 
-    // ---- 2) Update local paper position after queue success ----
-    const pos = acc.open({
-      symbol: sym,
-      side: decision.side,
-      lot: finalLot,
+    // ---- 2) Reserve this symbol locally only after queue success ----
+    // Do NOT open a browser/paper position here. MT5 must confirm the fill
+    // first; otherwise rejected signals create fake local positions and block
+    // future scans. The decision log remains the duplicate/cooldown guard.
+    perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
+    openSymbols.add(sym);
+    opened++;
+    usedLot += finalLot;
+
+    // ---- 3) Logging after order has been queued ----
+    useDecisionLog.getState().record({
+      ...baseLog,
       entry: finalEntry,
       stopLoss: finalSL,
       takeProfit: finalTP,
-      confidence: decision.confidence,
-      reason: decision.reason,
-      session: sess.primary,
+      lot: finalLot,
+      status: "queued",
+      reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tAck - tGenerated}ms (db queue ${tAck - tInsertStart}ms, waiting for bridge fill confirmation)`,
     });
-
-    if (pos) {
-      perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
-      openSymbols.add(sym);
-      slotInfo = computeOpenSlots(acc.positions);
-      opened++;
-      usedLot += finalLot;
-    }
-
-    // ---- 3) Logging after order has been queued ----
-    if (pos) {
-      useDecisionLog.getState().record({
-        ...baseLog,
-        entry: finalEntry,
-        stopLoss: finalSL,
-        takeProfit: finalTP,
-        lot: finalLot,
-        status: "queued",
-        reason: baseLog.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") + `\n  MT5-QUEUED ${tAck - tGenerated}ms (db queue ${tAck - tInsertStart}ms, waiting for bridge fill confirmation)`,
-      });
-      bot.pushLog({
-        t: Date.now(),
-        level: "info",
-        msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tAck - tGenerated}ms)`,
-      });
-      toast.success(`Queued to MT5: ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}%`);
-    }
+    bot.pushLog({
+      t: Date.now(),
+      level: "info",
+      msg: `Queued for MT5 bridge: [${decision.strategy}] ${decision.side} ${finalLot} ${sym} @ ${finalEntry.toFixed(sym === "XAUUSD" ? 2 : 5)} · TP ${finalTP.toFixed(sym === "XAUUSD" ? 2 : 5)} · SL ${finalSL.toFixed(sym === "XAUUSD" ? 2 : 5)} (conf ${decision.confidence}%, ${tAck - tGenerated}ms)`,
+    });
+    toast.success(`Queued to MT5: ${decision.side} ${finalLot} ${sym} @ ${decision.confidence}%`);
   }
 
 
