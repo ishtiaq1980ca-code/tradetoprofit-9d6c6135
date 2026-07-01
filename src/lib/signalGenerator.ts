@@ -312,7 +312,13 @@ export function generateTradeDecision(
   const spread = estimatedSpread(symbol, price);
   const fSpread = spreadFilter(symbol, price, spread, profile.maxSpreadPct);
   const fVol = volatilityFilter(price, ind.atr, profile.minAtrPct, profile.maxAtrPct);
-  const fSess = sessionFilter(profile.preferredSessions);
+  // London/NY are preferred, but Asian session should be *stricter*, not a
+  // hard block. The fx_multi_confirmation playbook above already raises ADX
+  // and ATR requirements during Asian-only hours, so keep the filter passing
+  // and record the session note instead of preventing all major-pair signals.
+  const fSess = profile.strategy === "fx_multi_confirmation"
+    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (London/NY priority; Asian uses stricter confirmation)` }
+    : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
   filters.push(fSpread, fVol, fSess, fNews);
 
