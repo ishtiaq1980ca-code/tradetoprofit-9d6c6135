@@ -41,6 +41,8 @@ MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0025            # 0.25% favorable move allowed
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 2.0                             # all pairs: TP must be at least 2× SL distance
+USD_TRAIL_TRIGGER = 1.0                           # start protecting once floating profit is at least +$1
+USD_TRAIL_STEP = 1.0                              # at +$2 lock +$1, at +$3 lock +$2, etc.
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -321,6 +323,104 @@ def _modify_position_stops(position, sl: float, tp: float) -> bool:
     return False
 
 
+def _value_per_price_unit(symbol: str, volume: float) -> float:
+    """Account-currency value of a 1.0 price-unit move for this position."""
+    info = mt5.symbol_info(symbol)
+    if info is not None:
+        tick_size = float(info.trade_tick_size or info.point or 0)
+        tick_value = float(info.trade_tick_value or 0)
+        if tick_size > 0 and tick_value > 0:
+            return abs(tick_value / tick_size) * volume
+    upper = symbol.upper()
+    if "XAU" in upper or "GOLD" in upper:
+        return 100.0 * volume
+    if "JPY" in upper:
+        return 1000.0 * volume
+    return 100000.0 * volume
+
+
+def _report_trailing_update(position) -> None:
+    _post_json("/api/public/bridge/trades", {
+        "mt5_ticket": int(position.ticket),
+        "symbol": position.symbol,
+        "side": "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
+        "entry": float(position.price_open),
+        "stop_loss": float(position.sl or 0),
+        "take_profit": float(position.tp or 0),
+        "lot": float(position.volume),
+        "profit": float(position.profit or 0),
+        "status": "open",
+    }, timeout=3)
+
+
+def _apply_usd_trailing_stop(position) -> bool:
+    """Move SL only forward: +$1 => breakeven, +$2 => lock +$1, etc."""
+    if position.magic != MAGIC:
+        return False
+    profit = float(position.profit or 0)
+    if profit < USD_TRAIL_TRIGGER:
+        return False
+    tick = mt5.symbol_info_tick(position.symbol)
+    info = mt5.symbol_info(position.symbol)
+    if tick is None or info is None:
+        return False
+
+    is_buy = position.type == mt5.POSITION_TYPE_BUY
+    entry = float(position.price_open)
+    old_sl = float(position.sl or 0)
+    tp = float(position.tp or 0)
+    point = float(info.point or 0.00001)
+    digits = int(info.digits or 5)
+    min_dist = max(float(info.trade_stops_level or 0), 10.0) * point
+    vpu = _value_per_price_unit(position.symbol, float(position.volume or 0))
+    if entry <= 0 or vpu <= 0:
+        return False
+
+    # Lock one dollar less than current floating profit. This means +$1 moves
+    # to entry, +$2 locks +$1, and every extra dollar ratchets SL another $1.
+    lock_usd = max(0.0, profit - USD_TRAIL_STEP)
+    lock_price_move = lock_usd / vpu
+    raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
+
+    # Respect broker stop-level distance from current Bid/Ask. If the broker
+    # will not allow a profitable/BE stop yet, wait for more profit instead of
+    # moving SL backward into loss.
+    if is_buy:
+        max_allowed_sl = float(tick.bid) - min_dist
+        new_sl = min(raw_sl, max_allowed_sl)
+        if new_sl < entry:
+            return False
+        better = old_sl <= 0 or new_sl > old_sl + point
+    else:
+        min_allowed_sl = float(tick.ask) + min_dist
+        new_sl = max(raw_sl, min_allowed_sl)
+        if new_sl > entry:
+            return False
+        better = old_sl <= 0 or new_sl < old_sl - point
+    if not better:
+        return False
+
+    new_sl = round(new_sl, digits)
+    if _modify_position_stops(position, new_sl, tp):
+        refreshed = _find_position_after_fill(position.symbol, int(position.ticket), None, allow_latest=False) or position
+        print(f"Trailing SL moved ticket={position.ticket} profit=${profit:.2f} sl={new_sl}")
+        _report_trailing_update(refreshed)
+        return True
+    return False
+
+
+def manage_trailing_stops() -> int:
+    positions = mt5.positions_get() or []
+    moved = 0
+    for p in positions:
+        try:
+            if _apply_usd_trailing_stop(p):
+                moved += 1
+        except Exception as e:
+            print(f"trailing failed ticket={getattr(p, 'ticket', '?')}: {e}")
+    return moved
+
+
 def _send_with_supported_filling(req: dict):
     # Brokers differ by symbol: some reject IOC/FOK with retcode 10030. Send
     # directly and cache the working fill policy; order_check adds avoidable MT5
@@ -591,6 +691,7 @@ def main():
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
+                    manage_trailing_stops()
                     # Poll again immediately after a burst so queued signals do
                     # not wait for another sleep cycle.
                     continue
@@ -598,6 +699,8 @@ def main():
                     print(f"Bot disabled by server: {data['reason']}")
             else:
                 print(f"poll failed: {err}")
+
+            manage_trailing_stops()
 
             if time.time() - last_acct > 15:
                 report_account()
