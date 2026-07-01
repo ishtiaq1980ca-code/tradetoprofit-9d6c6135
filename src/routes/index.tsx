@@ -138,12 +138,12 @@ function Dashboard() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)}`} />
-          <Stat icon={Wallet} label="Total P&L" value={fmt.money(totalPnl)} hint={`${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} tone={totalPnl >= 0 ? "bull" : "bear"} />
+        <section className="grid gap-4 md:grid-cols-1">
+          <Stat icon={Wallet} label="Balance" value={fmt.money(balance)} hint={`Equity ${fmt.money(equity)} · ${positions.length} open · ${closed.length} closed · DD ${drawdown.toFixed(1)}%`} />
         </section>
 
         <PaperAccountPerformance />
+        <LiveAccountsPerformance />
 
         <SessionBadge />
 
