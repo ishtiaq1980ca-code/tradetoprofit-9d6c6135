@@ -78,7 +78,7 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
     label: "EURUSD — Multi-Confirmation",
     description: "EMA50/200 trend + RSI band + MACD crossover + ATR active. No counter-trend / no sideways.",
     adxMin: 12,
-    atrSlMult: 1.5,
+    atrSlMult: 2.8,
     rrTarget: 2.0,
     maxSpreadPct: 0.02,
     minAtrPct: 0.01,
