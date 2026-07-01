@@ -24,7 +24,7 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { activeSessions } from "./sessions";
 
-export const MIN_CONFIDENCE = 65;
+export const MIN_CONFIDENCE = 40;
 
 export type ConfidenceBreakdown = {
   trend: number;       // 0..25
@@ -194,10 +194,11 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       // Multi-confirmation FX playbook with anti-chase guard:
       //   Trend:      EMA50 vs EMA200
       //   Location:   price on correct side of EMA50, but NOT over-extended
-      //   Momentum:   RSI band (tightened: 50-65 BUY / 35-50 SELL) — avoid exhaustion
-      //   Entry:      MACD histogram agreement
+      //   Momentum:   RSI band + MACD/Stoch agreement. At the new 40% floor we
+      //               allow partial confirmation, then the confidence score
+      //               decides whether the setup is strong enough.
       //   Exhaustion: Stoch not at extreme in trade direction
-      //   No-chase:   price within 1.5×ATR of EMA50 (else we'd buy tops / sell bottoms)
+      //   No-chase:   price within 2.5×ATR of EMA50 (else we'd buy tops / sell bottoms)
       //   Volatility: ATR active + ADX above sideways floor
       //   Session:    London / NY / overlap = normal; Asian-only = stricter
       const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
@@ -213,33 +214,37 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       const inLondonOrNY = sess.active.includes("London") || sess.active.includes("New York");
       const asianOnly = !inLondonOrNY && (sess.active.includes("Tokyo") || sess.active.includes("Sydney"));
       if (asianOnly) {
-        const strongAdx = ind.adx >= profile.adxMin * 1.5;
-        const strongAtr = atrPct >= profile.minAtrPct * 1.5;
+        const strongAdx = ind.adx >= profile.adxMin * 1.15;
+        const strongAtr = atrPct >= profile.minAtrPct * 1.15;
         if (!strongAdx || !strongAtr) {
-          return { side: "FLAT", rationale: `Asian session — requires stronger confirmation (ADX ${ind.adx.toFixed(1)} need ≥${(profile.adxMin * 1.5).toFixed(1)}, ATR% ${atrPct.toFixed(3)} need ≥${(profile.minAtrPct * 1.5).toFixed(3)})` };
+          return { side: "FLAT", rationale: `Asian session — requires stronger confirmation (ADX ${ind.adx.toFixed(1)} need ≥${(profile.adxMin * 1.15).toFixed(1)}, ATR% ${atrPct.toFixed(3)} need ≥${(profile.minAtrPct * 1.15).toFixed(3)})` };
         }
       }
 
       // Anti-chase: how far is price from EMA50 in ATR units?
       const distFromEma50Atr = Math.abs(price - ind.ema50) / Math.max(ind.atr, 1e-9);
-      const overExtended = distFromEma50Atr > 1.5;
-      const stochOverbought = ind.stochK > 80;
-      const stochOversold = ind.stochK < 20;
+      const overExtended = distFromEma50Atr > 2.5;
+      const stochOverbought = ind.stochK > 88;
+      const stochOversold = ind.stochK < 12;
 
       const trendUpFx = ind.ema50 > ind.ema200;
       const trendDnFx = ind.ema50 < ind.ema200;
       const sessionTag = inLondonOrNY
         ? (sess.active.includes("London") && sess.active.includes("New York") ? "London+NY overlap" : sess.active.includes("London") ? "London" : "New York")
         : "Asian (strict)";
-      if (trendUpFx && price > ind.ema50 && ind.rsi >= 50 && ind.rsi <= 65 && macdBull) {
+      const stochBull = ind.stochK >= ind.stochD;
+      const stochBear = ind.stochK <= ind.stochD;
+      const buyRsiOk = ind.rsi >= 48 && ind.rsi <= 72;
+      const sellRsiOk = ind.rsi >= 28 && ind.rsi <= 52;
+      if (trendUpFx && price > ind.ema50 && buyRsiOk && (macdBull || stochBull)) {
         if (overExtended) return { side: "FLAT", rationale: `BUY skipped — price ${distFromEma50Atr.toFixed(2)}×ATR above EMA50 (chasing top, wait for pullback)` };
         if (stochOverbought) return { side: "FLAT", rationale: `BUY skipped — Stoch %K ${ind.stochK.toFixed(1)} overbought (exhaustion risk)` };
-        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI 50-65, MACD bullish, Stoch healthy · ${sessionTag}` };
+        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} OK, ${macdBull ? "MACD bullish" : "Stoch bullish"} · ${sessionTag}` };
       }
-      if (trendDnFx && price < ind.ema50 && ind.rsi >= 35 && ind.rsi <= 50 && macdBear) {
+      if (trendDnFx && price < ind.ema50 && sellRsiOk && (macdBear || stochBear)) {
         if (overExtended) return { side: "FLAT", rationale: `SELL skipped — price ${distFromEma50Atr.toFixed(2)}×ATR below EMA50 (chasing bottom, wait for pullback)` };
         if (stochOversold) return { side: "FLAT", rationale: `SELL skipped — Stoch %K ${ind.stochK.toFixed(1)} oversold (exhaustion risk)` };
-        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI 35-50, MACD bearish, Stoch healthy · ${sessionTag}` };
+        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} OK, ${macdBear ? "MACD bearish" : "Stoch bearish"} · ${sessionTag}` };
       }
       return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
     }
@@ -307,7 +312,13 @@ export function generateTradeDecision(
   const spread = estimatedSpread(symbol, price);
   const fSpread = spreadFilter(symbol, price, spread, profile.maxSpreadPct);
   const fVol = volatilityFilter(price, ind.atr, profile.minAtrPct, profile.maxAtrPct);
-  const fSess = sessionFilter(profile.preferredSessions);
+  // London/NY are preferred, but Asian session should be *stricter*, not a
+  // hard block. The fx_multi_confirmation playbook above already raises ADX
+  // and ATR requirements during Asian-only hours, so keep the filter passing
+  // and record the session note instead of preventing all major-pair signals.
+  const fSess = profile.strategy === "fx_multi_confirmation"
+    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (London/NY priority; Asian uses stricter confirmation)` }
+    : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
   filters.push(fSpread, fVol, fSess, fNews);
 
