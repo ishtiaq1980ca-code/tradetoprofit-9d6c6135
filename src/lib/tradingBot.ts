@@ -462,7 +462,7 @@ async function runScan() {
     }
     if (hasRecentDup(sym, decision.side)) {
       useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
-      waitingMsgs.push(`${sym}: same-direction trade in last 10 min`);
+      waitingMsgs.push(`${sym}: same-direction trade in last 2 min`);
       continue;
     }
 
