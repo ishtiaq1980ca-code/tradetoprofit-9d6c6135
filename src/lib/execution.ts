@@ -189,8 +189,10 @@ export function normalizeOrderPlan(args: {
 
 // --------------------------- Dynamic open-trade caps ----------------------
 
-export const MAX_OPEN_FX = 8;
-export const MAX_OPEN_XAU = 2;
+// Total concurrent open trade cap = MAX_OPEN_FX + MAX_OPEN_XAU = 15.
+// Gold gets 5 dedicated slots to prioritize XAU trades over FX volume.
+export const MAX_OPEN_FX = 10;
+export const MAX_OPEN_XAU = 5;
 
 export type OpenTradeSlots = {
   fxOpen: number;
