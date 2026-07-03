@@ -136,7 +136,7 @@ export const useBot = create<BotStore>()(
       rsiSellMin: 15,
       useMacd: false,
       adxMin: 12,
-      maxOpenTrades: 10,
+      maxOpenTrades: 15,
       maxTradesPerSymbol: 2,
       maxDailyTrades: 20,
       pauseOnWeekend: true,
@@ -194,7 +194,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 10,
+      version: 11,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -208,8 +208,9 @@ export const useBot = create<BotStore>()(
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
           }
-          if (version < 9 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 10) {
-            persisted.maxOpenTrades = 10;
+          // v11: cap concurrent trades at 15 (was 70+ in older builds)
+          if (version < 11 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 15) {
+            persisted.maxOpenTrades = 15;
           }
         }
         return persisted;
@@ -389,7 +390,9 @@ async function runScan() {
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : ALL_TRADE_SYMBOLS);
   const waitingMsgs: string[] = [];
 
-  for (const sym of SYMBOLS) {
+  // Gold-first scan order: prioritize XAUUSD signals, then the rest of the pairs.
+  const scanOrder = ["XAUUSD", ...SYMBOLS.filter((s) => s !== "XAUUSD")];
+  for (const sym of scanOrder) {
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
