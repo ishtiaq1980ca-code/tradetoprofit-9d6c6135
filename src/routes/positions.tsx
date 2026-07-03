@@ -1,78 +1,100 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { usePriceFeed } from "@/hooks/usePriceFeed";
-import { pnlOf, useAccount } from "@/lib/paperTrading";
-import { X } from "lucide-react";
-import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/positions")({
-  head: () => ({ meta: [{ title: "Positions — AurumAI" }, { name: "description", content: "Open paper positions and trade history." }] }),
+  head: () => ({ meta: [{ title: "Positions — AurumAI" }, { name: "description", content: "Live MT5 open positions and trade history." }] }),
   component: PositionsPage,
 });
 
+type TradeRow = {
+  id: string;
+  symbol: string;
+  side: string;
+  lot: number;
+  entry: number;
+  exit: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
+  profit: number | null;
+  pips: number | null;
+  status: string;
+  mt5_ticket: number | null;
+  opened_at: string;
+  closed_at: string | null;
+};
+
 function PositionsPage() {
-  const feed = usePriceFeed();
-  const positions = useAccount((s) => s.positions);
-  const history = useAccount((s) => s.history);
-  const close = useAccount((s) => s.close);
+  const [open, setOpen] = useState<TradeRow[]>([]);
+  const [history, setHistory] = useState<TradeRow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const [o, h] = await Promise.all([
+        supabase.from("trades").select("*").eq("status", "open").order("opened_at", { ascending: false }),
+        supabase.from("trades").select("*").in("status", ["closed", "cancelled"]).order("closed_at", { ascending: false }).limit(200),
+      ]);
+      if (!alive) return;
+      setOpen((o.data as TradeRow[]) ?? []);
+      setHistory((h.data as TradeRow[]) ?? []);
+      setLoaded(true);
+    }
+    load();
+    const id = setInterval(load, 5_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   return (
     <AppShell>
       <div className="p-6 lg:p-8 space-y-6">
         <header>
           <h1 className="text-3xl font-semibold tracking-tight">Positions</h1>
-          <p className="text-sm text-muted-foreground">Live open trades and full history. Trailing stop and partial close act on every tick.</p>
+          <p className="text-sm text-muted-foreground">Live MT5 open positions and full trade history from your connected MT5 account.</p>
         </header>
 
         <Card className="border-border/60 bg-card/70">
-          <CardHeader><CardTitle className="text-base font-medium">Open ({positions.length})</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base font-medium">Open ({open.length})</CardTitle></CardHeader>
           <CardContent className="p-0">
-            {positions.length === 0 ? (
-              <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No open positions.</div>
+            {!loaded ? (
+              <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">Loading…</div>
+            ) : open.length === 0 ? (
+              <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No open MT5 positions. Ensure <code>aurumai_bridge.py</code> is running.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs font-mono-tabular">
                   <thead className="border-y border-border/60 bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 text-left">Opened</th>
+                      <th className="px-3 py-2 text-left">Ticket</th>
                       <th className="px-3 py-2 text-left">Symbol</th>
                       <th className="px-3 py-2 text-left">Side</th>
                       <th className="px-3 py-2 text-right">Lot</th>
                       <th className="px-3 py-2 text-right">Entry</th>
-                      <th className="px-3 py-2 text-right">Price</th>
                       <th className="px-3 py-2 text-right">SL</th>
                       <th className="px-3 py-2 text-right">TP</th>
                       <th className="px-3 py-2 text-right">P/L</th>
-                      <th className="px-3 py-2 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {positions.map((p) => {
-                      const price = feed.prices[p.symbol] ?? p.entry;
-                      const pnl = pnlOf(p, price);
-                      return (
-                        <tr key={p.id} className="border-b border-border/40">
-                          <td className="px-3 py-2 text-muted-foreground">{new Date(p.openedAt).toLocaleTimeString()}</td>
-                          <td className="px-3 py-2">{p.symbol}</td>
-                          <td className={cn("px-3 py-2 font-medium", p.side === "BUY" ? "text-bull" : "text-bear")}>{p.side}</td>
-                          <td className="px-3 py-2 text-right">{p.lot.toFixed(2)}</td>
-                          <td className="px-3 py-2 text-right">{fmt.price(p.entry, p.symbol)}</td>
-                          <td className="px-3 py-2 text-right">{fmt.price(price, p.symbol)}</td>
-                          <td className="px-3 py-2 text-right text-bear">{fmt.price(p.stopLoss, p.symbol)}{p.breakEvenTriggered && " *"}</td>
-                          <td className="px-3 py-2 text-right text-bull">{fmt.price(p.takeProfit, p.symbol)}</td>
-                          <td className={cn("px-3 py-2 text-right", pnl >= 0 ? "text-bull" : "text-bear")}>{fmt.money(pnl)}</td>
-                          <td className="px-3 py-2 text-right">
-                            <Button size="sm" variant="ghost" onClick={() => { close(p.id, price); toast.success(`Closed ${p.symbol}`); }}>
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {open.map((p) => (
+                      <tr key={p.id} className="border-b border-border/40">
+                        <td className="px-3 py-2 text-muted-foreground">{new Date(p.opened_at).toLocaleTimeString()}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{p.mt5_ticket ?? "—"}</td>
+                        <td className="px-3 py-2">{p.symbol}</td>
+                        <td className={cn("px-3 py-2 font-medium", p.side === "BUY" ? "text-bull" : "text-bear")}>{p.side}</td>
+                        <td className="px-3 py-2 text-right">{p.lot.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right">{fmt.price(p.entry, p.symbol)}</td>
+                        <td className="px-3 py-2 text-right text-bear">{p.stop_loss != null ? fmt.price(p.stop_loss, p.symbol) : "—"}</td>
+                        <td className="px-3 py-2 text-right text-bull">{p.take_profit != null ? fmt.price(p.take_profit, p.symbol) : "—"}</td>
+                        <td className={cn("px-3 py-2 text-right", (p.profit ?? 0) >= 0 ? "text-bull" : "text-bear")}>{p.profit != null ? fmt.money(p.profit) : "—"}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -84,33 +106,37 @@ function PositionsPage() {
           <CardHeader><CardTitle className="text-base font-medium">History ({history.length})</CardTitle></CardHeader>
           <CardContent className="p-0">
             {history.length === 0 ? (
-              <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No closed trades yet.</div>
+              <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No closed MT5 trades yet.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs font-mono-tabular">
                   <thead className="border-y border-border/60 bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 text-left">Closed</th>
+                      <th className="px-3 py-2 text-left">Ticket</th>
                       <th className="px-3 py-2 text-left">Symbol</th>
                       <th className="px-3 py-2 text-left">Side</th>
                       <th className="px-3 py-2 text-right">Lot</th>
                       <th className="px-3 py-2 text-right">Entry</th>
                       <th className="px-3 py-2 text-right">Exit</th>
+                      <th className="px-3 py-2 text-right">Pips</th>
                       <th className="px-3 py-2 text-right">P/L</th>
-                      <th className="px-3 py-2 text-left">Reason</th>
+                      <th className="px-3 py-2 text-left">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.map((t) => (
-                      <tr key={t.id + t.closedAt} className="border-b border-border/40">
-                        <td className="px-3 py-2 text-muted-foreground">{new Date(t.closedAt).toLocaleString()}</td>
+                      <tr key={t.id} className="border-b border-border/40">
+                        <td className="px-3 py-2 text-muted-foreground">{t.closed_at ? new Date(t.closed_at).toLocaleString() : "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{t.mt5_ticket ?? "—"}</td>
                         <td className="px-3 py-2">{t.symbol}</td>
                         <td className={cn("px-3 py-2 font-medium", t.side === "BUY" ? "text-bull" : "text-bear")}>{t.side}</td>
                         <td className="px-3 py-2 text-right">{t.lot.toFixed(2)}</td>
                         <td className="px-3 py-2 text-right">{fmt.price(t.entry, t.symbol)}</td>
-                        <td className="px-3 py-2 text-right">{fmt.price(t.exit, t.symbol)}</td>
-                        <td className={cn("px-3 py-2 text-right", t.profit >= 0 ? "text-bull" : "text-bear")}>{fmt.money(t.profit)}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{t.closeReason}</td>
+                        <td className="px-3 py-2 text-right">{t.exit != null ? fmt.price(t.exit, t.symbol) : "—"}</td>
+                        <td className="px-3 py-2 text-right">{t.pips != null ? t.pips.toFixed(1) : "—"}</td>
+                        <td className={cn("px-3 py-2 text-right", (t.profit ?? 0) >= 0 ? "text-bull" : "text-bear")}>{t.profit != null ? fmt.money(t.profit) : "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{t.status}</td>
                       </tr>
                     ))}
                   </tbody>
