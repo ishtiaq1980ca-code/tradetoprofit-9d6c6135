@@ -136,7 +136,7 @@ export const useBot = create<BotStore>()(
       rsiSellMin: 15,
       useMacd: false,
       adxMin: 12,
-      maxOpenTrades: 10,
+      maxOpenTrades: 15,
       maxTradesPerSymbol: 2,
       maxDailyTrades: 20,
       pauseOnWeekend: true,
@@ -194,7 +194,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 10,
+      version: 11,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -208,8 +208,9 @@ export const useBot = create<BotStore>()(
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
           }
-          if (version < 9 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 10) {
-            persisted.maxOpenTrades = 10;
+          // v11: cap concurrent trades at 15 (was 70+ in older builds)
+          if (version < 11 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 15) {
+            persisted.maxOpenTrades = 15;
           }
         }
         return persisted;
@@ -365,12 +366,24 @@ async function runScan() {
     }
   }
 
-  // Dynamic open-trade caps: FX max 4, XAUUSD max 2 (independent classes).
+  // Hard cap: never allow more than maxOpenTrades concurrent MT5 positions.
+  // Uses the live MT5 heartbeat count (source of truth) so the cap isn't
+  // bypassed when the local paper store is cleared after an MT5 sync.
+  const mt5Open = latestMt5OpenPositions ?? 0;
+  if (mt5Open >= bot.maxOpenTrades) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades cap reached (${mt5Open}/${bot.maxOpenTrades}) — waiting for closes` });
+    return;
+  }
+
+  // Dynamic open-trade caps: FX max 10, XAUUSD max 5 (independent classes, total 15).
   let slotInfo = computeOpenSlots(acc.positions);
   if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) {
     bot.pushLog({ t: Date.now(), level: "info", msg: `Open-trade caps reached (FX ${slotInfo.fxOpen}/${slotInfo.fxMax}, XAU ${slotInfo.xauOpen}/${slotInfo.xauMax}) — waiting for closes` });
     return;
   }
+
+  // Remaining budget for THIS scan across all symbols, based on live MT5 count.
+  let remainingBudget = Math.max(0, bot.maxOpenTrades - mt5Open);
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
   const perSymCount: Record<string, number> = {};
@@ -389,7 +402,10 @@ async function runScan() {
   const allowed = new Set(bot.enabledSymbols.length ? bot.enabledSymbols : ALL_TRADE_SYMBOLS);
   const waitingMsgs: string[] = [];
 
-  for (const sym of SYMBOLS) {
+  // Gold-first scan order: prioritize XAUUSD signals, then the rest of the pairs.
+  const scanOrder = ["XAUUSD", ...SYMBOLS.filter((s) => s !== "XAUUSD")];
+  for (const sym of scanOrder) {
+    if (remainingBudget <= 0) { waitingMsgs.push(`Max ${bot.maxOpenTrades} concurrent trades reached`); break; }
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
@@ -578,6 +594,7 @@ async function runScan() {
       totalOpen: slotInfo.totalOpen + 1,
     };
     opened++;
+    remainingBudget--;
     usedLot += finalLot;
 
     // ---- 3) Logging after order has been queued ----
