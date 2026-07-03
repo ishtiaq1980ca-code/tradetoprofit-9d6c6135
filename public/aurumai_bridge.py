@@ -360,12 +360,14 @@ def _report_trailing_update(position) -> None:
 
 
 def _apply_usd_trailing_stop(position) -> bool:
-    """Move SL only forward: +$1 => breakeven, +$2 => lock +$1, etc."""
+    """Move SL only forward. Once profit clears broker's min-stop distance
+    the SL snaps to breakeven, then ratchets in USD_TRAIL_STEP increments.
+    On FX at 0.01 lots the $0.50 trigger alone is not enough because the
+    broker's stop-level (usually 10 points ≈ 1 pip) blocks a BE stop until
+    price has moved further — so we bump the required profit dynamically."""
     if position.magic != MAGIC:
         return False
     profit = float(position.profit or 0)
-    if profit < USD_TRAIL_TRIGGER:
-        return False
     tick = mt5.symbol_info_tick(position.symbol)
     info = mt5.symbol_info(position.symbol)
     if tick is None or info is None:
@@ -382,15 +384,20 @@ def _apply_usd_trailing_stop(position) -> bool:
     if entry <= 0 or vpu <= 0:
         return False
 
-    # Lock one dollar less than current floating profit. This means +$1 moves
-    # to entry, +$2 locks +$1, and every extra dollar ratchets SL another $1.
+    # Minimum profit needed so that (bid/ask - min_dist) is at or above
+    # breakeven. Without this on FX the SL move gets rejected silently and
+    # trades sit at raw entry SL forever.
+    be_required_usd = min_dist * vpu + 0.05
+    effective_trigger = max(USD_TRAIL_TRIGGER, be_required_usd)
+    if profit < effective_trigger:
+        return False
+
+    # Lock (profit - step) USD of profit. Below BE clamps to entry so we
+    # never move SL backward into loss.
     lock_usd = max(0.0, profit - USD_TRAIL_STEP)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
-    # Respect broker stop-level distance from current Bid/Ask. If the broker
-    # will not allow a profitable/BE stop yet, wait for more profit instead of
-    # moving SL backward into loss.
     if is_buy:
         max_allowed_sl = float(tick.bid) - min_dist
         new_sl = min(raw_sl, max_allowed_sl)
@@ -409,10 +416,11 @@ def _apply_usd_trailing_stop(position) -> bool:
     new_sl = round(new_sl, digits)
     if _modify_position_stops(position, new_sl, tp):
         refreshed = _find_position_after_fill(position.symbol, int(position.ticket), None, allow_latest=False) or position
-        print(f"Trailing SL moved ticket={position.ticket} profit=${profit:.2f} sl={new_sl}")
+        print(f"Trailing SL moved ticket={position.ticket} profit=${profit:.2f} sl={new_sl} (trigger=${effective_trigger:.2f})")
         _report_trailing_update(refreshed)
         return True
     return False
+
 
 
 def manage_trailing_stops() -> int:
