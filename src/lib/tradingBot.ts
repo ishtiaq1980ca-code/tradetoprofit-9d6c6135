@@ -594,6 +594,7 @@ async function runScan() {
       totalOpen: slotInfo.totalOpen + 1,
     };
     opened++;
+    remainingBudget--;
     usedLot += finalLot;
 
     // ---- 3) Logging after order has been queued ----
