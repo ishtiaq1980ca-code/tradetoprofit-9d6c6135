@@ -405,6 +405,7 @@ async function runScan() {
   // Gold-first scan order: prioritize XAUUSD signals, then the rest of the pairs.
   const scanOrder = ["XAUUSD", ...SYMBOLS.filter((s) => s !== "XAUUSD")];
   for (const sym of scanOrder) {
+    if (remainingBudget <= 0) { waitingMsgs.push(`Max ${bot.maxOpenTrades} concurrent trades reached`); break; }
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
