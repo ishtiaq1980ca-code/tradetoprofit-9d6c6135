@@ -366,12 +366,24 @@ async function runScan() {
     }
   }
 
-  // Dynamic open-trade caps: FX max 4, XAUUSD max 2 (independent classes).
+  // Hard cap: never allow more than maxOpenTrades concurrent MT5 positions.
+  // Uses the live MT5 heartbeat count (source of truth) so the cap isn't
+  // bypassed when the local paper store is cleared after an MT5 sync.
+  const mt5Open = latestMt5OpenPositions ?? 0;
+  if (mt5Open >= bot.maxOpenTrades) {
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Max open trades cap reached (${mt5Open}/${bot.maxOpenTrades}) — waiting for closes` });
+    return;
+  }
+
+  // Dynamic open-trade caps: FX max 10, XAUUSD max 5 (independent classes, total 15).
   let slotInfo = computeOpenSlots(acc.positions);
   if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) {
     bot.pushLog({ t: Date.now(), level: "info", msg: `Open-trade caps reached (FX ${slotInfo.fxOpen}/${slotInfo.fxMax}, XAU ${slotInfo.xauOpen}/${slotInfo.xauMax}) — waiting for closes` });
     return;
   }
+
+  // Remaining budget for THIS scan across all symbols, based on live MT5 count.
+  let remainingBudget = Math.max(0, bot.maxOpenTrades - mt5Open);
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
   const perSymCount: Record<string, number> = {};
