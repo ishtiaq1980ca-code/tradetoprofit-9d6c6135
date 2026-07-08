@@ -130,6 +130,7 @@ export type Database = {
           atr_sl_mult: number
           atr_tp_mult: number
           created_at: string
+          daily_profit_target: number
           ema_fast: number
           ema_slow: number
           enabled: boolean
@@ -151,6 +152,7 @@ export type Database = {
           atr_sl_mult?: number
           atr_tp_mult?: number
           created_at?: string
+          daily_profit_target?: number
           ema_fast?: number
           ema_slow?: number
           enabled?: boolean
@@ -172,6 +174,7 @@ export type Database = {
           atr_sl_mult?: number
           atr_tp_mult?: number
           created_at?: string
+          daily_profit_target?: number
           ema_fast?: number
           ema_slow?: number
           enabled?: boolean
@@ -187,6 +190,56 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      execution_log: {
+        Row: {
+          action: string
+          created_at: string
+          error: string | null
+          id: string
+          latency_ms: number | null
+          mt5_ticket: number | null
+          retcode: number | null
+          retry_count: number
+          side: string | null
+          signal_id: string | null
+          symbol: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          latency_ms?: number | null
+          mt5_ticket?: number | null
+          retcode?: number | null
+          retry_count?: number
+          side?: string | null
+          signal_id?: string | null
+          symbol: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          latency_ms?: number | null
+          mt5_ticket?: number | null
+          retcode?: number | null
+          retry_count?: number
+          side?: string | null
+          signal_id?: string | null
+          symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_log_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       license_tokens: {
         Row: {
@@ -230,6 +283,66 @@ export type Database = {
           token?: string
           updated_at?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      pair_settings: {
+        Row: {
+          adx_min: number
+          atr_period: number
+          atr_sl_mult: number
+          created_at: string
+          ema_fast: number
+          ema_slow: number
+          enabled: boolean
+          max_lot: number
+          max_spread_pct: number
+          min_confidence: number
+          risk_per_trade_pct: number
+          rr_target: number
+          rsi_lower: number
+          rsi_period: number
+          rsi_upper: number
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          adx_min?: number
+          atr_period?: number
+          atr_sl_mult?: number
+          created_at?: string
+          ema_fast?: number
+          ema_slow?: number
+          enabled?: boolean
+          max_lot?: number
+          max_spread_pct?: number
+          min_confidence?: number
+          risk_per_trade_pct?: number
+          rr_target?: number
+          rsi_lower?: number
+          rsi_period?: number
+          rsi_upper?: number
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          adx_min?: number
+          atr_period?: number
+          atr_sl_mult?: number
+          created_at?: string
+          ema_fast?: number
+          ema_slow?: number
+          enabled?: boolean
+          max_lot?: number
+          max_spread_pct?: number
+          min_confidence?: number
+          risk_per_trade_pct?: number
+          rr_target?: number
+          rsi_lower?: number
+          rsi_period?: number
+          rsi_upper?: number
+          symbol?: string
+          updated_at?: string
         }
         Relationships: []
       }
