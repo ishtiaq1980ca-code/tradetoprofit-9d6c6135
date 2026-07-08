@@ -642,7 +642,7 @@ def execute_signal(sig: dict) -> bool:
         "comment": f"AurumAI {sig_id[:8] or sig['confidence']:.0f}%" if not sig_id else f"AurumAI {sig_id[:8]}",
         "type_time": mt5.ORDER_TIME_GTC,
     }
-    res = _send_with_supported_filling(req)
+    res = _send_with_retry(req, sig, is_buy)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
         report_trade_failure(
             sig, symbol,
