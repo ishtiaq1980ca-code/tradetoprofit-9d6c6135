@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
 const MIN_BRIDGE_RR = 1.8;
-const MIN_BRIDGE_VERSION = 2026062405;
+const MIN_BRIDGE_VERSION = 2026070801;
 
 function signalRiskError(signal: any): string | null {
   const side = signal.side;
@@ -54,12 +54,21 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           return Response.json({ enabled: false, reason: "mt5_stale", signals: [] });
         }
 
-        // Daily loss kill switch
+        // Daily loss kill switch + daily profit target halt
         const today = new Date(); today.setUTCHours(0, 0, 0, 0);
         if (latestSnap?.created_at && new Date(latestSnap.created_at) >= today && Number(latestSnap.balance) > 0) {
-          const lossPct = -(Number(latestSnap.daily_pnl) / Number(latestSnap.balance)) * 100;
+          const dailyPnl = Number(latestSnap.daily_pnl);
+          const balance = Number(latestSnap.balance);
+          const lossPct = -(dailyPnl / balance) * 100;
           if (lossPct >= Number(settings.max_daily_loss)) {
             return Response.json({ enabled: false, reason: "daily_loss_limit", signals: [] });
+          }
+          const profitTarget = Number((settings as any).daily_profit_target ?? 0);
+          if (profitTarget > 0) {
+            const profitPct = (dailyPnl / balance) * 100;
+            if (profitPct >= profitTarget) {
+              return Response.json({ enabled: false, reason: "daily_profit_target", signals: [] });
+            }
           }
         }
 
