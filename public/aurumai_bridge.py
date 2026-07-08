@@ -26,6 +26,20 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
+# TIP: Create a file named `aurumai_config.py` in the SAME folder as this
+# script and put your personal settings there. Any variable you define in
+# that file overrides the defaults below, so you only edit it ONCE and every
+# future bridge update keeps your login + broker symbols intact.
+#
+# Example aurumai_config.py:
+#     BRIDGE_TOKEN = "AURUM-XXXX-XXXX"
+#     MT5_LOGIN    = 12345678
+#     MT5_PASS     = "your-password"
+#     MT5_SERVER   = "YourBroker-Demo"
+#     SYMBOL_OVERRIDES = {
+#         "XAUUSD": "XAUUSD.i",
+#         "EURUSD": "EURUSD.i",
+#     }
 BRIDGE_VERSION = 2026070802                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
@@ -54,6 +68,28 @@ PARTIAL_TP_PCT = 0.50                             # 50% partial close
 SYMBOL_OVERRIDES = {
     "XAUUSD": "",   # <-- paste your broker's exact USD-quoted gold symbol here
 }
+
+# --- Load personal overrides from aurumai_config.py if present ---
+try:
+    import aurumai_config as _cfg  # type: ignore
+    _OVERRIDABLE = (
+        "BASE_URL", "BRIDGE_TOKEN", "MT5_LOGIN", "MT5_PASS", "MT5_SERVER",
+        "POLL_SEC", "SLIPPAGE", "MAGIC",
+        "USD_TRAIL_TRIGGER", "USD_TRAIL_STEP",
+        "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
+        "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT",
+        "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
+    )
+    for _k in _OVERRIDABLE:
+        if hasattr(_cfg, _k):
+            globals()[_k] = getattr(_cfg, _k)
+    if hasattr(_cfg, "SYMBOL_OVERRIDES") and isinstance(_cfg.SYMBOL_OVERRIDES, dict):
+        SYMBOL_OVERRIDES = {**SYMBOL_OVERRIDES, **_cfg.SYMBOL_OVERRIDES}
+    print("Loaded personal settings from aurumai_config.py")
+except ImportError:
+    print("No aurumai_config.py found — using values from this file. Create aurumai_config.py to preserve settings across updates.")
+except Exception as _e:
+    print(f"aurumai_config.py load error: {_e}")
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}", "X-Aurum-Bridge-Version": str(BRIDGE_VERSION)}
