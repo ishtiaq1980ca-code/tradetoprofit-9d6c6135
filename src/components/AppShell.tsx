@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, ClipboardCheck, Coins, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal } from "lucide-react";
+import { Activity, BarChart3, ClipboardCheck, Coins, KeyRound, LayoutDashboard, LineChart, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useBot } from "@/lib/tradingBot";
@@ -17,9 +17,11 @@ const baseNav = [
   { to: "/report", label: "Audit Report", icon: ClipboardCheck },
   { to: "/currency-report", label: "Currency Report", icon: Coins },
   { to: "/positions", label: "Positions", icon: ListChecks },
+  { to: "/analytics", label: "Analytics", icon: LineChart },
   { to: "/backtest", label: "Backtest", icon: BarChart3 },
   { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
   { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings/pairs", label: "Pair Config", icon: SlidersHorizontal },
 ] as const;
 const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck } as const;
 
