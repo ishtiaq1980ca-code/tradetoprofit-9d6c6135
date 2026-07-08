@@ -12,11 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "@/lib/strategy";
-import { fmt } from "@/lib/format";
+import { fmt, SYMBOLS } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { floatingPnl, pnlOf, useAccount } from "@/lib/paperTrading";
 import { useBot, triggerManualScan } from "@/lib/tradingBot";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -138,7 +139,11 @@ function Dashboard() {
           </div>
         </header>
 
+        <TradingFilters />
+
         <LiveAccountsPerformance />
+
+
 
 
         <SessionBadge />
@@ -317,5 +322,53 @@ function Dashboard() {
     </AppShell>
   );
 }
+
+const FX_SYMBOLS = SYMBOLS.filter((s) => s !== "XAUUSD");
+
+function TradingFilters() {
+  const enabledSymbols = useBot((s) => s.enabledSymbols);
+  const setEnabledSymbols = useBot((s) => s.setEnabledSymbols);
+  const goldOn = enabledSymbols.includes("XAUUSD");
+  const fxOn = FX_SYMBOLS.some((s) => enabledSymbols.includes(s));
+
+  const toggleGold = (on: boolean) => {
+    const fx = enabledSymbols.filter((s) => s !== "XAUUSD");
+    setEnabledSymbols(on ? ["XAUUSD", ...fx] : fx);
+    toast.success(on ? "Gold trading enabled" : "Gold trading disabled — running trades continue");
+  };
+  const toggleFx = (on: boolean) => {
+    const gold = enabledSymbols.filter((s) => s === "XAUUSD");
+    setEnabledSymbols(on ? [...gold, ...FX_SYMBOLS] : gold);
+    toast.success(on ? "Currency trading enabled" : "Currency trading disabled — running trades continue");
+  };
+
+  return (
+    <Card className="border-border/60 bg-card/70">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-medium">Trading Filters</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Turn instrument classes on or off. Open positions keep running until SL/TP or manual close.
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-2">
+        <div className={cn("flex items-center justify-between rounded-md border px-4 py-3", goldOn ? "border-gold/40 bg-gold/5" : "border-border/60")}>
+          <div>
+            <div className="text-sm font-medium">Gold (XAUUSD)</div>
+            <div className="text-xs text-muted-foreground">{goldOn ? "New gold signals are being taken" : "No new gold entries"}</div>
+          </div>
+          <Switch checked={goldOn} onCheckedChange={toggleGold} />
+        </div>
+        <div className={cn("flex items-center justify-between rounded-md border px-4 py-3", fxOn ? "border-bull/40 bg-bull/5" : "border-border/60")}>
+          <div>
+            <div className="text-sm font-medium">Currencies (FX)</div>
+            <div className="text-xs text-muted-foreground">{fxOn ? "New FX signals are being taken" : "No new FX entries"}</div>
+          </div>
+          <Switch checked={fxOn} onCheckedChange={toggleFx} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 
 

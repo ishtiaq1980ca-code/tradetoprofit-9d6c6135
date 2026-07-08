@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BRIDGE_VERSION = 2026070801                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026070802                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
@@ -316,19 +316,46 @@ def _close_position(position, reason: str) -> bool:
 
 
 def _modify_position_stops(position, sl: float, tp: float) -> bool:
+    # Preserve existing TP when caller passes 0 — many brokers interpret tp=0
+    # in TRADE_ACTION_SLTP as "remove TP", which cancels the RR target.
+    if tp is None or tp <= 0:
+        tp = float(position.tp or 0)
     req = {
         "action": mt5.TRADE_ACTION_SLTP,
         "symbol": position.symbol,
-        "position": position.ticket,
-        "sl": sl,
-        "tp": tp,
+        "position": int(position.ticket),
+        "sl": float(sl),
+        "tp": float(tp),
         "magic": MAGIC,
-        "comment": "AurumAI RR-fix",
+        "comment": "AurumAI SL-update",
     }
-    res = mt5.order_send(req)
-    if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
-        return True
-    print(f"SLTP modify failed ticket={position.ticket}: retcode={res.retcode if res else 'None'} {res.comment if res else ''}")
+    for attempt in range(3):
+        res = mt5.order_send(req)
+        if res is None:
+            print(f"SLTP modify no response ticket={position.ticket} attempt={attempt+1}")
+            time.sleep(0.2); continue
+        # DONE + NO_CHANGES (already at target) both count as success so
+        # trailing keeps advancing instead of getting stuck on the first attempt.
+        if res.retcode in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL, 10025):
+            return True
+        # Transient / requote conditions — refresh price and retry once.
+        if res.retcode in (mt5.TRADE_RETCODE_REQUOTE, mt5.TRADE_RETCODE_PRICE_OFF, mt5.TRADE_RETCODE_PRICE_CHANGED, 10021):
+            time.sleep(0.2); continue
+        # Invalid stops — clamp harder against a fresh tick and try once more.
+        if res.retcode in (mt5.TRADE_RETCODE_INVALID_STOPS, 10016):
+            tick = mt5.symbol_info_tick(position.symbol)
+            info = mt5.symbol_info(position.symbol)
+            if tick and info:
+                point = float(info.point or 0.00001)
+                min_dist = max(float(info.trade_stops_level or 0), float(info.trade_freeze_level or 0), 10.0) * point
+                is_buy = position.type == mt5.POSITION_TYPE_BUY
+                if is_buy:
+                    req["sl"] = float(min(sl, float(tick.bid) - min_dist * 1.5))
+                else:
+                    req["sl"] = float(max(sl, float(tick.ask) + min_dist * 1.5))
+                continue
+        print(f"SLTP modify failed ticket={position.ticket} attempt={attempt+1}: retcode={res.retcode} {res.comment}")
+        return False
     return False
 
 
@@ -382,7 +409,7 @@ def _apply_usd_trailing_stop(position) -> bool:
     tp = float(position.tp or 0)
     point = float(info.point or 0.00001)
     digits = int(info.digits or 5)
-    min_dist = max(float(info.trade_stops_level or 0), 10.0) * point
+    min_dist = max(float(info.trade_stops_level or 0), float(info.trade_freeze_level or 0), 10.0) * point
     vpu = _value_per_price_unit(position.symbol, float(position.volume or 0))
     if entry <= 0 or vpu <= 0:
         return False
