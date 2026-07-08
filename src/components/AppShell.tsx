@@ -144,7 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
 
           {/* Mobile bottom tab bar */}
-          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 grid border-t border-border bg-background/95 backdrop-blur", isAdmin ? "grid-cols-8" : "grid-cols-7")}>
+          <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 flex overflow-x-auto border-t border-border bg-background/95 backdrop-blur")}>
             {items.map((n) => {
               const Icon = n.icon;
               const active = pathname === n.to;
@@ -153,7 +153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={n.to}
                   to={n.to}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px]",
+                    "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] shrink-0 min-w-[64px]",
                     active ? "text-gold" : "text-muted-foreground",
                   )}
                 >
