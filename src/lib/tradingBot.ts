@@ -194,7 +194,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 12,
+      version: 13,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -212,6 +212,8 @@ export const useBot = create<BotStore>()(
           if (version < 11 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 15) {
             persisted.maxOpenTrades = 15;
           }
+          // v13: daily loss default $100 on $1000 account → 10%
+          if (version < 13) persisted.maxDailyLossPct = 10;
         }
         return persisted;
       },
