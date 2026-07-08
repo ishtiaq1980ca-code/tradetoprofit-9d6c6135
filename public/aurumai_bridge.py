@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BRIDGE_VERSION = 2026070301                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026070801                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
@@ -43,6 +43,9 @@ MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live
 MIN_RISK_REWARD = 1.8                             # all pairs: TP must be at least 1.8× SL distance (matches server floor)
 USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50 (fast BE + trail)
 USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00 — cuts losses fast, closes trades sooner
+MAX_SEND_RETRIES = 3                              # Prompt 5: retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
+PARTIAL_TP_R = 1.0                                # Prompt 4: at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
+PARTIAL_TP_PCT = 0.50                             # 50% partial close
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
