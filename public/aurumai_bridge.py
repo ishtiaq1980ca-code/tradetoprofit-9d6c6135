@@ -572,7 +572,19 @@ def execute_signal(sig: dict) -> bool:
     if already_open is not None:
         print(f"Signal {sig.get('id')} already has MT5 position ticket={already_open.ticket}; confirming instead of opening duplicate")
         return _report_open_position(sig, original_symbol, already_open)
+    # Prompt 5: duplicate trade prevention — skip if same-direction AurumAI position already open on this symbol.
     is_buy = sig["side"] == "BUY"
+    existing = mt5.positions_get(symbol=symbol) or []
+    for p in existing:
+        if p.magic != MAGIC:
+            continue
+        p_is_buy = p.type == mt5.POSITION_TYPE_BUY
+        if p_is_buy == is_buy:
+            reason = f"duplicate suppressed: same-direction position ticket={p.ticket} already open on {symbol}"
+            print(reason)
+            _log_execution(str(sig.get("id") or ""), symbol, sig.get("side"), "dedupe_skip", None, 0, 0, p.ticket, reason)
+            report_trade_failure(sig, symbol, reason)
+            return False
     price = tick.ask if is_buy else tick.bid
     spread = abs(float(tick.ask) - float(tick.bid))
     sig_entry = float(sig.get("entry") or sig.get("price") or 0)
