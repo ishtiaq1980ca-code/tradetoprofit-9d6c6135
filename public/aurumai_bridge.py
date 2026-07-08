@@ -426,11 +426,73 @@ def _apply_usd_trailing_stop(position) -> bool:
 
 
 
+_PARTIAL_TAKEN: set[int] = set()
+
+
+def _apply_partial_tp(position) -> bool:
+    """Prompt 4: at +1R close PARTIAL_TP_PCT of lot and move SL to breakeven.
+    Uses the position's original SL distance as 1R."""
+    if position.magic != MAGIC:
+        return False
+    ticket = int(position.ticket)
+    if ticket in _PARTIAL_TAKEN:
+        return False
+    tick = mt5.symbol_info_tick(position.symbol)
+    info = mt5.symbol_info(position.symbol)
+    if tick is None or info is None:
+        return False
+    entry = float(position.price_open)
+    sl = float(position.sl or 0)
+    if entry <= 0 or sl <= 0:
+        return False
+    is_buy = position.type == mt5.POSITION_TYPE_BUY
+    r_dist = abs(entry - sl)
+    if r_dist <= 0:
+        return False
+    price = float(tick.bid if is_buy else tick.ask)
+    move = (price - entry) if is_buy else (entry - price)
+    if move < r_dist * PARTIAL_TP_R:
+        return False
+    step = float(info.volume_step or 0.01)
+    min_vol = float(info.volume_min or 0.01)
+    close_vol = round(round(float(position.volume) * PARTIAL_TP_PCT / step) * step, 2)
+    if close_vol < min_vol or close_vol >= float(position.volume):
+        _PARTIAL_TAKEN.add(ticket)
+        return False
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": position.symbol,
+        "position": ticket,
+        "volume": close_vol,
+        "type": mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY,
+        "price": price,
+        "deviation": SLIPPAGE,
+        "magic": MAGIC,
+        "comment": "AurumAI partial +1R",
+        "type_time": mt5.ORDER_TIME_GTC,
+    }
+    res = _send_with_supported_filling(req)
+    if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+        _PARTIAL_TAKEN.add(ticket)
+        print(f"Partial +1R closed {close_vol} of ticket={ticket} @ {price}")
+        # Move remainder SL to BE
+        refreshed = _find_position_after_fill(position.symbol, ticket, None, allow_latest=False)
+        if refreshed is not None:
+            digits = int(info.digits or 5)
+            _modify_position_stops(refreshed, round(entry, digits), float(refreshed.tp or position.tp or 0))
+            _report_trailing_update(refreshed)
+        _log_execution(None, position.symbol, "BUY" if is_buy else "SELL", "partial_tp",
+                       res.retcode, 0, None, ticket, None)
+        return True
+    return False
+
+
 def manage_trailing_stops() -> int:
     positions = mt5.positions_get() or []
     moved = 0
     for p in positions:
         try:
+            _apply_partial_tp(p)
             if _apply_usd_trailing_stop(p):
                 moved += 1
         except Exception as e:
