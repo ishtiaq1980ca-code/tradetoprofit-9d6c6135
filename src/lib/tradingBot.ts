@@ -194,12 +194,12 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 11,
+      version: 12,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
-          // v10: force minConfidence floor to 60 for all users
-          if (version < 10 || typeof persisted.minConfidence !== "number" || persisted.minConfidence < MIN_CONFIDENCE) {
+          // v12: raise minConfidence floor to 85 (Prompt 2 AI-confidence gate).
+          if (version < 12 || typeof persisted.minConfidence !== "number" || persisted.minConfidence < MIN_CONFIDENCE) {
             persisted.minConfidence = MIN_CONFIDENCE;
           }
           if (version < 8 || !Array.isArray(persisted.enabledSymbols) || persisted.enabledSymbols.length <= 1) {

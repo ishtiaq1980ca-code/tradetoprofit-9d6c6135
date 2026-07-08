@@ -26,7 +26,7 @@ except ImportError:
 import requests
 
 # ============= CONFIG =============
-BRIDGE_VERSION = 2026070301                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026070801                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number
@@ -43,6 +43,9 @@ MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live
 MIN_RISK_REWARD = 1.8                             # all pairs: TP must be at least 1.8× SL distance (matches server floor)
 USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50 (fast BE + trail)
 USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00 — cuts losses fast, closes trades sooner
+MAX_SEND_RETRIES = 3                              # Prompt 5: retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
+PARTIAL_TP_R = 1.0                                # Prompt 4: at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
+PARTIAL_TP_PCT = 0.50                             # 50% partial close
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
@@ -423,16 +426,100 @@ def _apply_usd_trailing_stop(position) -> bool:
 
 
 
+_PARTIAL_TAKEN: set[int] = set()
+
+
+def _apply_partial_tp(position) -> bool:
+    """Prompt 4: at +1R close PARTIAL_TP_PCT of lot and move SL to breakeven.
+    Uses the position's original SL distance as 1R."""
+    if position.magic != MAGIC:
+        return False
+    ticket = int(position.ticket)
+    if ticket in _PARTIAL_TAKEN:
+        return False
+    tick = mt5.symbol_info_tick(position.symbol)
+    info = mt5.symbol_info(position.symbol)
+    if tick is None or info is None:
+        return False
+    entry = float(position.price_open)
+    sl = float(position.sl or 0)
+    if entry <= 0 or sl <= 0:
+        return False
+    is_buy = position.type == mt5.POSITION_TYPE_BUY
+    r_dist = abs(entry - sl)
+    if r_dist <= 0:
+        return False
+    price = float(tick.bid if is_buy else tick.ask)
+    move = (price - entry) if is_buy else (entry - price)
+    if move < r_dist * PARTIAL_TP_R:
+        return False
+    step = float(info.volume_step or 0.01)
+    min_vol = float(info.volume_min or 0.01)
+    close_vol = round(round(float(position.volume) * PARTIAL_TP_PCT / step) * step, 2)
+    if close_vol < min_vol or close_vol >= float(position.volume):
+        _PARTIAL_TAKEN.add(ticket)
+        return False
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": position.symbol,
+        "position": ticket,
+        "volume": close_vol,
+        "type": mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY,
+        "price": price,
+        "deviation": SLIPPAGE,
+        "magic": MAGIC,
+        "comment": "AurumAI partial +1R",
+        "type_time": mt5.ORDER_TIME_GTC,
+    }
+    res = _send_with_supported_filling(req)
+    if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+        _PARTIAL_TAKEN.add(ticket)
+        print(f"Partial +1R closed {close_vol} of ticket={ticket} @ {price}")
+        # Move remainder SL to BE
+        refreshed = _find_position_after_fill(position.symbol, ticket, None, allow_latest=False)
+        if refreshed is not None:
+            digits = int(info.digits or 5)
+            _modify_position_stops(refreshed, round(entry, digits), float(refreshed.tp or position.tp or 0))
+            _report_trailing_update(refreshed)
+        _log_execution(None, position.symbol, "BUY" if is_buy else "SELL", "partial_tp",
+                       res.retcode, 0, None, ticket, None)
+        return True
+    return False
+
+
 def manage_trailing_stops() -> int:
     positions = mt5.positions_get() or []
     moved = 0
     for p in positions:
         try:
+            _apply_partial_tp(p)
             if _apply_usd_trailing_stop(p):
                 moved += 1
         except Exception as e:
             print(f"trailing failed ticket={getattr(p, 'ticket', '?')}: {e}")
     return moved
+
+
+def _log_execution(signal_id, symbol, side, action, retcode, retry_count, latency_ms, ticket, error):
+    """Prompt 5: detailed logging of every MT5 execution attempt."""
+    try:
+        _post_json("/api/public/bridge/execution_log", {
+            "signal_id": signal_id or None,
+            "symbol": symbol,
+            "side": side,
+            "action": action,
+            "retcode": int(retcode) if retcode is not None else None,
+            "retry_count": int(retry_count),
+            "latency_ms": int(latency_ms) if latency_ms is not None else None,
+            "mt5_ticket": int(ticket) if ticket else None,
+            "error": (error or "")[:400] or None,
+        }, timeout=3)
+    except Exception:
+        pass
+
+
+# Prompt 5: retcodes worth retrying (transient market conditions)
+_RETRY_RETCODES = {10004, 10008, 10021, 10024, 10027, 10031}  # REQUOTE, PRICE_OFF, TIMEOUT, PRICE_CHANGED, ORDER_CHANGED, CONNECTION
 
 
 def _send_with_supported_filling(req: dict):
@@ -461,6 +548,37 @@ def _send_with_supported_filling(req: dict):
             return res
     print(f"all filling modes rejected/failed: {', '.join(tried)}")
     return res if 'res' in locals() else None
+
+
+def _send_with_retry(req: dict, sig: dict, is_buy: bool):
+    """Prompt 5: retry MT5 order on requote/price_off/timeout up to MAX_SEND_RETRIES.
+    On each retry, refresh the market price so the broker doesn't reject as stale."""
+    start = time.time()
+    symbol = req["symbol"]
+    sig_id = str(sig.get("id") or "")
+    last_res = None
+    for attempt in range(MAX_SEND_RETRIES + 1):
+        if attempt > 0:
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is not None:
+                req["price"] = float(tick.ask if is_buy else tick.bid)
+            time.sleep(0.15)
+        res = _send_with_supported_filling(req)
+        last_res = res
+        if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+            latency_ms = (time.time() - start) * 1000
+            ticket = int(res.order or res.deal or 0)
+            _log_execution(sig_id, symbol, sig.get("side"), "order_send", res.retcode, attempt, latency_ms, ticket, None)
+            return res
+        rc = res.retcode if res else None
+        if rc is None or rc not in _RETRY_RETCODES:
+            break
+        print(f"order_send retry {attempt + 1}/{MAX_SEND_RETRIES} retcode={rc} {res.comment if res else ''}")
+    latency_ms = (time.time() - start) * 1000
+    err = f"{last_res.comment if last_res else 'no response'}"
+    _log_execution(sig_id, symbol, sig.get("side"), "order_send_failed",
+                   last_res.retcode if last_res else None, MAX_SEND_RETRIES, latency_ms, None, err)
+    return last_res
 
 
 def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None, allow_latest: bool = True):
@@ -516,7 +634,19 @@ def execute_signal(sig: dict) -> bool:
     if already_open is not None:
         print(f"Signal {sig.get('id')} already has MT5 position ticket={already_open.ticket}; confirming instead of opening duplicate")
         return _report_open_position(sig, original_symbol, already_open)
+    # Prompt 5: duplicate trade prevention — skip if same-direction AurumAI position already open on this symbol.
     is_buy = sig["side"] == "BUY"
+    existing = mt5.positions_get(symbol=symbol) or []
+    for p in existing:
+        if p.magic != MAGIC:
+            continue
+        p_is_buy = p.type == mt5.POSITION_TYPE_BUY
+        if p_is_buy == is_buy:
+            reason = f"duplicate suppressed: same-direction position ticket={p.ticket} already open on {symbol}"
+            print(reason)
+            _log_execution(str(sig.get("id") or ""), symbol, sig.get("side"), "dedupe_skip", None, 0, 0, p.ticket, reason)
+            report_trade_failure(sig, symbol, reason)
+            return False
     price = tick.ask if is_buy else tick.bid
     spread = abs(float(tick.ask) - float(tick.bid))
     sig_entry = float(sig.get("entry") or sig.get("price") or 0)
@@ -574,7 +704,7 @@ def execute_signal(sig: dict) -> bool:
         "comment": f"AurumAI {sig_id[:8] or sig['confidence']:.0f}%" if not sig_id else f"AurumAI {sig_id[:8]}",
         "type_time": mt5.ORDER_TIME_GTC,
     }
-    res = _send_with_supported_filling(req)
+    res = _send_with_retry(req, sig, is_buy)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
         report_trade_failure(
             sig, symbol,

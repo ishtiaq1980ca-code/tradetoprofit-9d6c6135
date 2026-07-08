@@ -19,10 +19,13 @@ import { Route as CurrencyReportRouteImport } from './routes/currency-report'
 import { Route as BridgeRouteImport } from './routes/bridge'
 import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsPairsRouteImport } from './routes/settings.pairs'
 import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/bridge/trades'
 import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
+import { Route as ApiPublicBridgeExecution_logRouteImport } from './routes/api/public/bridge/execution_log'
 import { Route as ApiPublicBridgeAccountRouteImport } from './routes/api/public/bridge/account'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -75,6 +78,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -84,6 +92,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsPairsRoute = SettingsPairsRouteImport.update({
+  id: '/pairs',
+  path: '/pairs',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const ApiPublicBridgeTradesRoute = ApiPublicBridgeTradesRouteImport.update({
   id: '/api/public/bridge/trades',
@@ -95,6 +108,12 @@ const ApiPublicBridgePollRoute = ApiPublicBridgePollRouteImport.update({
   path: '/api/public/bridge/poll',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBridgeExecution_logRoute =
+  ApiPublicBridgeExecution_logRouteImport.update({
+    id: '/api/public/bridge/execution_log',
+    path: '/api/public/bridge/execution_log',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicBridgeAccountRoute = ApiPublicBridgeAccountRouteImport.update({
   id: '/api/public/bridge/account',
   path: '/api/public/bridge/account',
@@ -104,6 +123,7 @@ const ApiPublicBridgeAccountRoute = ApiPublicBridgeAccountRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
@@ -111,16 +131,19 @@ export interface FileRoutesByFullPath {
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/settings/pairs': typeof SettingsPairsRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
@@ -128,10 +151,12 @@ export interface FileRoutesByTo {
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/settings/pairs': typeof SettingsPairsRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
@@ -139,6 +164,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
   '/backtest': typeof BacktestRoute
   '/bridge': typeof BridgeRoute
@@ -146,10 +172,12 @@ export interface FileRoutesById {
   '/decisions': typeof DecisionsRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/settings/pairs': typeof SettingsPairsRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
+  '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
@@ -158,6 +186,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/analytics'
     | '/auth'
     | '/backtest'
     | '/bridge'
@@ -168,13 +197,16 @@ export interface FileRouteTypes {
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
+    | '/settings/pairs'
     | '/api/public/bridge/account'
+    | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admin'
+    | '/analytics'
     | '/auth'
     | '/backtest'
     | '/bridge'
@@ -185,13 +217,16 @@ export interface FileRouteTypes {
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
+    | '/settings/pairs'
     | '/api/public/bridge/account'
+    | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
   id:
     | '__root__'
     | '/'
     | '/admin'
+    | '/analytics'
     | '/auth'
     | '/backtest'
     | '/bridge'
@@ -202,7 +237,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/signals'
     | '/sitemap.xml'
+    | '/settings/pairs'
     | '/api/public/bridge/account'
+    | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
     | '/api/public/bridge/trades'
   fileRoutesById: FileRoutesById
@@ -210,6 +247,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AnalyticsRoute: typeof AnalyticsRoute
   AuthRoute: typeof AuthRoute
   BacktestRoute: typeof BacktestRoute
   BridgeRoute: typeof BridgeRoute
@@ -217,10 +255,11 @@ export interface RootRouteChildren {
   DecisionsRoute: typeof DecisionsRoute
   PositionsRoute: typeof PositionsRoute
   ReportRoute: typeof ReportRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   SignalsRoute: typeof SignalsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicBridgeAccountRoute: typeof ApiPublicBridgeAccountRoute
+  ApiPublicBridgeExecution_logRoute: typeof ApiPublicBridgeExecution_logRoute
   ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
   ApiPublicBridgeTradesRoute: typeof ApiPublicBridgeTradesRoute
 }
@@ -297,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -310,6 +356,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/settings/pairs': {
+      id: '/settings/pairs'
+      path: '/pairs'
+      fullPath: '/settings/pairs'
+      preLoaderRoute: typeof SettingsPairsRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/api/public/bridge/trades': {
       id: '/api/public/bridge/trades'
@@ -325,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicBridgePollRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bridge/execution_log': {
+      id: '/api/public/bridge/execution_log'
+      path: '/api/public/bridge/execution_log'
+      fullPath: '/api/public/bridge/execution_log'
+      preLoaderRoute: typeof ApiPublicBridgeExecution_logRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/bridge/account': {
       id: '/api/public/bridge/account'
       path: '/api/public/bridge/account'
@@ -335,9 +395,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsPairsRoute: typeof SettingsPairsRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsPairsRoute: SettingsPairsRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AnalyticsRoute: AnalyticsRoute,
   AuthRoute: AuthRoute,
   BacktestRoute: BacktestRoute,
   BridgeRoute: BridgeRoute,
@@ -345,23 +418,14 @@ const rootRouteChildren: RootRouteChildren = {
   DecisionsRoute: DecisionsRoute,
   PositionsRoute: PositionsRoute,
   ReportRoute: ReportRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   SignalsRoute: SignalsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicBridgeAccountRoute: ApiPublicBridgeAccountRoute,
+  ApiPublicBridgeExecution_logRoute: ApiPublicBridgeExecution_logRoute,
   ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
   ApiPublicBridgeTradesRoute: ApiPublicBridgeTradesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
