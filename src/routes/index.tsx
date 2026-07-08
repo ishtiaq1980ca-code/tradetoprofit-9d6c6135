@@ -12,11 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { analyze, calculateLot, DEFAULT_PARAMS } from "@/lib/strategy";
-import { fmt } from "@/lib/format";
+import { fmt, SYMBOLS } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { floatingPnl, pnlOf, useAccount } from "@/lib/paperTrading";
 import { useBot, triggerManualScan } from "@/lib/tradingBot";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
