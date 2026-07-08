@@ -409,7 +409,7 @@ def _apply_usd_trailing_stop(position) -> bool:
     tp = float(position.tp or 0)
     point = float(info.point or 0.00001)
     digits = int(info.digits or 5)
-    min_dist = max(float(info.trade_stops_level or 0), 10.0) * point
+    min_dist = max(float(info.trade_stops_level or 0), float(info.trade_freeze_level or 0), 10.0) * point
     vpu = _value_per_price_unit(position.symbol, float(position.volume or 0))
     if entry <= 0 or vpu <= 0:
         return False
