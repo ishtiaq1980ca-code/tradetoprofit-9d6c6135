@@ -438,6 +438,28 @@ def manage_trailing_stops() -> int:
     return moved
 
 
+def _log_execution(signal_id, symbol, side, action, retcode, retry_count, latency_ms, ticket, error):
+    """Prompt 5: detailed logging of every MT5 execution attempt."""
+    try:
+        _post_json("/api/public/bridge/execution_log", {
+            "signal_id": signal_id or None,
+            "symbol": symbol,
+            "side": side,
+            "action": action,
+            "retcode": int(retcode) if retcode is not None else None,
+            "retry_count": int(retry_count),
+            "latency_ms": int(latency_ms) if latency_ms is not None else None,
+            "mt5_ticket": int(ticket) if ticket else None,
+            "error": (error or "")[:400] or None,
+        }, timeout=3)
+    except Exception:
+        pass
+
+
+# Prompt 5: retcodes worth retrying (transient market conditions)
+_RETRY_RETCODES = {10004, 10008, 10021, 10024, 10027, 10031}  # REQUOTE, PRICE_OFF, TIMEOUT, PRICE_CHANGED, ORDER_CHANGED, CONNECTION
+
+
 def _send_with_supported_filling(req: dict):
     # Brokers differ by symbol: some reject IOC/FOK with retcode 10030. Send
     # directly and cache the working fill policy; order_check adds avoidable MT5
@@ -464,6 +486,37 @@ def _send_with_supported_filling(req: dict):
             return res
     print(f"all filling modes rejected/failed: {', '.join(tried)}")
     return res if 'res' in locals() else None
+
+
+def _send_with_retry(req: dict, sig: dict, is_buy: bool):
+    """Prompt 5: retry MT5 order on requote/price_off/timeout up to MAX_SEND_RETRIES.
+    On each retry, refresh the market price so the broker doesn't reject as stale."""
+    start = time.time()
+    symbol = req["symbol"]
+    sig_id = str(sig.get("id") or "")
+    last_res = None
+    for attempt in range(MAX_SEND_RETRIES + 1):
+        if attempt > 0:
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is not None:
+                req["price"] = float(tick.ask if is_buy else tick.bid)
+            time.sleep(0.15)
+        res = _send_with_supported_filling(req)
+        last_res = res
+        if res is not None and res.retcode == mt5.TRADE_RETCODE_DONE:
+            latency_ms = (time.time() - start) * 1000
+            ticket = int(res.order or res.deal or 0)
+            _log_execution(sig_id, symbol, sig.get("side"), "order_send", res.retcode, attempt, latency_ms, ticket, None)
+            return res
+        rc = res.retcode if res else None
+        if rc is None or rc not in _RETRY_RETCODES:
+            break
+        print(f"order_send retry {attempt + 1}/{MAX_SEND_RETRIES} retcode={rc} {res.comment if res else ''}")
+    latency_ms = (time.time() - start) * 1000
+    err = f"{last_res.comment if last_res else 'no response'}"
+    _log_execution(sig_id, symbol, sig.get("side"), "order_send_failed",
+                   last_res.retcode if last_res else None, MAX_SEND_RETRIES, latency_ms, None, err)
+    return last_res
 
 
 def _find_position_after_fill(symbol: str, ticket: int | None, signal_id: str | None, allow_latest: bool = True):
