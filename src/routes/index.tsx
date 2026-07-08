@@ -139,7 +139,11 @@ function Dashboard() {
           </div>
         </header>
 
+        <TradingFilters />
+
         <LiveAccountsPerformance />
+
+
 
 
         <SessionBadge />
