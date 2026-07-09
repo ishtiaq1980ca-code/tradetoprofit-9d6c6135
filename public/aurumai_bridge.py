@@ -429,14 +429,33 @@ def _report_trailing_update(position) -> None:
     }, timeout=3)
 
 
+_LAST_SL_BY_TICKET: dict[int, float] = {}         # remembers the SL we last successfully moved to
+_LAST_TRAIL_ATTEMPT_TS: dict[int, float] = {}     # last time we even considered modifying this ticket
+
+
 def _apply_usd_trailing_stop(position) -> bool:
     """Move SL only forward. Once profit clears broker's min-stop distance
     the SL snaps to breakeven, then ratchets in USD_TRAIL_STEP increments.
-    On FX at 0.01 lots the $0.50 trigger alone is not enough because the
-    broker's stop-level (usually 10 points ≈ 1 pip) blocks a BE stop until
-    price has moved further — so we bump the required profit dynamically."""
+
+    Throttling rules (per user request):
+      1. Do not modify the same ticket more often than TRAIL_MIN_INTERVAL_SEC.
+      2. Remember last successfully moved SL per ticket in memory and skip
+         if the new candidate does not lock at least TRAIL_MIN_STEP_USD extra.
+      3. If SL is already in profit (past entry), only advance once price has
+         travelled TRAIL_TP_PROGRESS_GATE of the way from entry toward TP.
+      4. Print only when SL is actually moved (handled at the bottom).
+    """
     if position.magic != MAGIC:
         return False
+    ticket = int(position.ticket)
+
+    # Rule 1: time-based throttle so we don't hammer the broker on every tick.
+    now = time.time()
+    last_ts = _LAST_TRAIL_ATTEMPT_TS.get(ticket, 0.0)
+    if now - last_ts < TRAIL_MIN_INTERVAL_SEC:
+        return False
+    _LAST_TRAIL_ATTEMPT_TS[ticket] = now
+
     profit = float(position.profit or 0)
     tick = mt5.symbol_info_tick(position.symbol)
     info = mt5.symbol_info(position.symbol)
@@ -454,13 +473,23 @@ def _apply_usd_trailing_stop(position) -> bool:
     if entry <= 0 or vpu <= 0:
         return False
 
-    # Minimum profit needed so that (bid/ask - min_dist) is at or above
-    # breakeven. Without this on FX the SL move gets rejected silently and
-    # trades sit at raw entry SL forever.
     be_required_usd = min_dist * vpu + 0.05
     effective_trigger = max(USD_TRAIL_TRIGGER, be_required_usd)
     if profit < effective_trigger:
         return False
+
+    # Rule 3: if the current SL is already in profit territory, wait until
+    # price has covered TRAIL_TP_PROGRESS_GATE of the way to TP before
+    # advancing SL again. This stops "trail every few cents" behaviour.
+    sl_already_positive = (
+        old_sl > 0 and ((is_buy and old_sl > entry) or ((not is_buy) and old_sl < entry))
+    )
+    if sl_already_positive and tp > 0:
+        cur_price = float(tick.bid if is_buy else tick.ask)
+        tp_total = abs(tp - entry)
+        tp_moved = (cur_price - entry) if is_buy else (entry - cur_price)
+        if tp_total > 0 and (tp_moved / tp_total) < TRAIL_TP_PROGRESS_GATE:
+            return False
 
     # Lock (profit - step) USD of profit. Below BE clamps to entry so we
     # never move SL backward into loss.
@@ -484,9 +513,20 @@ def _apply_usd_trailing_stop(position) -> bool:
         return False
 
     new_sl = round(new_sl, digits)
+
+    # Rule 2: compare against our own memory of the last SL we moved to,
+    # requiring at least TRAIL_MIN_STEP_USD additional locked profit.
+    last_sl = _LAST_SL_BY_TICKET.get(ticket)
+    if last_sl is not None:
+        extra_move = abs(new_sl - last_sl)
+        extra_usd = extra_move * vpu
+        if extra_usd < TRAIL_MIN_STEP_USD:
+            return False
+
     if _modify_position_stops(position, new_sl, tp):
-        refreshed = _find_position_after_fill(position.symbol, int(position.ticket), None, allow_latest=False) or position
-        print(f"Trailing SL moved ticket={position.ticket} profit=${profit:.2f} sl={new_sl} (trigger=${effective_trigger:.2f})")
+        _LAST_SL_BY_TICKET[ticket] = new_sl
+        refreshed = _find_position_after_fill(position.symbol, ticket, None, allow_latest=False) or position
+        print(f"Trailing SL moved ticket={ticket} profit=${profit:.2f} sl={new_sl} (trigger=${effective_trigger:.2f})")
         _report_trailing_update(refreshed)
         return True
     return False
