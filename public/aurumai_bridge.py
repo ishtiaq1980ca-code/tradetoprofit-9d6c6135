@@ -60,6 +60,10 @@ USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0
 MAX_SEND_RETRIES = 3                              # Prompt 5: retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # Prompt 4: at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
 PARTIAL_TP_PCT = 0.50                             # 50% partial close
+# --- Trailing throttle (per user request) ---
+TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
+TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
+TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after price is 65% of the way to TP
 
 # Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
 # in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
