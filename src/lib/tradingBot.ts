@@ -176,7 +176,9 @@ export const useBot = create<BotStore>()(
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
       setMaxTradesPerSymbol: (n) => set({ maxTradesPerSymbol: Math.max(1, n) }),
+      setMaxSameDirectionTrades: (n) => set({ maxSameDirectionTrades: Math.max(1, n) }),
       setMaxDailyTrades: (n) => set({ maxDailyTrades: Math.max(1, n) }),
+
       setPauseOnWeekend: (v) => set({ pauseOnWeekend: v }),
 
       toggleSymbol: (s) => {
