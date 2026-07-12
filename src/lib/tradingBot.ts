@@ -181,7 +181,7 @@ export const useBot = create<BotStore>()(
       setUseBuiltInStrategy: (v) => set({ useBuiltInStrategy: v }),
       setBuiltInFallback: (v) => set({ builtInFallback: v }),
       setLotMode: (m) => set({ lotMode: m }),
-      setFixedLot: (n) => set({ fixedLot: Math.max(0.01, Math.round(n * 100) / 100) }),
+      setFixedLot: (n) => set({ fixedLot: Math.max(0.02, Math.round(n * 100) / 100) }),
       setTierMode: (m) => set({ tierMode: m }),
       setManualTier: (t) => set({ manualTier: t }),
       setUseTierLimits: (v) => set({ useTierLimits: v }),
@@ -275,11 +275,11 @@ export function detectTier(balance: number): 500 | 1000 | 2000 | null {
   return null;
 }
 
-/** Max simultaneous open 0.01 lots permitted by tier. */
+/** Max simultaneous open lots permitted by tier (base lot = 0.02). */
 export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
-  if (tier === 2000) return 0.20; // 20 × 0.01
-  if (tier === 1000) return 0.10; // 10 × 0.01
-  if (tier === 500) return 0.06;  // 6  × 0.01
+  if (tier === 2000) return 0.20; // 10 × 0.02
+  if (tier === 1000) return 0.10; // 5  × 0.02
+  if (tier === 500) return 0.06;  // 3  × 0.02
   return 0;
 }
 
@@ -357,16 +357,16 @@ async function runScan() {
   const tier = currentTier();
   const lotCap = bot.useTierLimits ? tierLotCap(tier) : Infinity;
   const openLot = acc.positions.reduce((s, p) => s + p.lot, 0);
-  if (bot.useTierLimits) {
-    if (!tier) {
-      bot.pushLog({ t: Date.now(), level: "warn", msg: `Balance below $500 — bot disabled by tier rules` });
-      return;
+    if (bot.useTierLimits) {
+      if (!tier) {
+        bot.pushLog({ t: Date.now(), level: "warn", msg: `Balance below $500 — bot disabled by tier rules` });
+        return;
+      }
+      if (openLot + 0.02 > lotCap + 1e-9) {
+        bot.pushLog({ t: Date.now(), level: "info", msg: `Tier ${tier} lot cap reached (${openLot.toFixed(2)}/${lotCap.toFixed(2)}) — waiting for closes` });
+        return;
+      }
     }
-    if (openLot + 0.01 > lotCap + 1e-9) {
-      bot.pushLog({ t: Date.now(), level: "info", msg: `Tier ${tier} lot cap reached (${openLot.toFixed(2)}/${lotCap.toFixed(2)}) — waiting for closes` });
-      return;
-    }
-  }
 
   // Hard cap: never allow more than maxOpenTrades concurrent MT5 positions.
   // Uses the live MT5 heartbeat count (source of truth) so the cap isn't
@@ -508,9 +508,9 @@ async function runScan() {
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
 
     let lot = bot.useTierLimits
-      ? 0.01
+      ? 0.02
       : bot.lotMode === "fixed"
-        ? Math.max(0.01, bot.fixedLot)
+        ? Math.max(0.02, bot.fixedLot)
         : decision.lot;
     if (bot.useTierLimits && usedLot + lot > lotCap + 1e-9) {
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  TIER CAP would be exceeded` });

@@ -117,5 +117,5 @@ export function calculateLot(symbol: string, balance: number, riskPct: number, s
   const isGold = symbol === "XAUUSD";
   const valuePerUnit = isGold ? 100 : isJpy ? 1000 : 100000;
   const lot = riskAmount / (slDistance * valuePerUnit);
-  return Math.max(0.01, Math.round(lot * 100) / 100);
+  return Math.max(0.02, Math.round(lot * 100) / 100);
 }

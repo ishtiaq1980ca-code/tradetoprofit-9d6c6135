@@ -47,25 +47,26 @@ export function computeLevels(
 }
 
 export const MAX_LOT_SAFETY = 50; // hard upper cap regardless of risk math
+export const MIN_LOT = 0.02;      // minimum trade size across all instruments
 
-/** Hard ceiling for FX currency pairs: 0.01 lot per $500 of balance.
+/** Hard ceiling for FX currency pairs: 0.02 lot per $500 of balance.
  *  Gold is excluded — it has its own ATR-driven sizing. */
 export function fxLotCap(balance: number): number {
   const steps = Math.floor(Math.max(0, balance) / 500);
-  return Math.max(0.01, steps * 0.01);
+  return Math.max(MIN_LOT, steps * MIN_LOT);
 }
 
 export function positionSize(symbol: string, balance: number, riskPct: number, slDistance: number): number {
-  if (slDistance <= 0 || !isFinite(slDistance)) return 0.01;
-  if (balance <= 0 || riskPct <= 0) return 0.01;
+  if (slDistance <= 0 || !isFinite(slDistance)) return MIN_LOT;
+  if (balance <= 0 || riskPct <= 0) return MIN_LOT;
   const riskAmount = (balance * riskPct) / 100;
   const isJpy = symbol.endsWith("JPY");
   const isGold = symbol === "XAUUSD" || symbol === "GOLD";
   const valuePerUnit = isGold ? 100 : isJpy ? 1000 : 100_000;
   const raw = riskAmount / (slDistance * valuePerUnit);
-  if (!isFinite(raw) || raw <= 0) return 0.01;
-  let lot = Math.max(0.01, Math.round(raw * 100) / 100);
-  // FX safety cap: never exceed 0.01 lot per $500 balance on currency pairs.
+  if (!isFinite(raw) || raw <= 0) return MIN_LOT;
+  let lot = Math.max(MIN_LOT, Math.round(raw * 100) / 100);
+  // FX safety cap: never exceed 0.02 lot per $500 balance on currency pairs.
   if (!isGold) lot = Math.min(lot, fxLotCap(balance));
   lot = Math.min(MAX_LOT_SAFETY, lot);
   return lot;
