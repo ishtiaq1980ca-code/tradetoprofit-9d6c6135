@@ -102,7 +102,9 @@ type BotStore = {
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
   setMaxTradesPerSymbol: (n: number) => void;
+  setMaxSameDirectionTrades: (n: number) => void;
   setMaxDailyTrades: (n: number) => void;
+
   setPauseOnWeekend: (v: boolean) => void;
   toggleSymbol: (s: string) => void;
 
