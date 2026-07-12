@@ -119,7 +119,9 @@ function SettingsPage() {
               <F label="Scan interval (s)"><N v={Math.round(bot.scanIntervalMs / 1000)} on={(v) => bot.setScanInterval(Math.max(2, v) * 1000)} /></F>
               <F label="Max open trades (total)"><N v={bot.maxOpenTrades} on={bot.setMaxOpenTrades} /></F>
               <F label="Max trades per symbol"><N v={bot.maxTradesPerSymbol} on={bot.setMaxTradesPerSymbol} /></F>
+              <F label="Max same-direction duplicates"><N v={bot.maxSameDirectionTrades} on={bot.setMaxSameDirectionTrades} /></F>
               <F label="Max daily trades"><N v={bot.maxDailyTrades} on={bot.setMaxDailyTrades} /></F>
+
 
               <F label="EMA fast"><N v={bot.emaFast} on={bot.setEmaFast} /></F>
               <F label="EMA slow"><N v={bot.emaSlow} on={bot.setEmaSlow} /></F>

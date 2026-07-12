@@ -66,7 +66,9 @@ type BotStore = {
   adxMin: number;
   maxOpenTrades: number;
   maxTradesPerSymbol: number;
+  maxSameDirectionTrades: number;
   maxDailyTrades: number;
+
   pauseOnWeekend: boolean;
   enabledSymbols: string[];
   useBuiltInStrategy: boolean;
@@ -100,7 +102,9 @@ type BotStore = {
   setAdxMin: (n: number) => void;
   setMaxOpenTrades: (n: number) => void;
   setMaxTradesPerSymbol: (n: number) => void;
+  setMaxSameDirectionTrades: (n: number) => void;
   setMaxDailyTrades: (n: number) => void;
+
   setPauseOnWeekend: (v: boolean) => void;
   toggleSymbol: (s: string) => void;
 
@@ -138,7 +142,9 @@ export const useBot = create<BotStore>()(
       adxMin: 12,
       maxOpenTrades: 15,
       maxTradesPerSymbol: 2,
+      maxSameDirectionTrades: 2,
       maxDailyTrades: 20,
+
       pauseOnWeekend: true,
       enabledSymbols: ALL_TRADE_SYMBOLS,
       useBuiltInStrategy: true,
@@ -170,7 +176,9 @@ export const useBot = create<BotStore>()(
       setAdxMin: (n) => set({ adxMin: n }),
       setMaxOpenTrades: (n) => set({ maxOpenTrades: n }),
       setMaxTradesPerSymbol: (n) => set({ maxTradesPerSymbol: Math.max(1, n) }),
+      setMaxSameDirectionTrades: (n) => set({ maxSameDirectionTrades: Math.max(1, n) }),
       setMaxDailyTrades: (n) => set({ maxDailyTrades: Math.max(1, n) }),
+
       setPauseOnWeekend: (v) => set({ pauseOnWeekend: v }),
 
       toggleSymbol: (s) => {
@@ -194,7 +202,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 13,
+      version: 14,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -214,9 +222,14 @@ export const useBot = create<BotStore>()(
           }
           // v13: daily loss default $100 on $1000 account → 10%
           if (version < 13) persisted.maxDailyLossPct = 10;
+          // v14: allow up to 2 same-direction duplicate trades per symbol
+          if (version < 14 || typeof persisted.maxSameDirectionTrades !== "number") {
+            persisted.maxSameDirectionTrades = 2;
+          }
         }
         return persisted;
       },
+
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
@@ -389,15 +402,23 @@ async function runScan() {
 
   const openSymbols = new Set(acc.positions.map((p) => p.symbol));
   const perSymCount: Record<string, number> = {};
-  for (const p of acc.positions) perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
+  const perSideCount: Record<string, number> = {};
+  for (const p of acc.positions) {
+    perSymCount[p.symbol] = (perSymCount[p.symbol] ?? 0) + 1;
+    const key = `${p.symbol}:${p.side}`;
+    perSideCount[key] = (perSideCount[key] ?? 0) + 1;
+  }
 
   // Duplicate prevention — short cooldown per symbol+side. Keep it tight so a
   // bridge rejection/expiry does not freeze signal generation for 10 minutes.
   const recent = useDecisionLog.getState().records;
   const dupWindowMs = 2 * 60_000;
   const now = Date.now();
-  const hasRecentDup = (sym: string, side: "BUY" | "SELL") =>
-    recent.some((r) => r.symbol === sym && r.direction === side && (r.status === "queued" || r.status === "executed") && now - r.at < dupWindowMs);
+  const recentSameDirection = (sym: string, side: "BUY" | "SELL") =>
+    recent.filter((r) => r.symbol === sym && r.direction === side && (r.status === "queued" || r.status === "executed") && now - r.at < dupWindowMs).length;
+  const sameDirectionTotal = (sym: string, side: "BUY" | "SELL") =>
+    (perSideCount[`${sym}:${side}`] ?? 0) + recentSameDirection(sym, side);
+
 
   let opened = 0;
   let usedLot = openLot;
@@ -474,18 +495,16 @@ async function runScan() {
       continue;
     }
 
-    // Duplicate prevention — block re-entering the same symbol/side too soon
-    // (separate from the per-symbol cap, which still applies).
-    if (openSymbols.has(sym) && (perSymCount[sym] ?? 0) > 0) {
+    // Duplicate prevention — allow up to maxSameDirectionTrades of the same
+    // symbol+direction. Count both open local positions and recent queued/executed
+    // decisions that may not yet be reflected in positions.
+    const dupCount = sameDirectionTotal(sym, decision.side);
+    if (dupCount >= bot.maxSameDirectionTrades) {
       useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
-      waitingMsgs.push(`${sym}: position already open (duplicate prevention)`);
+      waitingMsgs.push(`${sym}: ${decision.side} duplicate cap (${dupCount}/${bot.maxSameDirectionTrades}) reached`);
       continue;
     }
-    if (hasRecentDup(sym, decision.side)) {
-      useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
-      waitingMsgs.push(`${sym}: same-direction trade in last 2 min`);
-      continue;
-    }
+
 
     // Correlation guard — block stacking redundant FX exposure
     const corr = correlationGuard(
