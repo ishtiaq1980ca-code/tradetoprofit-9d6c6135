@@ -142,7 +142,9 @@ export const useBot = create<BotStore>()(
       adxMin: 12,
       maxOpenTrades: 15,
       maxTradesPerSymbol: 2,
+      maxSameDirectionTrades: 2,
       maxDailyTrades: 20,
+
       pauseOnWeekend: true,
       enabledSymbols: ALL_TRADE_SYMBOLS,
       useBuiltInStrategy: true,
