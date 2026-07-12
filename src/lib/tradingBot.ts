@@ -66,7 +66,9 @@ type BotStore = {
   adxMin: number;
   maxOpenTrades: number;
   maxTradesPerSymbol: number;
+  maxSameDirectionTrades: number;
   maxDailyTrades: number;
+
   pauseOnWeekend: boolean;
   enabledSymbols: string[];
   useBuiltInStrategy: boolean;
