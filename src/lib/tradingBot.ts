@@ -202,7 +202,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 13,
+      version: 14,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
@@ -222,9 +222,14 @@ export const useBot = create<BotStore>()(
           }
           // v13: daily loss default $100 on $1000 account → 10%
           if (version < 13) persisted.maxDailyLossPct = 10;
+          // v14: allow up to 2 same-direction duplicate trades per symbol
+          if (version < 14 || typeof persisted.maxSameDirectionTrades !== "number") {
+            persisted.maxSameDirectionTrades = 2;
+          }
         }
         return persisted;
       },
+
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
       ),
