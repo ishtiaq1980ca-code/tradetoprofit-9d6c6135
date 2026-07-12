@@ -495,18 +495,16 @@ async function runScan() {
       continue;
     }
 
-    // Duplicate prevention — block re-entering the same symbol/side too soon
-    // (separate from the per-symbol cap, which still applies).
-    if (openSymbols.has(sym) && (perSymCount[sym] ?? 0) > 0) {
+    // Duplicate prevention — allow up to maxSameDirectionTrades of the same
+    // symbol+direction. Count both open local positions and recent queued/executed
+    // decisions that may not yet be reflected in positions.
+    const dupCount = sameDirectionTotal(sym, decision.side);
+    if (dupCount >= bot.maxSameDirectionTrades) {
       useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
-      waitingMsgs.push(`${sym}: position already open (duplicate prevention)`);
+      waitingMsgs.push(`${sym}: ${decision.side} duplicate cap (${dupCount}/${bot.maxSameDirectionTrades}) reached`);
       continue;
     }
-    if (hasRecentDup(sym, decision.side)) {
-      useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
-      waitingMsgs.push(`${sym}: same-direction trade in last 2 min`);
-      continue;
-    }
+
 
     // Correlation guard — block stacking redundant FX exposure
     const corr = correlationGuard(
