@@ -24,8 +24,13 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { activeSessions } from "./sessions";
 
-// Prompt 2: hard AI-confidence gate at 85. Multi-confirmation (EMA50/200 + RSI + MACD + ADX + ATR + MTF) must all pass.
-export const MIN_CONFIDENCE = 85;
+// Confidence gates: gold requires 85%, FX currencies 80%.
+export const MIN_CONFIDENCE_GOLD = 85;
+export const MIN_CONFIDENCE_FX = 80;
+export const MIN_CONFIDENCE = MIN_CONFIDENCE_FX; // back-compat: lowest floor
+export function minConfidenceFor(symbol: string): number {
+  return symbol === "XAUUSD" || symbol === "GOLD" ? MIN_CONFIDENCE_GOLD : MIN_CONFIDENCE_FX;
+}
 
 export type ConfidenceBreakdown = {
   trend: number;       // 0..25
@@ -97,7 +102,7 @@ export type GeneratorParams = {
 };
 
 export const DEFAULT_GENERATOR_PARAMS: GeneratorParams = {
-  minConfidence: MIN_CONFIDENCE,
+  minConfidence: MIN_CONFIDENCE_FX,
   risk: DEFAULT_RISK,
 };
 
