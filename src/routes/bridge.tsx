@@ -74,6 +74,13 @@ function BridgePage() {
               Then run: <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-background/60 p-3 text-xs">{`python aurumai_bridge.py`}</pre>
               The bridge posts a live MT5 heartbeat before polling, auto-reconnects if MT5 goes stale, and then executes orders on MT5.
             </Step>
+            <Step n={6} title="Optional: keep your settings across bridge updates">
+              Every time you re-download <code className="rounded bg-muted px-1">aurumai_bridge.py</code> your token / MT5 login inside it get overwritten. Drop this small file next to the bridge to keep those values permanently:
+              <a href="/aurumai_config.py" download className="inline-block mt-2">
+                <Button size="sm" variant="outline"><Download className="mr-1.5 h-4 w-4" /> aurumai_config.py (optional)</Button>
+              </a>
+              <div className="mt-1 text-xs">Not required for trading — the bridge already auto-detects the MT5 account and maps every broker symbol. Only use this if you want your <code className="rounded bg-muted px-1">BRIDGE_TOKEN</code> or login to survive future bridge updates.</div>
+            </Step>
           </CardContent>
         </Card>
 
