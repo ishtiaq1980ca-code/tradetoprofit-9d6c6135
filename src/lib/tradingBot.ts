@@ -29,6 +29,9 @@ type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 let latestMt5OpenPositions: number | null = null;
+let latestMt5Balance: number | null = null;
+let latestMt5Equity: number | null = null;
+let latestMt5DailyPnl: number | null = null;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
@@ -36,17 +39,30 @@ const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
     .from("account_snapshots")
-    .select("created_at,open_positions")
+    .select("created_at,open_positions,balance,equity,daily_pnl")
     .order("created_at", { ascending: false })
     .limit(1);
   const snap = data?.[0];
   const ts = snap?.created_at;
   latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : 0;
   latestMt5OpenPositions = typeof snap?.open_positions === "number" ? snap.open_positions : null;
+  latestMt5Balance = snap && snap.balance != null ? Number(snap.balance) : null;
+  latestMt5Equity = snap && snap.equity != null ? Number(snap.equity) : null;
+  latestMt5DailyPnl = snap && snap.daily_pnl != null ? Number(snap.daily_pnl) : null;
 }
 
 function mt5HeartbeatFresh() {
   return latestMt5HeartbeatAt > 0 && Date.now() - latestMt5HeartbeatAt < MT5_HEARTBEAT_MAX_AGE_MS;
+}
+
+export function mt5LiveAccount() {
+  return {
+    fresh: mt5HeartbeatFresh(),
+    balance: latestMt5Balance,
+    equity: latestMt5Equity,
+    dailyPnl: latestMt5DailyPnl,
+    openPositions: latestMt5OpenPositions,
+  };
 }
 
 type BotStore = {
