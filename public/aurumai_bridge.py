@@ -40,12 +40,12 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026070903                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026071401                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
-MT5_LOGIN    = 0                                  # your MT5 demo account number
-MT5_PASS     = ""                                 # your MT5 password
-MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
+MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
+MT5_PASS     = ""                                 # your MT5 password (leave blank to reuse the terminal's logged-in session)
+MT5_SERVER   = ""                                 # your broker server (leave blank to reuse the terminal's logged-in session)
 POLL_SEC     = 0.2                                # turbo polling; server also rejects stale fills
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
@@ -55,23 +55,25 @@ MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0060            # 0.60% favorable move allowed
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.8                             # all pairs: TP must be at least 1.8× SL distance (matches server floor)
-USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50 (fast BE + trail)
-USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00 — cuts losses fast, closes trades sooner
-MAX_SEND_RETRIES = 3                              # Prompt 5: retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
-PARTIAL_TP_R = 1.0                                # Prompt 4: at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
+USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50
+USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00
+MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
+PARTIAL_TP_R = 1.0                                # at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
 PARTIAL_TP_PCT = 0.50                             # 50% partial close
-# --- Trailing throttle (per user request) ---
+# --- Trailing throttle ---
 TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
 TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
-TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after price is 65% of the way to TP
+TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after 65% of the way to TP
 
-# Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
-# in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
-# search "XAU" or "GOLD" -> copy the exact USD-quoted name (NOT XAUEUR).
-# Common broker variants: "XAUUSD.i", "XAUUSDm", "XAUUSD#", "XAUUSD.pro", "GOLD", "GOLD.i"
-SYMBOL_OVERRIDES = {
-    "XAUUSD": "",   # <-- paste your broker's exact USD-quoted gold symbol here
-}
+# ============= AUTO-DETECT MODE =============
+# The bridge now auto-detects your broker account (login/server) from the
+# already-open MT5 terminal, and auto-discovers every AurumAI symbol on your
+# broker (XAUUSD → XAUUSDm, XAUUSD.i, GOLD, etc.).  You do NOT need to
+# maintain a SYMBOL_OVERRIDES dict any more — every broker's naming style is
+# probed automatically.  Leave SYMBOL_OVERRIDES empty; only add an entry
+# below if auto-detection maps a symbol wrong.
+SYMBOL_OVERRIDES: dict[str, str] = {}
+
 
 # --- Load personal overrides from aurumai_config.py if present ---
 try:
