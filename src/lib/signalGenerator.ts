@@ -352,8 +352,8 @@ export function generateTradeDecision(
   // hard block. The fx_multi_confirmation playbook above already raises ADX
   // and ATR requirements during Asian-only hours, so keep the filter passing
   // and record the session note instead of preventing all major-pair signals.
-  const fSess = profile.strategy === "fx_multi_confirmation"
-    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (London/NY priority; Asian uses stricter confirmation)` }
+  const fSess = profile.strategy === "fx_multi_confirmation" || profile.strategy === "gold_multi_confirmation"
+    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (${profile.strategy === "gold_multi_confirmation" ? "gold 24h" : "London/NY priority"})` }
     : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
   filters.push(fSpread, fVol, fSess, fNews);
