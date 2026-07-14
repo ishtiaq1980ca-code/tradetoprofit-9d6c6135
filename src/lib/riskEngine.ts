@@ -48,12 +48,13 @@ export function computeLevels(
 
 export const MAX_LOT_SAFETY = 50; // hard upper cap regardless of risk math
 export const MIN_LOT = 0.02;      // minimum trade size across all instruments
+export const FX_MAX_LOT = 0.08;   // hard ceiling for FX currency pairs
 
-/** Hard ceiling for FX currency pairs: 0.02 lot per $500 of balance.
+/** Hard ceiling for FX currency pairs: 0.02 lot per $500 of balance, capped at 0.08.
  *  Gold is excluded — it has its own ATR-driven sizing. */
 export function fxLotCap(balance: number): number {
   const steps = Math.floor(Math.max(0, balance) / 500);
-  return Math.max(MIN_LOT, steps * MIN_LOT);
+  return Math.min(FX_MAX_LOT, Math.max(MIN_LOT, steps * MIN_LOT));
 }
 
 export function positionSize(symbol: string, balance: number, riskPct: number, slDistance: number): number {
