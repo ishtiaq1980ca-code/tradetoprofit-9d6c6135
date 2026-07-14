@@ -248,12 +248,19 @@ def resolve_symbol(original: str) -> str | None:
 
     want_quote = original[-3:].upper() if len(original) >= 6 else "USD"
     base = original[:-3] if len(original) >= 6 else original
+    # Cover every naming convention a broker might use for FX or metals.
     candidates = [
         original,
-        f"{original}m", f"{original}.", f"{original}_", f"{original}#", f"{original}.i", f"{original}.pro",
+        f"{original}m", f"{original}.m", f"{original}.i", f"{original}.pro", f"{original}.raw",
+        f"{original}.r", f"{original}c", f"{original}.c", f"{original}.a", f"{original}.ecn",
+        f"{original}.", f"{original}_", f"{original}#", f"{original}-", f"{original}+", f"{original}!",
+        original.lower(), original.capitalize(),
     ]
     if original == "XAUUSD":
-        candidates += ["GOLD", "Gold", "XAUUSDm", "XAUUSD.", "XAUUSD_", "XAUUSD#"]
+        candidates += [
+            "GOLD", "Gold", "gold", "XAUUSDm", "XAUUSD.i", "XAUUSD.pro", "XAUUSD.raw",
+            "XAUUSD.", "XAUUSD_", "XAUUSD#", "XAUUSDc", "XAUUSD+", "GOLD.i", "GOLDm", "GOLD.pro",
+        ]
     for c in candidates:
         if _quote_currency_ok(c, original, want_quote) and mt5.symbol_select(c, True):
             _SYMBOL_CACHE[original] = c
