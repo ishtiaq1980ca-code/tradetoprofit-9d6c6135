@@ -29,6 +29,9 @@ type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 let latestMt5OpenPositions: number | null = null;
+let latestMt5Balance: number | null = null;
+let latestMt5Equity: number | null = null;
+let latestMt5DailyPnl: number | null = null;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
@@ -36,17 +39,30 @@ const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 async function refreshMt5Heartbeat() {
   const { data } = await supabase
     .from("account_snapshots")
-    .select("created_at,open_positions")
+    .select("created_at,open_positions,balance,equity,daily_pnl")
     .order("created_at", { ascending: false })
     .limit(1);
   const snap = data?.[0];
   const ts = snap?.created_at;
   latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : 0;
   latestMt5OpenPositions = typeof snap?.open_positions === "number" ? snap.open_positions : null;
+  latestMt5Balance = snap && snap.balance != null ? Number(snap.balance) : null;
+  latestMt5Equity = snap && snap.equity != null ? Number(snap.equity) : null;
+  latestMt5DailyPnl = snap && snap.daily_pnl != null ? Number(snap.daily_pnl) : null;
 }
 
 function mt5HeartbeatFresh() {
   return latestMt5HeartbeatAt > 0 && Date.now() - latestMt5HeartbeatAt < MT5_HEARTBEAT_MAX_AGE_MS;
+}
+
+export function mt5LiveAccount() {
+  return {
+    fresh: mt5HeartbeatFresh(),
+    balance: latestMt5Balance,
+    equity: latestMt5Equity,
+    dailyPnl: latestMt5DailyPnl,
+    openPositions: latestMt5OpenPositions,
+  };
 }
 
 type BotStore = {
@@ -270,6 +286,12 @@ export const useBot = create<BotStore>()(
 
 
 function dailyPnlFor(): number {
+  // Always prefer live MT5 daily P/L when a fresh bridge snapshot is available.
+  // The local paper-trading history does not reflect actual MT5 trade results,
+  // so falling back to it would either miss real profits or fabricate losses.
+  if (latestMt5DailyPnl != null && mt5HeartbeatFresh()) {
+    return latestMt5DailyPnl;
+  }
   const s = useAccount.getState();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -339,7 +361,15 @@ async function runScan() {
     useBot.setState({ haltedToday: false, haltedDate: null });
   }
 
-  if (bot.haltedToday) return;
+  // Self-heal a stale halt flag: if MT5 shows the account is not actually in
+  // loss (e.g. daily P/L is flat or positive), clear the halt so trading can
+  // resume from live broker data instead of a stale local flag.
+  if (bot.haltedToday && mt5HeartbeatFresh() && latestMt5DailyPnl != null && latestMt5DailyPnl >= 0) {
+    useBot.setState({ haltedToday: false, haltedDate: null });
+    bot.pushLog({ t: Date.now(), level: "info", msg: `Halt cleared — MT5 daily P/L is $${latestMt5DailyPnl.toFixed(2)}` });
+  }
+
+  if (useBot.getState().haltedToday) return;
 
   // Weekend pause
   const sess = activeSessions();
@@ -354,12 +384,17 @@ async function runScan() {
 
 
 
-  // Max daily loss circuit breaker
+  // Max daily loss circuit breaker — always measured against the LIVE MT5
+  // balance when the bridge is fresh, so a real +$7 day is never mis-flagged
+  // as a loss. Only fall back to the local starting balance when MT5 data
+  // is unavailable.
   const dpnl = dailyPnlFor();
-  const lossPct = (dpnl / acc.startingBalance) * 100;
-  if (lossPct <= -bot.maxDailyLossPct) {
+  const liveBalance = latestMt5Balance != null && mt5HeartbeatFresh() ? latestMt5Balance : 0;
+  const baseBalance = liveBalance > 0 ? liveBalance : acc.startingBalance;
+  const lossPct = baseBalance > 0 ? (dpnl / baseBalance) * 100 : 0;
+  if (dpnl < 0 && lossPct <= -bot.maxDailyLossPct) {
     useBot.setState({ haltedToday: true, haltedDate: today });
-    bot.pushLog({ t: Date.now(), level: "warn", msg: `Daily loss ${lossPct.toFixed(2)}% — trading halted` });
+    bot.pushLog({ t: Date.now(), level: "warn", msg: `Daily loss ${lossPct.toFixed(2)}% (MT5) — trading halted` });
     toast.error(`Daily loss limit hit (${lossPct.toFixed(2)}%). Bot halted for today.`);
     return;
   }
