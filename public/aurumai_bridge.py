@@ -131,14 +131,36 @@ def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
 
 
 def connect_mt5() -> bool:
-    if not mt5.initialize(login=MT5_LOGIN, password=MT5_PASS, server=MT5_SERVER):
+    """Connect to MT5.
+
+    Auto-detect mode: if MT5_LOGIN is 0 / MT5_PASS or MT5_SERVER is blank,
+    just call mt5.initialize() and reuse whichever account the MetaTrader 5
+    terminal is already logged in with. This means the same script works
+    across any broker / any account without editing credentials.
+    """
+    have_creds = bool(MT5_LOGIN) and bool(MT5_PASS) and bool(MT5_SERVER)
+    if have_creds:
+        ok = mt5.initialize(login=MT5_LOGIN, password=MT5_PASS, server=MT5_SERVER)
+    else:
+        # Reuse the terminal's active session (whatever broker/account is open).
+        ok = mt5.initialize()
+    if not ok:
         print(f"MT5 init failed: {mt5.last_error()}")
+        print("  If you have not opened MetaTrader 5 and logged in yet, do that first — the bridge will auto-detect the account.")
         return False
     info = mt5.account_info()
     if info is None:
         print(f"MT5 account_info failed: {mt5.last_error()}")
         return False
-    print(f"Connected: {info.login} @ {info.server} | bal={info.balance} eq={info.equity}")
+    print("─" * 72)
+    print("BROKER ACCOUNT AUTO-DETECTED")
+    print(f"  Login    : {info.login}")
+    print(f"  Server   : {info.server}")
+    print(f"  Broker   : {getattr(info, 'company', '') or '(unknown)'}")
+    print(f"  Name     : {getattr(info, 'name', '') or '(n/a)'}")
+    print(f"  Currency : {getattr(info, 'currency', '') or '(n/a)'}  |  Leverage 1:{getattr(info, 'leverage', 0) or 0}")
+    print(f"  Balance  : {info.balance}  |  Equity {info.equity}")
+    print("─" * 72)
     return True
 
 
