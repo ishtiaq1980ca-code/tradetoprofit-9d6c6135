@@ -24,8 +24,13 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { activeSessions } from "./sessions";
 
-// Prompt 2: hard AI-confidence gate at 85. Multi-confirmation (EMA50/200 + RSI + MACD + ADX + ATR + MTF) must all pass.
-export const MIN_CONFIDENCE = 85;
+// Confidence gates: gold requires 85%, FX currencies 80%.
+export const MIN_CONFIDENCE_GOLD = 85;
+export const MIN_CONFIDENCE_FX = 80;
+export const MIN_CONFIDENCE = MIN_CONFIDENCE_FX; // back-compat: lowest floor
+export function minConfidenceFor(symbol: string): number {
+  return symbol === "XAUUSD" || symbol === "GOLD" ? MIN_CONFIDENCE_GOLD : MIN_CONFIDENCE_FX;
+}
 
 export type ConfidenceBreakdown = {
   trend: number;       // 0..25
@@ -97,7 +102,7 @@ export type GeneratorParams = {
 };
 
 export const DEFAULT_GENERATOR_PARAMS: GeneratorParams = {
-  minConfidence: MIN_CONFIDENCE,
+  minConfidence: MIN_CONFIDENCE_FX,
   risk: DEFAULT_RISK,
 };
 
@@ -249,6 +254,36 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       }
       return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
     }
+    case "gold_multi_confirmation": {
+      // Dedicated gold playbook — trades around the clock, weights ATR
+      // expansion and MACD/EMA alignment. Less strict on sessions than FX.
+      const atrPct = (ind.atr / price) * 100;
+      const atrActive = ind.atr > 0 && atrPct >= profile.minAtrPct;
+      if (!atrActive) return { side: "FLAT", rationale: `Gold ATR inactive (${atrPct.toFixed(3)}% < ${profile.minAtrPct}%)` };
+      if (ind.adx < profile.adxMin) return { side: "FLAT", rationale: `Gold sideways (ADX ${ind.adx.toFixed(1)} < ${profile.adxMin})` };
+
+      const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
+      const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
+      const trendUpG = ind.ema50 > ind.ema200;
+      const trendDnG = ind.ema50 < ind.ema200;
+      // Anti-chase: gold moves fast — cap distance from EMA50 at 3×ATR.
+      const distFromEma50Atr = Math.abs(price - ind.ema50) / Math.max(ind.atr, 1e-9);
+      if (distFromEma50Atr > 3.0) {
+        return { side: "FLAT", rationale: `Gold price ${distFromEma50Atr.toFixed(2)}×ATR from EMA50 — waiting for pullback` };
+      }
+
+      // Wider RSI band for gold (it stays "overbought" during trends).
+      const buyRsiOk = ind.rsi >= 45 && ind.rsi <= 78;
+      const sellRsiOk = ind.rsi >= 22 && ind.rsi <= 55;
+
+      if (trendUpG && price > ind.ema50 && buyRsiOk && macdBull) {
+        return { side: "BUY", rationale: `Gold: EMA50>EMA200, price>EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)}, MACD bullish, ATR ${atrPct.toFixed(2)}% active` };
+      }
+      if (trendDnG && price < ind.ema50 && sellRsiOk && macdBear) {
+        return { side: "SELL", rationale: `Gold: EMA50<EMA200, price<EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)}, MACD bearish, ATR ${atrPct.toFixed(2)}% active` };
+      }
+      return { side: "FLAT", rationale: "Gold multi-confirmation not aligned" };
+    }
   }
 }
 
@@ -317,8 +352,8 @@ export function generateTradeDecision(
   // hard block. The fx_multi_confirmation playbook above already raises ADX
   // and ATR requirements during Asian-only hours, so keep the filter passing
   // and record the session note instead of preventing all major-pair signals.
-  const fSess = profile.strategy === "fx_multi_confirmation"
-    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (London/NY priority; Asian uses stricter confirmation)` }
+  const fSess = profile.strategy === "fx_multi_confirmation" || profile.strategy === "gold_multi_confirmation"
+    ? { pass: true, reason: `Session ${activeSessions().primary} accepted (${profile.strategy === "gold_multi_confirmation" ? "gold 24h" : "London/NY priority"})` }
     : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
   filters.push(fSpread, fVol, fSess, fNews);

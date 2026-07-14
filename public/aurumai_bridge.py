@@ -40,12 +40,12 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026070903                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026071401                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
-MT5_LOGIN    = 0                                  # your MT5 demo account number
-MT5_PASS     = ""                                 # your MT5 password
-MT5_SERVER   = ""                                 # your broker server, e.g. "MetaQuotes-Demo"
+MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
+MT5_PASS     = ""                                 # your MT5 password (leave blank to reuse the terminal's logged-in session)
+MT5_SERVER   = ""                                 # your broker server (leave blank to reuse the terminal's logged-in session)
 POLL_SEC     = 0.2                                # turbo polling; server also rejects stale fills
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
@@ -55,23 +55,25 @@ MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0060            # 0.60% favorable move allowed
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.8                             # all pairs: TP must be at least 1.8× SL distance (matches server floor)
-USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50 (fast BE + trail)
-USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00 — cuts losses fast, closes trades sooner
-MAX_SEND_RETRIES = 3                              # Prompt 5: retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
-PARTIAL_TP_R = 1.0                                # Prompt 4: at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
+USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50
+USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00
+MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
+PARTIAL_TP_R = 1.0                                # at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
 PARTIAL_TP_PCT = 0.50                             # 50% partial close
-# --- Trailing throttle (per user request) ---
+# --- Trailing throttle ---
 TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
 TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
-TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after price is 65% of the way to TP
+TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after 65% of the way to TP
 
-# Symbol overrides: map AurumAI signal symbol -> EXACT broker symbol name shown
-# in your MT5 Market Watch. In MT5: right-click Market Watch -> "Symbols" ->
-# search "XAU" or "GOLD" -> copy the exact USD-quoted name (NOT XAUEUR).
-# Common broker variants: "XAUUSD.i", "XAUUSDm", "XAUUSD#", "XAUUSD.pro", "GOLD", "GOLD.i"
-SYMBOL_OVERRIDES = {
-    "XAUUSD": "",   # <-- paste your broker's exact USD-quoted gold symbol here
-}
+# ============= AUTO-DETECT MODE =============
+# The bridge now auto-detects your broker account (login/server) from the
+# already-open MT5 terminal, and auto-discovers every AurumAI symbol on your
+# broker (XAUUSD → XAUUSDm, XAUUSD.i, GOLD, etc.).  You do NOT need to
+# maintain a SYMBOL_OVERRIDES dict any more — every broker's naming style is
+# probed automatically.  Leave SYMBOL_OVERRIDES empty; only add an entry
+# below if auto-detection maps a symbol wrong.
+SYMBOL_OVERRIDES: dict[str, str] = {}
+
 
 # --- Load personal overrides from aurumai_config.py if present ---
 try:
@@ -129,14 +131,36 @@ def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
 
 
 def connect_mt5() -> bool:
-    if not mt5.initialize(login=MT5_LOGIN, password=MT5_PASS, server=MT5_SERVER):
+    """Connect to MT5.
+
+    Auto-detect mode: if MT5_LOGIN is 0 / MT5_PASS or MT5_SERVER is blank,
+    just call mt5.initialize() and reuse whichever account the MetaTrader 5
+    terminal is already logged in with. This means the same script works
+    across any broker / any account without editing credentials.
+    """
+    have_creds = bool(MT5_LOGIN) and bool(MT5_PASS) and bool(MT5_SERVER)
+    if have_creds:
+        ok = mt5.initialize(login=MT5_LOGIN, password=MT5_PASS, server=MT5_SERVER)
+    else:
+        # Reuse the terminal's active session (whatever broker/account is open).
+        ok = mt5.initialize()
+    if not ok:
         print(f"MT5 init failed: {mt5.last_error()}")
+        print("  If you have not opened MetaTrader 5 and logged in yet, do that first — the bridge will auto-detect the account.")
         return False
     info = mt5.account_info()
     if info is None:
         print(f"MT5 account_info failed: {mt5.last_error()}")
         return False
-    print(f"Connected: {info.login} @ {info.server} | bal={info.balance} eq={info.equity}")
+    print("─" * 72)
+    print("BROKER ACCOUNT AUTO-DETECTED")
+    print(f"  Login    : {info.login}")
+    print(f"  Server   : {info.server}")
+    print(f"  Broker   : {getattr(info, 'company', '') or '(unknown)'}")
+    print(f"  Name     : {getattr(info, 'name', '') or '(n/a)'}")
+    print(f"  Currency : {getattr(info, 'currency', '') or '(n/a)'}  |  Leverage 1:{getattr(info, 'leverage', 0) or 0}")
+    print(f"  Balance  : {info.balance}  |  Equity {info.equity}")
+    print("─" * 72)
     return True
 
 
@@ -224,12 +248,19 @@ def resolve_symbol(original: str) -> str | None:
 
     want_quote = original[-3:].upper() if len(original) >= 6 else "USD"
     base = original[:-3] if len(original) >= 6 else original
+    # Cover every naming convention a broker might use for FX or metals.
     candidates = [
         original,
-        f"{original}m", f"{original}.", f"{original}_", f"{original}#", f"{original}.i", f"{original}.pro",
+        f"{original}m", f"{original}.m", f"{original}.i", f"{original}.pro", f"{original}.raw",
+        f"{original}.r", f"{original}c", f"{original}.c", f"{original}.a", f"{original}.ecn",
+        f"{original}.", f"{original}_", f"{original}#", f"{original}-", f"{original}+", f"{original}!",
+        original.lower(), original.capitalize(),
     ]
     if original == "XAUUSD":
-        candidates += ["GOLD", "Gold", "XAUUSDm", "XAUUSD.", "XAUUSD_", "XAUUSD#"]
+        candidates += [
+            "GOLD", "Gold", "gold", "XAUUSDm", "XAUUSD.i", "XAUUSD.pro", "XAUUSD.raw",
+            "XAUUSD.", "XAUUSD_", "XAUUSD#", "XAUUSDc", "XAUUSD+", "GOLD.i", "GOLDm", "GOLD.pro",
+        ]
     for c in candidates:
         if _quote_currency_ok(c, original, want_quote) and mt5.symbol_select(c, True):
             _SYMBOL_CACHE[original] = c
@@ -919,9 +950,44 @@ def sync_closed_trades():
             pass
 
 
+# Every symbol AurumAI signals across. Kept in sync with src/lib/format.ts.
+AURUMAI_SYMBOLS = [
+    "XAUUSD",
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+    "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
+    "EURGBP", "EURAUD", "EURCAD", "EURCHF", "EURNZD",
+    "GBPAUD", "GBPCAD", "GBPCHF", "GBPNZD",
+    "AUDCAD", "AUDCHF", "AUDNZD", "NZDCAD", "NZDCHF", "CADCHF",
+]
+
+
+def discover_all_symbols() -> None:
+    """Auto-detect every AurumAI symbol on the currently-connected broker.
+
+    Runs once at startup so the user immediately sees which symbols are
+    available on their broker (and which aren't) instead of finding out
+    only when the first signal for that symbol arrives.
+    """
+    print("Auto-discovering broker symbols for AurumAI universe...")
+    found: list[str] = []
+    missing: list[str] = []
+    for sym in AURUMAI_SYMBOLS:
+        mapped = resolve_symbol(sym)
+        if mapped:
+            found.append(f"{sym}→{mapped}" if mapped != sym else sym)
+        else:
+            missing.append(sym)
+    print(f"  ✓ Available on this broker ({len(found)}): {', '.join(found)}")
+    if missing:
+        print(f"  ✗ NOT available on this broker ({len(missing)}): {', '.join(missing)}")
+        print("    (Signals for these will be reported as unavailable; no action needed.)")
+    print("─" * 72)
+
+
 def main():
     if not connect_mt5():
         sys.exit(1)
+    discover_all_symbols()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     last_acct = 0
     last_closed_sync = 0

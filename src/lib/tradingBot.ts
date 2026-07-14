@@ -15,7 +15,7 @@ import { SYMBOLS } from "./format";
 import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
 import { supabase } from "@/integrations/supabase/client";
-import { generateTradeDecision, MIN_CONFIDENCE } from "./signalGenerator";
+import { generateTradeDecision, MIN_CONFIDENCE, minConfidenceFor } from "./signalGenerator";
 import { getPairProfile, allProfiles } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
@@ -451,8 +451,11 @@ async function runScan() {
     }
 
     // Run the high-confidence generator with this pair's profile.
+    // Per-symbol floor: gold 85%, FX currencies 80%. bot.minConfidence acts
+    // as an additional user-tunable floor (never below the per-symbol gate).
+    const symbolFloor = minConfidenceFor(sym);
     const decision = generateTradeDecision(sym, candles, acc.balance, {
-      minConfidence: Math.max(bot.minConfidence, MIN_CONFIDENCE),
+      minConfidence: Math.max(bot.minConfidence, symbolFloor),
       risk: { ...DEFAULT_RISK, riskPct: bot.riskPct, maxDailyLossPct: bot.maxDailyLossPct },
     });
     if (!decision) continue;
