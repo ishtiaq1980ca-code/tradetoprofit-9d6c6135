@@ -950,9 +950,44 @@ def sync_closed_trades():
             pass
 
 
+# Every symbol AurumAI signals across. Kept in sync with src/lib/format.ts.
+AURUMAI_SYMBOLS = [
+    "XAUUSD",
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+    "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
+    "EURGBP", "EURAUD", "EURCAD", "EURCHF", "EURNZD",
+    "GBPAUD", "GBPCAD", "GBPCHF", "GBPNZD",
+    "AUDCAD", "AUDCHF", "AUDNZD", "NZDCAD", "NZDCHF", "CADCHF",
+]
+
+
+def discover_all_symbols() -> None:
+    """Auto-detect every AurumAI symbol on the currently-connected broker.
+
+    Runs once at startup so the user immediately sees which symbols are
+    available on their broker (and which aren't) instead of finding out
+    only when the first signal for that symbol arrives.
+    """
+    print("Auto-discovering broker symbols for AurumAI universe...")
+    found: list[str] = []
+    missing: list[str] = []
+    for sym in AURUMAI_SYMBOLS:
+        mapped = resolve_symbol(sym)
+        if mapped:
+            found.append(f"{sym}→{mapped}" if mapped != sym else sym)
+        else:
+            missing.append(sym)
+    print(f"  ✓ Available on this broker ({len(found)}): {', '.join(found)}")
+    if missing:
+        print(f"  ✗ NOT available on this broker ({len(missing)}): {', '.join(missing)}")
+        print("    (Signals for these will be reported as unavailable; no action needed.)")
+    print("─" * 72)
+
+
 def main():
     if not connect_mt5():
         sys.exit(1)
+    discover_all_symbols()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     last_acct = 0
     last_closed_sync = 0
