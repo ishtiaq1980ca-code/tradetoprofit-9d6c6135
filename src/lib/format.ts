@@ -12,14 +12,15 @@ export const fmt = {
 
 export const SYMBOLS = [
   "XAUUSD",
-  "EURUSD",
-  "GBPUSD",
-  "USDJPY",
-  "AUDUSD",
-  "USDCAD",
-  "USDCHF",
-  "NZDUSD",
-  "EURJPY",
-  "GBPJPY",
+  // Majors
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+  // JPY crosses
+  "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
+  // EUR crosses
+  "EURGBP", "EURAUD", "EURCAD", "EURCHF", "EURNZD",
+  // GBP crosses
+  "GBPAUD", "GBPCAD", "GBPCHF", "GBPNZD",
+  // Others
+  "AUDCAD", "AUDCHF", "AUDNZD", "NZDCAD", "NZDCHF", "CADCHF",
 ] as const;
 export type Symbol = (typeof SYMBOLS)[number];
