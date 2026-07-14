@@ -286,6 +286,12 @@ export const useBot = create<BotStore>()(
 
 
 function dailyPnlFor(): number {
+  // Always prefer live MT5 daily P/L when a fresh bridge snapshot is available.
+  // The local paper-trading history does not reflect actual MT5 trade results,
+  // so falling back to it would either miss real profits or fabricate losses.
+  if (latestMt5DailyPnl != null && mt5HeartbeatFresh()) {
+    return latestMt5DailyPnl;
+  }
   const s = useAccount.getState();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
