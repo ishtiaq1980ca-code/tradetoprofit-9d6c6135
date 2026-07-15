@@ -346,8 +346,14 @@ export function currentTier(): 500 | 1000 | 2000 | null {
 }
 
 async function runScan() {
+  // Watchdog: never let a stuck scan freeze the engine permanently.
+  if (scanInFlight && Date.now() - scanInFlightSince > SCAN_INFLIGHT_TIMEOUT_MS) {
+    scanInFlight = false;
+    useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: "Scan watchdog: previous scan took too long, resetting" });
+  }
   if (scanInFlight) return;
   scanInFlight = true;
+  scanInFlightSince = Date.now();
   try {
   const bot = useBot.getState();
   let acc = useAccount.getState();
