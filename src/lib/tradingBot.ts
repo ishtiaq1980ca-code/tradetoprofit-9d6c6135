@@ -422,13 +422,14 @@ async function runScan() {
   // Tier-based lot exposure cap
   const tier = currentTier();
   const lotCap = bot.useTierLimits ? tierLotCap(tier) : Infinity;
+  const perTradeLot = lotForBalance(liveBalanceForSizing());
   const openLot = acc.positions.reduce((s, p) => s + p.lot, 0);
     if (bot.useTierLimits) {
       if (!tier) {
         bot.pushLog({ t: Date.now(), level: "warn", msg: `Balance below $500 — bot disabled by tier rules` });
         return;
       }
-      if (openLot + 0.02 > lotCap + 1e-9) {
+      if (openLot + perTradeLot > lotCap + 1e-9) {
         bot.pushLog({ t: Date.now(), level: "info", msg: `Tier ${tier} lot cap reached (${openLot.toFixed(2)}/${lotCap.toFixed(2)}) — waiting for closes` });
         return;
       }
