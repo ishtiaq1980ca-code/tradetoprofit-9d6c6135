@@ -801,18 +801,22 @@ export function BotEngine() {
       if (document.visibilityState !== "visible") return;
       scanInFlight = false;
       useBot.setState({ lastScanAt: 0 });
-      refreshMt5Heartbeat();
-      supabase.auth.getSession();
+      supabase.auth.refreshSession().finally(() => {
+        refreshMt5Heartbeat();
+      });
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
     window.addEventListener("online", onVisibility);
 
-    // Keep the Supabase session token fresh so signal inserts don't start
-    // failing silently after an hour. Also acts as an engine liveness ping.
+    // Proactively refresh the Supabase session every 60s so long-running
+    // tabs never hit an expired-token wall. Also nudges any stuck scan.
     const sessionId = setInterval(() => {
-      supabase.auth.getSession();
-    }, 5 * 60_000);
+      supabase.auth.refreshSession().catch(() => { /* offline ok */ });
+      if (scanInFlight && Date.now() - scanInFlightSince > SCAN_INFLIGHT_TIMEOUT_MS) {
+        scanInFlight = false;
+      }
+    }, 60_000);
 
     return () => {
       clearInterval(id);
