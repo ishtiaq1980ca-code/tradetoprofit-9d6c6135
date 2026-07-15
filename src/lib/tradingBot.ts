@@ -38,19 +38,36 @@ let scanInFlightSince = 0;
 const SCAN_INFLIGHT_TIMEOUT_MS = 30_000;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 
+let heartbeatFailureCount = 0;
 async function refreshMt5Heartbeat() {
-  const { data } = await supabase
-    .from("account_snapshots")
-    .select("created_at,open_positions,balance,equity,daily_pnl")
-    .order("created_at", { ascending: false })
-    .limit(1);
-  const snap = data?.[0];
-  const ts = snap?.created_at;
-  latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : 0;
-  latestMt5OpenPositions = typeof snap?.open_positions === "number" ? snap.open_positions : null;
-  latestMt5Balance = snap && snap.balance != null ? Number(snap.balance) : null;
-  latestMt5Equity = snap && snap.equity != null ? Number(snap.equity) : null;
-  latestMt5DailyPnl = snap && snap.daily_pnl != null ? Number(snap.daily_pnl) : null;
+  try {
+    const { data, error } = await supabase
+      .from("account_snapshots")
+      .select("created_at,open_positions,balance,equity,daily_pnl")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const snap = data?.[0];
+    const ts = snap?.created_at;
+    latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : latestMt5HeartbeatAt;
+    latestMt5OpenPositions = typeof snap?.open_positions === "number" ? snap.open_positions : latestMt5OpenPositions;
+    latestMt5Balance = snap && snap.balance != null ? Number(snap.balance) : latestMt5Balance;
+    latestMt5Equity = snap && snap.equity != null ? Number(snap.equity) : latestMt5Equity;
+    latestMt5DailyPnl = snap && snap.daily_pnl != null ? Number(snap.daily_pnl) : latestMt5DailyPnl;
+    heartbeatFailureCount = 0;
+  } catch (e: any) {
+    heartbeatFailureCount++;
+    // Likely an expired auth token after long idle. Force a refresh so the
+    // next tick works — the tab never needs a manual reload to resume.
+    if (heartbeatFailureCount <= 3 || heartbeatFailureCount % 4 === 0) {
+      try { await supabase.auth.refreshSession(); } catch { /* offline ok */ }
+    }
+    useBot.getState().pushLog({
+      t: Date.now(),
+      level: "warn",
+      msg: `Heartbeat fetch failed (${heartbeatFailureCount}): ${e?.message ?? "network"} — auto-recovering`,
+    });
+  }
 }
 
 function mt5HeartbeatFresh() {
