@@ -776,9 +776,34 @@ export function BotEngine() {
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       void runScan();
     }, 250);
+
+    // When the tab returns to foreground, browsers may have throttled our
+    // scan/heartbeat timers. Force an immediate refresh + scan so the user
+    // does not need to manually reload to resume trading.
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      scanInFlight = false;
+      useBot.setState({ lastScanAt: 0 });
+      refreshMt5Heartbeat();
+      supabase.auth.getSession();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onVisibility);
+    window.addEventListener("online", onVisibility);
+
+    // Keep the Supabase session token fresh so signal inserts don't start
+    // failing silently after an hour. Also acts as an engine liveness ping.
+    const sessionId = setInterval(() => {
+      supabase.auth.getSession();
+    }, 5 * 60_000);
+
     return () => {
       clearInterval(id);
       clearInterval(heartbeatId);
+      clearInterval(sessionId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onVisibility);
+      window.removeEventListener("online", onVisibility);
       unsub();
       authSub.subscription.unsubscribe();
       supabase.removeChannel(fillCh);
