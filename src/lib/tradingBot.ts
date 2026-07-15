@@ -34,6 +34,8 @@ let latestMt5Equity: number | null = null;
 let latestMt5DailyPnl: number | null = null;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
+let scanInFlightSince = 0;
+const SCAN_INFLIGHT_TIMEOUT_MS = 30_000;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 
 async function refreshMt5Heartbeat() {
@@ -310,24 +312,48 @@ export function detectTier(balance: number): 500 | 1000 | 2000 | null {
   return null;
 }
 
-/** Max simultaneous open lots permitted by tier (base lot = 0.02). */
+/** Max simultaneous open lot exposure permitted by tier. Sized so multiple
+ *  full per-trade lots (0.08) can coexist up to maxOpenTrades. */
 export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
-  if (tier === 2000) return 0.20; // 10 × 0.02
-  if (tier === 1000) return 0.10; // 5  × 0.02
-  if (tier === 500) return 0.06;  // 3  × 0.02
+  if (tier === 2000) return 1.20;
+  if (tier === 1000) return 0.80;
+  if (tier === 500) return 0.48;
   return 0;
+}
+
+/** Per-trade lot based on live account balance.
+ *  ≤$100 → 0.02, ≤$250 → 0.04, ≤$500 → 0.06, ≥$1000 → 0.08. */
+export function lotForBalance(balance: number): number {
+  if (balance >= 1000) return 0.08;
+  if (balance > 500) return 0.06;
+  if (balance > 250) return 0.06;
+  if (balance > 100) return 0.04;
+  return 0.02;
+}
+
+/** Prefer fresh MT5 broker balance, fall back to local paper balance. */
+function liveBalanceForSizing(): number {
+  if (latestMt5Balance != null && mt5HeartbeatFresh() && latestMt5Balance > 0) {
+    return latestMt5Balance;
+  }
+  return useAccount.getState().balance;
 }
 
 export function currentTier(): 500 | 1000 | 2000 | null {
   const bot = useBot.getState();
-  const acc = useAccount.getState();
   if (bot.tierMode === "manual") return bot.manualTier;
-  return detectTier(acc.balance);
+  return detectTier(liveBalanceForSizing());
 }
 
 async function runScan() {
+  // Watchdog: never let a stuck scan freeze the engine permanently.
+  if (scanInFlight && Date.now() - scanInFlightSince > SCAN_INFLIGHT_TIMEOUT_MS) {
+    scanInFlight = false;
+    useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: "Scan watchdog: previous scan took too long, resetting" });
+  }
   if (scanInFlight) return;
   scanInFlight = true;
+  scanInFlightSince = Date.now();
   try {
   const bot = useBot.getState();
   let acc = useAccount.getState();
@@ -404,13 +430,14 @@ async function runScan() {
   // Tier-based lot exposure cap
   const tier = currentTier();
   const lotCap = bot.useTierLimits ? tierLotCap(tier) : Infinity;
+  const perTradeLot = lotForBalance(liveBalanceForSizing());
   const openLot = acc.positions.reduce((s, p) => s + p.lot, 0);
     if (bot.useTierLimits) {
       if (!tier) {
         bot.pushLog({ t: Date.now(), level: "warn", msg: `Balance below $500 — bot disabled by tier rules` });
         return;
       }
-      if (openLot + 0.02 > lotCap + 1e-9) {
+      if (openLot + perTradeLot > lotCap + 1e-9) {
         bot.pushLog({ t: Date.now(), level: "info", msg: `Tier ${tier} lot cap reached (${openLot.toFixed(2)}/${lotCap.toFixed(2)}) — waiting for closes` });
         return;
       }
@@ -565,7 +592,7 @@ async function runScan() {
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
 
     let lot = bot.useTierLimits
-      ? 0.02
+      ? perTradeLot
       : bot.lotMode === "fixed"
         ? Math.max(0.02, bot.fixedLot)
         : decision.lot;
@@ -749,9 +776,34 @@ export function BotEngine() {
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       void runScan();
     }, 250);
+
+    // When the tab returns to foreground, browsers may have throttled our
+    // scan/heartbeat timers. Force an immediate refresh + scan so the user
+    // does not need to manually reload to resume trading.
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      scanInFlight = false;
+      useBot.setState({ lastScanAt: 0 });
+      refreshMt5Heartbeat();
+      supabase.auth.getSession();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onVisibility);
+    window.addEventListener("online", onVisibility);
+
+    // Keep the Supabase session token fresh so signal inserts don't start
+    // failing silently after an hour. Also acts as an engine liveness ping.
+    const sessionId = setInterval(() => {
+      supabase.auth.getSession();
+    }, 5 * 60_000);
+
     return () => {
       clearInterval(id);
       clearInterval(heartbeatId);
+      clearInterval(sessionId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onVisibility);
+      window.removeEventListener("online", onVisibility);
       unsub();
       authSub.subscription.unsubscribe();
       supabase.removeChannel(fillCh);
