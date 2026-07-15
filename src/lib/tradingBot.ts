@@ -34,6 +34,8 @@ let latestMt5Equity: number | null = null;
 let latestMt5DailyPnl: number | null = null;
 const MT5_HEARTBEAT_MAX_AGE_MS = 90_000;
 let scanInFlight = false;
+let scanInFlightSince = 0;
+const SCAN_INFLIGHT_TIMEOUT_MS = 30_000;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 
 async function refreshMt5Heartbeat() {
