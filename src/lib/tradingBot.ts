@@ -310,19 +310,37 @@ export function detectTier(balance: number): 500 | 1000 | 2000 | null {
   return null;
 }
 
-/** Max simultaneous open lots permitted by tier (base lot = 0.02). */
+/** Max simultaneous open lot exposure permitted by tier. Sized so multiple
+ *  full per-trade lots (0.08) can coexist up to maxOpenTrades. */
 export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
-  if (tier === 2000) return 0.20; // 10 × 0.02
-  if (tier === 1000) return 0.10; // 5  × 0.02
-  if (tier === 500) return 0.06;  // 3  × 0.02
+  if (tier === 2000) return 1.20;
+  if (tier === 1000) return 0.80;
+  if (tier === 500) return 0.48;
   return 0;
+}
+
+/** Per-trade lot based on live account balance.
+ *  ≤$100 → 0.02, ≤$250 → 0.04, ≤$500 → 0.06, ≥$1000 → 0.08. */
+export function lotForBalance(balance: number): number {
+  if (balance >= 1000) return 0.08;
+  if (balance > 500) return 0.06;
+  if (balance > 250) return 0.06;
+  if (balance > 100) return 0.04;
+  return 0.02;
+}
+
+/** Prefer fresh MT5 broker balance, fall back to local paper balance. */
+function liveBalanceForSizing(): number {
+  if (latestMt5Balance != null && mt5HeartbeatFresh() && latestMt5Balance > 0) {
+    return latestMt5Balance;
+  }
+  return useAccount.getState().balance;
 }
 
 export function currentTier(): 500 | 1000 | 2000 | null {
   const bot = useBot.getState();
-  const acc = useAccount.getState();
   if (bot.tierMode === "manual") return bot.manualTier;
-  return detectTier(acc.balance);
+  return detectTier(liveBalanceForSizing());
 }
 
 async function runScan() {
