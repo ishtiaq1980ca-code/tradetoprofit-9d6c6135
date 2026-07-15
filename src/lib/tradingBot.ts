@@ -584,7 +584,7 @@ async function runScan() {
     if (slDist <= 0) { waitingMsgs.push(`${sym}: SL distance zero`); continue; }
 
     let lot = bot.useTierLimits
-      ? 0.02
+      ? perTradeLot
       : bot.lotMode === "fixed"
         ? Math.max(0.02, bot.fixedLot)
         : decision.lot;
