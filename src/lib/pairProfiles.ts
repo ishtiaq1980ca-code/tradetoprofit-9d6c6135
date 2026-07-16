@@ -126,14 +126,15 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
 
   // ---- JPY crosses ----
   EURJPY: fxProfile("EURJPY"),
-  GBPJPY: fxProfile("GBPJPY", { adxMin: 18, atrSlMult: 3.2, rrTarget: 2.25, maxAtrPct: 2.0 }),
+  GBPJPY: fxProfile("GBPJPY"),
   AUDJPY: fxProfile("AUDJPY", { preferredSessions: ["Tokyo", "London", "New York"] }),
   NZDJPY: fxProfile("NZDJPY", { preferredSessions: ["Tokyo", "London", "New York"] }),
   CADJPY: fxProfile("CADJPY"),
   CHFJPY: fxProfile("CHFJPY"),
 
   // ---- EUR crosses ----
-  EURGBP: fxProfile("EURGBP", { adxMin: 14, maxSpreadPct: 0.025 }),
+  EURGBP: fxProfile("EURGBP", { maxSpreadPct: 0.025 }),
+
   EURAUD: fxProfile("EURAUD"),
   EURCAD: fxProfile("EURCAD"),
   EURCHF: fxProfile("EURCHF"),
