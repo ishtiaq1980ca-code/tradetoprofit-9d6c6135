@@ -30,7 +30,7 @@ const XAU: SymbolSpec = { digits: 2, point: 1e-2, minStopDistance: 0.50,    minV
 
 const SPECS: Record<string, SymbolSpec> = {
   EURUSD: FX5, GBPUSD: FX5, AUDUSD: FX5, NZDUSD: FX5, USDCHF: FX5, USDCAD: FX5,
-  USDJPY: JPY, EURJPY: JPY, GBPJPY: JPY,
+  USDJPY: JPY, EURJPY: JPY, GBPJPY: JPY, AUDJPY: JPY, NZDJPY: JPY, CADJPY: JPY, CHFJPY: JPY,
   XAUUSD: XAU,
 };
 
