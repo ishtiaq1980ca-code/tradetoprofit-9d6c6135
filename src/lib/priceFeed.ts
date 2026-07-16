@@ -31,6 +31,25 @@ const VOL: Record<string, number> = {
   NZDUSD: 0.00012,
   EURJPY: 0.025,
   GBPJPY: 0.030,
+  AUDJPY: 0.026,
+  NZDJPY: 0.024,
+  CADJPY: 0.025,
+  CHFJPY: 0.028,
+  EURGBP: 0.00010,
+  EURAUD: 0.00018,
+  EURCAD: 0.00018,
+  EURCHF: 0.00012,
+  EURNZD: 0.00020,
+  GBPAUD: 0.00022,
+  GBPCAD: 0.00022,
+  GBPCHF: 0.00016,
+  GBPNZD: 0.00024,
+  AUDCAD: 0.00014,
+  AUDCHF: 0.00012,
+  AUDNZD: 0.00016,
+  NZDCAD: 0.00014,
+  NZDCHF: 0.00012,
+  CADCHF: 0.00012,
 };
 
 class PriceFeed {
@@ -39,6 +58,7 @@ class PriceFeed {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private anchorTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
+  private liveAnchoredAt: Record<string, number> = {};
 
   start() {
     if (this.started || typeof window === "undefined") return;
@@ -60,6 +80,11 @@ class PriceFeed {
     return () => {
       this.subs.delete(fn);
     };
+  }
+
+  hasLiveAnchor(symbol: string, maxAgeMs = 120_000) {
+    const at = this.liveAnchoredAt[symbol] ?? 0;
+    return at > 0 && Date.now() - at < maxAgeMs;
   }
 
   private notify() {
@@ -91,9 +116,9 @@ class PriceFeed {
 
   private reseeded = new Set<string>();
 
-  private blend(sym: string, target: number) {
+  private blend(sym: string, target: number): boolean {
     const prev = this.state.prices[sym];
-    if (!prev || !isFinite(target) || target <= 0) return;
+    if (!prev || !isFinite(target) || target <= 0) return false;
     // First time we see a real anchor for this symbol, rebuild the whole
     // candle history around the real spot so indicators (RSI/MACD/ATR) aren't
     // poisoned by the gap between synthetic seed price and reality.
@@ -118,7 +143,7 @@ class PriceFeed {
       }
       this.state.candles[sym] = out;
       this.state.prices[sym] = target;
-      return;
+      return true;
     }
     // 60% pull toward real spot, 40% preserve recent tick path for smoothness
     const next = prev * 0.4 + target * 0.6;
@@ -130,23 +155,36 @@ class PriceFeed {
       if (next > last.high) last.high = next;
       if (next < last.low) last.low = next;
     }
+    return true;
   }
 
   private async anchor() {
     let liveCount = 0;
+    const anchoredAt = Date.now();
+    const mark = (sym: string, target: number | null | undefined) => {
+      if (target == null) return;
+      if (this.blend(sym, target)) {
+        this.liveAnchoredAt[sym] = anchoredAt;
+        liveCount += 1;
+      }
+    };
     try {
       const r = await fetch("https://open.er-api.com/v6/latest/USD");
       if (r.ok) {
         const j: any = await r.json();
         const rates = j?.rates;
         if (rates) {
-          if (rates.EUR) this.blend("EURUSD", 1 / rates.EUR);
-          if (rates.GBP) this.blend("GBPUSD", 1 / rates.GBP);
-          if (rates.JPY) this.blend("USDJPY", rates.JPY);
-          if (rates.AUD) this.blend("AUDUSD", 1 / rates.AUD);
-          if (rates.CAD) this.blend("USDCAD", rates.CAD);
-          if (rates.CHF) this.blend("USDCHF", rates.CHF);
-          liveCount += 6;
+          const usdPer = (ccy: string) => {
+            if (ccy === "USD") return 1;
+            const rate = Number(rates[ccy]);
+            return Number.isFinite(rate) && rate > 0 ? 1 / rate : null;
+          };
+          for (const sym of SYMBOLS) {
+            if (sym === "XAUUSD" || sym.length !== 6) continue;
+            const base = usdPer(sym.slice(0, 3));
+            const quote = usdPer(sym.slice(3, 6));
+            if (base && quote) mark(sym, base / quote);
+          }
         }
       }
     } catch {
@@ -157,8 +195,7 @@ class PriceFeed {
       if (r.ok) {
         const j: any = await r.json();
         if (j?.price) {
-          this.blend("XAUUSD", Number(j.price));
-          liveCount += 1;
+          mark("XAUUSD", Number(j.price));
         }
       }
     } catch {

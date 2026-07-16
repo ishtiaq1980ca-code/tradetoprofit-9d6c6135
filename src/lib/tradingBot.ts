@@ -37,16 +37,121 @@ let scanInFlight = false;
 let scanInFlightSince = 0;
 const SCAN_INFLIGHT_TIMEOUT_MS = 30_000;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
+const DIRECT_REST_TIMEOUT_MS = 8_000;
+const AUTH_TIMEOUT_MS = 4_000;
+
+let cachedAccessToken: string | null = null;
+let authHydrateInFlight: Promise<string | null> | null = null;
+
+function supabaseRestConfig() {
+  const env = import.meta.env as Record<string, string | undefined>;
+  const client = supabase as any;
+  return {
+    url: env.VITE_SUPABASE_URL || client.supabaseUrl,
+    key: env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY || client.supabaseKey,
+  };
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = window.setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (value) => { window.clearTimeout(id); resolve(value); },
+      (error) => { window.clearTimeout(id); reject(error); },
+    );
+  });
+}
+
+async function hydrateAccessToken(forceRefresh = false): Promise<string | null> {
+  if (!forceRefresh && cachedAccessToken) return cachedAccessToken;
+  if (!forceRefresh && authHydrateInFlight) return authHydrateInFlight;
+  authHydrateInFlight = (async () => {
+    try {
+      const { data } = await withTimeout(
+        forceRefresh ? supabase.auth.refreshSession() : supabase.auth.getSession(),
+        AUTH_TIMEOUT_MS,
+        forceRefresh ? "Auth refresh" : "Auth session",
+      );
+      cachedAccessToken = data.session?.access_token ?? cachedAccessToken;
+      return cachedAccessToken;
+    } catch (e: any) {
+      useBot.getState().pushLog({
+        t: Date.now(),
+        level: "warn",
+        msg: `${forceRefresh ? "Auth refresh" : "Auth session"} failed: ${e?.message ?? "timeout"}`,
+      });
+      return cachedAccessToken;
+    } finally {
+      authHydrateInFlight = null;
+    }
+  })();
+  return authHydrateInFlight;
+}
+
+async function directRestFetch(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+  const { url, key } = supabaseRestConfig();
+  const token = await hydrateAccessToken();
+  if (!url || !key || !token) throw new Error("auth token unavailable");
+
+  const controller = new AbortController();
+  const id = window.setTimeout(() => controller.abort(), DIRECT_REST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${url}/rest/v1/${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+    if (res.status === 401 && retry) {
+      await hydrateAccessToken(true);
+      return directRestFetch(path, init, false);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `${res.status} ${res.statusText}`);
+    }
+    return res;
+  } finally {
+    window.clearTimeout(id);
+  }
+}
+
+async function insertSignalDirect(row: {
+  symbol: string;
+  side: "BUY" | "SELL";
+  entry: number;
+  stop_loss: number;
+  take_profit: number;
+  lot: number;
+  confidence: number;
+  risk_pct: number;
+  reason: string;
+  status: "pending";
+}) {
+  try {
+    await directRestFetch("signals", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(row),
+    });
+    return { error: null as null | { message: string } };
+  } catch (e: any) {
+    return { error: { message: e?.message ?? "signal queue failed" } };
+  }
+}
 
 let heartbeatFailureCount = 0;
 async function refreshMt5Heartbeat() {
   try {
-    const { data, error } = await supabase
-      .from("account_snapshots")
-      .select("created_at,open_positions,balance,equity,daily_pnl")
-      .order("created_at", { ascending: false })
-      .limit(1);
-    if (error) throw error;
+    const res = await directRestFetch("account_snapshots?select=created_at,open_positions,balance,equity,daily_pnl&order=created_at.desc&limit=1", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const data = await res.json();
     const snap = data?.[0];
     const ts = snap?.created_at;
     latestMt5HeartbeatAt = ts ? new Date(ts).getTime() : latestMt5HeartbeatAt;
@@ -57,11 +162,8 @@ async function refreshMt5Heartbeat() {
     heartbeatFailureCount = 0;
   } catch (e: any) {
     heartbeatFailureCount++;
-    // Likely an expired auth token after long idle. Force a refresh so the
-    // next tick works — the tab never needs a manual reload to resume.
-    if (heartbeatFailureCount <= 3 || heartbeatFailureCount % 4 === 0) {
-      try { await supabase.auth.refreshSession(); } catch { /* offline ok */ }
-    }
+    if (heartbeatFailureCount <= 3 || heartbeatFailureCount % 4 === 0) await hydrateAccessToken(true);
+    if ((e?.message ?? "").includes("auth token unavailable")) return;
     useBot.getState().pushLog({
       t: Date.now(),
       level: "warn",
@@ -375,6 +477,10 @@ async function runScan() {
   const bot = useBot.getState();
   let acc = useAccount.getState();
 
+  if (!mt5HeartbeatFresh() || Date.now() - latestMt5HeartbeatAt > 20_000) {
+    await refreshMt5Heartbeat();
+  }
+
   // License gate — bot will not place trades without a valid token
   if (!bot.licenseValid) {
     bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: no active license token" });
@@ -511,6 +617,10 @@ async function runScan() {
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) continue;
+    if (!priceFeed.hasLiveAnchor(sym)) {
+      waitingMsgs.push(`${sym}: waiting for live broker-aligned price`);
+      continue;
+    }
 
     // Per-class cap check
     const classBlk = classBlock(sym, slotInfo);
@@ -654,20 +764,18 @@ async function runScan() {
     // ---- 1) Queue the order for MT5 bridge and wait for DB ack ----
     const tGenerated = decision.generatedAt;
     const tInsertStart = Date.now();
-    const { error } = await supabase
-      .from("signals")
-      .insert({
-        symbol: sym,
-        side: decision.side,
-        entry: finalEntry,
-        stop_loss: finalSL,
-        take_profit: finalTP,
-        lot: finalLot,
-        confidence: decision.confidence,
-        risk_pct: bot.riskPct,
-        reason: decision.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : ""),
-        status: "pending",
-      });
+    const { error } = await insertSignalDirect({
+      symbol: sym,
+      side: decision.side,
+      entry: finalEntry,
+      stop_loss: finalSL,
+      take_profit: finalTP,
+      lot: finalLot,
+      confidence: decision.confidence,
+      risk_pct: bot.riskPct,
+      reason: decision.reason + (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : ""),
+      status: "pending",
+    });
 
     const tAck = Date.now();
     if (error) {
@@ -738,16 +846,17 @@ async function runScan() {
  * RPC since direct UPDATE on bot_settings is admin-only. */
 async function syncEnabledToCloud(enabled: boolean) {
   try {
-    const { error } = await supabase.rpc("set_bot_enabled", { _enabled: enabled });
-    if (error) {
-      useBot.getState().pushLog({
-        t: Date.now(),
-        level: "warn",
-        msg: `Bridge sync failed: ${error.message}`,
-      });
-    }
-  } catch {
-    /* offline ok */
+    await directRestFetch("rpc/set_bot_enabled", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: JSON.stringify({ _enabled: enabled }),
+    });
+  } catch (e: any) {
+    useBot.getState().pushLog({
+      t: Date.now(),
+      level: "warn",
+      msg: `Bridge sync failed: ${e?.message ?? "offline"}`,
+    });
   }
 }
 
@@ -758,13 +867,19 @@ export function BotEngine() {
     // Sync current enabled state after auth storage is loaded, then on changes.
     // Without waiting for the session, the cloud switch can stay off even while
     // the browser bot is active, so the MT5 bridge receives no signals.
-    supabase.auth.getSession().then(() => syncEnabledToCloud(useBot.getState().enabled));
-    refreshMt5Heartbeat();
+    hydrateAccessToken().finally(() => {
+      syncEnabledToCloud(useBot.getState().enabled);
+      refreshMt5Heartbeat();
+    });
     const heartbeatId = setInterval(refreshMt5Heartbeat, 15_000);
-    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: authSub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") cachedAccessToken = null;
+      if (session?.access_token) cachedAccessToken = session.access_token;
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        syncEnabledToCloud(useBot.getState().enabled);
-        refreshMt5Heartbeat();
+        window.setTimeout(() => {
+          syncEnabledToCloud(useBot.getState().enabled);
+          refreshMt5Heartbeat();
+        }, 0);
       }
     });
     const unsub = useBot.subscribe((s, prev) => {
@@ -801,7 +916,7 @@ export function BotEngine() {
       if (document.visibilityState !== "visible") return;
       scanInFlight = false;
       useBot.setState({ lastScanAt: 0 });
-      supabase.auth.refreshSession().finally(() => {
+      hydrateAccessToken(true).finally(() => {
         refreshMt5Heartbeat();
       });
     };
@@ -809,12 +924,15 @@ export function BotEngine() {
     window.addEventListener("focus", onVisibility);
     window.addEventListener("online", onVisibility);
 
-    // Proactively refresh the Supabase session every 60s so long-running
-    // tabs never hit an expired-token wall. Also nudges any stuck scan.
+    // Keep the scanner self-healing without blocking on auth locks. The
+    // Supabase client auto-refreshes tokens; this interval only clears a stuck
+    // scan and keeps the MT5 snapshot fresh when the bot is active.
     const sessionId = setInterval(() => {
-      supabase.auth.refreshSession().catch(() => { /* offline ok */ });
       if (scanInFlight && Date.now() - scanInFlightSince > SCAN_INFLIGHT_TIMEOUT_MS) {
         scanInFlight = false;
+      }
+      if (useBot.getState().enabled && Date.now() - latestMt5HeartbeatAt > 20_000) {
+        refreshMt5Heartbeat();
       }
     }, 60_000);
 
