@@ -67,8 +67,11 @@ async function hydrateAccessToken(forceRefresh = false): Promise<string | null> 
   if (!forceRefresh && authHydrateInFlight) return authHydrateInFlight;
   authHydrateInFlight = (async () => {
     try {
+      const authPromise: PromiseLike<{ data: { session: { access_token?: string } | null } }> = forceRefresh
+        ? (supabase.auth.refreshSession() as any)
+        : (supabase.auth.getSession() as any);
       const { data } = await withTimeout(
-        forceRefresh ? supabase.auth.refreshSession() : supabase.auth.getSession(),
+        authPromise,
         AUTH_TIMEOUT_MS,
         forceRefresh ? "Auth refresh" : "Auth session",
       );
