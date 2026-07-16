@@ -240,20 +240,23 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
         : "Asian (strict)";
       const stochBull = ind.stochK >= ind.stochD;
       const stochBear = ind.stochK <= ind.stochD;
-      const buyRsiOk = ind.rsi >= 48 && ind.rsi <= 72;
-      const sellRsiOk = ind.rsi >= 28 && ind.rsi <= 52;
-      if (trendUpFx && price > ind.ema50 && buyRsiOk && (macdBull || stochBull)) {
-        if (overExtended) return { side: "FLAT", rationale: `BUY skipped — price ${distFromEma50Atr.toFixed(2)}×ATR above EMA50 (chasing top, wait for pullback)` };
+      // Built-in FX strategy: BUY only if RSI ≤ rsiOverbought (65),
+      // SELL only if RSI ≥ rsiOversold (35). MACD confirmation REQUIRED.
+      const buyRsiOk = ind.rsi <= profile.rsiOverbought && ind.rsi >= 50;
+      const sellRsiOk = ind.rsi >= profile.rsiOversold && ind.rsi <= 50;
+      if (trendUpFx && price > ind.ema50 && buyRsiOk && macdBull) {
+        if (overExtended) return { side: "FLAT", rationale: `BUY skipped — price ${distFromEma50Atr.toFixed(2)}×ATR above EMA${profile.emaFast} (chasing top, wait for pullback)` };
         if (stochOverbought) return { side: "FLAT", rationale: `BUY skipped — Stoch %K ${ind.stochK.toFixed(1)} overbought (exhaustion risk)` };
-        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} OK, ${macdBull ? "MACD bullish" : "Stoch bullish"} · ${sessionTag}` };
+        return { side: "BUY", rationale: `EMA${profile.emaFast}>EMA${profile.emaSlow}, price>EMA${profile.emaFast} (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≤ ${profile.rsiOverbought}, MACD bullish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}${stochBull ? " · Stoch↑" : ""}` };
       }
-      if (trendDnFx && price < ind.ema50 && sellRsiOk && (macdBear || stochBear)) {
-        if (overExtended) return { side: "FLAT", rationale: `SELL skipped — price ${distFromEma50Atr.toFixed(2)}×ATR below EMA50 (chasing bottom, wait for pullback)` };
+      if (trendDnFx && price < ind.ema50 && sellRsiOk && macdBear) {
+        if (overExtended) return { side: "FLAT", rationale: `SELL skipped — price ${distFromEma50Atr.toFixed(2)}×ATR below EMA${profile.emaFast} (chasing bottom, wait for pullback)` };
         if (stochOversold) return { side: "FLAT", rationale: `SELL skipped — Stoch %K ${ind.stochK.toFixed(1)} oversold (exhaustion risk)` };
-        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50 (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} OK, ${macdBear ? "MACD bearish" : "Stoch bearish"} · ${sessionTag}` };
+        return { side: "SELL", rationale: `EMA${profile.emaFast}<EMA${profile.emaSlow}, price<EMA${profile.emaFast} (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≥ ${profile.rsiOversold}, MACD bearish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}${stochBear ? " · Stoch↓" : ""}` };
       }
-      return { side: "FLAT", rationale: "Multi-confirmation not aligned" };
+      return { side: "FLAT", rationale: "Multi-confirmation not aligned (need trend + RSI band + MACD)" };
     }
+
     case "gold_multi_confirmation": {
       // Dedicated gold playbook — trades around the clock, weights ATR
       // expansion and MACD/EMA alignment. Less strict on sessions than FX.
