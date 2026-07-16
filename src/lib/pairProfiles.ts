@@ -67,30 +67,36 @@ const COMMON = {
   stochK: 14, stochD: 3, atrPeriod: 14,
 };
 
-// Baseline FX profile used by every currency pair. Uses the shared
-// fx_multi_confirmation playbook.
+// Baseline FX profile — built-in currency strategy.
+// EMA Fast 20 / EMA Slow 50, RSI(14) buy<=65 sell>=35, ADX >= 25,
+// MACD required, ATR SL 2.2 / ATR TP 2.8 (rr = 2.8/2.2).
 function fxProfile(
   symbol: string,
   overrides: Partial<PairProfile> = {},
 ): PairProfile {
-  const isJpyCross = symbol.endsWith("JPY");
-  const isExotic = /GBP(AUD|NZD|CAD|CHF)|EUR(NZD|AUD)|AUDNZD/.test(symbol);
   return {
     ...COMMON,
     symbol,
     strategy: "fx_multi_confirmation",
     label: `${symbol} — Multi-Confirmation`,
-    description: "EMA50/200 trend + RSI band + MACD crossover + ATR active. No counter-trend / no sideways.",
-    adxMin: isExotic ? 16 : isJpyCross ? 14 : 12,
-    atrSlMult: isExotic ? 3.2 : isJpyCross ? 3.0 : 2.8,
-    rrTarget: 2.15,
-    maxSpreadPct: isExotic ? 0.035 : isJpyCross ? 0.03 : 0.025,
-    minAtrPct: isJpyCross ? 0.012 : 0.01,
-    maxAtrPct: isExotic ? 1.6 : isJpyCross ? 1.4 : 1.2,
+    description: "EMA20/50 trend + RSI(14) 35–65 band + MACD required + ADX≥25 + ATR SL 2.2 / TP 2.8.",
+    emaFast: 20,
+    emaMid: 50,
+    emaSlow: 50,
+    rsiPeriod: 14,
+    rsiOversold: 35,
+    rsiOverbought: 65,
+    adxMin: 25,
+    atrSlMult: 2.2,
+    rrTarget: 2.8 / 2.2,
+    maxSpreadPct: symbol.endsWith("JPY") ? 0.03 : 0.025,
+    minAtrPct: symbol.endsWith("JPY") ? 0.012 : 0.01,
+    maxAtrPct: /GBP(AUD|NZD|CAD|CHF)|EUR(NZD|AUD)|AUDNZD/.test(symbol) ? 1.6 : symbol.endsWith("JPY") ? 1.4 : 1.2,
     preferredSessions: ["London", "New York"],
     ...overrides,
   };
 }
+
 
 export const PAIR_PROFILES: Record<string, PairProfile> = {
   // ---- Gold: dedicated playbook, separate from FX ----
