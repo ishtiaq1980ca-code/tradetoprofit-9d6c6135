@@ -43,6 +43,28 @@ const AUTH_TIMEOUT_MS = 4_000;
 let cachedAccessToken: string | null = null;
 let authHydrateInFlight: Promise<string | null> | null = null;
 
+function tokenFromStorage(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i) ?? "";
+      if (!key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const session = parsed?.currentSession ?? parsed;
+      const token = session?.access_token;
+      const expiresAt = Number(session?.expires_at ?? parsed?.expiresAt ?? 0);
+      if (typeof token === "string" && token.length > 20) {
+        if (!expiresAt || expiresAt * 1000 > Date.now() + 30_000) return token;
+      }
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return null;
+}
+
 function supabaseRestConfig() {
   const env = import.meta.env as Record<string, string | undefined>;
   const client = supabase as any;
@@ -63,6 +85,13 @@ function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Pro
 }
 
 async function hydrateAccessToken(forceRefresh = false): Promise<string | null> {
+  if (!forceRefresh) {
+    const stored = tokenFromStorage();
+    if (stored) {
+      cachedAccessToken = stored;
+      return stored;
+    }
+  }
   if (!forceRefresh && cachedAccessToken) return cachedAccessToken;
   if (!forceRefresh && authHydrateInFlight) return authHydrateInFlight;
   authHydrateInFlight = (async () => {
