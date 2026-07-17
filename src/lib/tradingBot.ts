@@ -297,18 +297,18 @@ export const useBot = create<BotStore>()(
     (set, get) => ({
       enabled: false,
       scanIntervalMs: 1_000,
-      minConfidence: 60,
+      minConfidence: 80,
       riskPct: 3,
       maxDailyLossPct: 10,
-      atrSlMult: 2.5,
-      atrTpMult: 0.7,
-      emaFast: 9,
-      emaSlow: 21,
+      atrSlMult: 2.2,
+      atrTpMult: 2.8,
+      emaFast: 20,
+      emaSlow: 50,
       rsiPeriod: 14,
-      rsiBuyMax: 85,
-      rsiSellMin: 15,
-      useMacd: false,
-      adxMin: 12,
+      rsiBuyMax: 65,
+      rsiSellMin: 35,
+      useMacd: true,
+      adxMin: 25,
       maxOpenTrades: 15,
       maxTradesPerSymbol: 2,
       maxSameDirectionTrades: 2,
@@ -371,11 +371,24 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 14,
+      version: 15,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           persisted.riskPct = 3;
-          // v12: raise minConfidence floor to 85 (Prompt 2 AI-confidence gate).
+          // v15: align saved browser settings with the built-in strategy.
+          if (version < 15) {
+            persisted.minConfidence = 80;
+            persisted.emaFast = 20;
+            persisted.emaSlow = 50;
+            persisted.rsiPeriod = 14;
+            persisted.rsiBuyMax = 65;
+            persisted.rsiSellMin = 35;
+            persisted.useMacd = true;
+            persisted.adxMin = 25;
+            persisted.atrSlMult = 2.2;
+            persisted.atrTpMult = 2.8;
+          }
+          // v12: raise minConfidence floor to the built-in FX gate.
           if (version < 12 || typeof persisted.minConfidence !== "number" || persisted.minConfidence < MIN_CONFIDENCE) {
             persisted.minConfidence = MIN_CONFIDENCE;
           }
@@ -419,6 +432,7 @@ export const useBot = create<BotStore>()(
         adxMin: s.adxMin,
         maxOpenTrades: s.maxOpenTrades,
         maxTradesPerSymbol: s.maxTradesPerSymbol,
+        maxSameDirectionTrades: s.maxSameDirectionTrades,
         maxDailyTrades: s.maxDailyTrades,
         pauseOnWeekend: s.pauseOnWeekend,
         enabledSymbols: s.enabledSymbols,

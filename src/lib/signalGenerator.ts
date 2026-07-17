@@ -197,16 +197,12 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       return { side: "FLAT", rationale: "Inside prior session range" };
     }
     case "fx_multi_confirmation": {
-      // Multi-confirmation FX playbook with anti-chase guard:
-      //   Trend:      EMA50 vs EMA200
-      //   Location:   price on correct side of EMA50, but NOT over-extended
-      //   Momentum:   RSI band + MACD/Stoch agreement. At the new 40% floor we
-      //               allow partial confirmation, then the confidence score
-      //               decides whether the setup is strong enough.
-      //   Exhaustion: Stoch not at extreme in trade direction
-      //   No-chase:   price within 2.5×ATR of EMA50 (else we'd buy tops / sell bottoms)
-      //   Volatility: ATR active + ADX above sideways floor
-      //   Session:    London / NY / overlap = normal; Asian-only = stricter
+      // Built-in FX strategy requested by the user:
+      //   Confidence 80, EMA Fast 20 / EMA Slow 50, RSI(14)
+      //   BUY allowed while RSI <= 65, SELL allowed while RSI >= 35,
+      //   ADX >= 25, MACD required, ATR SL 2.2 / ATR TP 2.8.
+      // Do not add session/Stoch/over-extension hard blocks here; those extra
+      // guards were preventing valid strategy signals from being sent.
       const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
       const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
       const atrPct = (ind.atr / price) * 100;
@@ -215,44 +211,22 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       if (!atrActive) return { side: "FLAT", rationale: "ATR inactive (volatility too low)" };
       if (!notSideways) return { side: "FLAT", rationale: `Sideways market (ADX ${ind.adx.toFixed(1)} < ${profile.adxMin})` };
 
-      // Session strength: London/NY = normal, Asian-only = require stronger confirmation
       const sess = activeSessions();
       const inLondonOrNY = sess.active.includes("London") || sess.active.includes("New York");
-      const asianOnly = !inLondonOrNY && (sess.active.includes("Tokyo") || sess.active.includes("Sydney"));
-      if (asianOnly) {
-        const strongAdx = ind.adx >= profile.adxMin * 1.15;
-        const strongAtr = atrPct >= profile.minAtrPct * 1.15;
-        if (!strongAdx || !strongAtr) {
-          return { side: "FLAT", rationale: `Asian session — requires stronger confirmation (ADX ${ind.adx.toFixed(1)} need ≥${(profile.adxMin * 1.15).toFixed(1)}, ATR% ${atrPct.toFixed(3)} need ≥${(profile.minAtrPct * 1.15).toFixed(3)})` };
-        }
-      }
-
-      // Anti-chase: how far is price from EMA50 in ATR units?
-      const distFromEma50Atr = Math.abs(price - ind.ema50) / Math.max(ind.atr, 1e-9);
-      const overExtended = distFromEma50Atr > 2.5;
-      const stochOverbought = ind.stochK > 88;
-      const stochOversold = ind.stochK < 12;
+      const distFromEmaFastAtr = Math.abs(price - ind.ema50) / Math.max(ind.atr, 1e-9);
 
       const trendUpFx = ind.ema50 > ind.ema200;
       const trendDnFx = ind.ema50 < ind.ema200;
       const sessionTag = inLondonOrNY
         ? (sess.active.includes("London") && sess.active.includes("New York") ? "London+NY overlap" : sess.active.includes("London") ? "London" : "New York")
-        : "Asian (strict)";
-      const stochBull = ind.stochK >= ind.stochD;
-      const stochBear = ind.stochK <= ind.stochD;
-      // Built-in FX strategy: BUY only if RSI ≤ rsiOverbought (65),
-      // SELL only if RSI ≥ rsiOversold (35). MACD confirmation REQUIRED.
-      const buyRsiOk = ind.rsi <= profile.rsiOverbought && ind.rsi >= 50;
-      const sellRsiOk = ind.rsi >= profile.rsiOversold && ind.rsi <= 50;
+        : (sess.active.length ? sess.active.join("+") : "off-session");
+      const buyRsiOk = ind.rsi <= profile.rsiOverbought;
+      const sellRsiOk = ind.rsi >= profile.rsiOversold;
       if (trendUpFx && price > ind.ema50 && buyRsiOk && macdBull) {
-        if (overExtended) return { side: "FLAT", rationale: `BUY skipped — price ${distFromEma50Atr.toFixed(2)}×ATR above EMA${profile.emaFast} (chasing top, wait for pullback)` };
-        if (stochOverbought) return { side: "FLAT", rationale: `BUY skipped — Stoch %K ${ind.stochK.toFixed(1)} overbought (exhaustion risk)` };
-        return { side: "BUY", rationale: `EMA${profile.emaFast}>EMA${profile.emaSlow}, price>EMA${profile.emaFast} (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≤ ${profile.rsiOverbought}, MACD bullish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}${stochBull ? " · Stoch↑" : ""}` };
+        return { side: "BUY", rationale: `EMA${profile.emaFast}>EMA${profile.emaSlow}, price>EMA${profile.emaFast} (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≤ ${profile.rsiOverbought}, MACD bullish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
       }
       if (trendDnFx && price < ind.ema50 && sellRsiOk && macdBear) {
-        if (overExtended) return { side: "FLAT", rationale: `SELL skipped — price ${distFromEma50Atr.toFixed(2)}×ATR below EMA${profile.emaFast} (chasing bottom, wait for pullback)` };
-        if (stochOversold) return { side: "FLAT", rationale: `SELL skipped — Stoch %K ${ind.stochK.toFixed(1)} oversold (exhaustion risk)` };
-        return { side: "SELL", rationale: `EMA${profile.emaFast}<EMA${profile.emaSlow}, price<EMA${profile.emaFast} (${distFromEma50Atr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≥ ${profile.rsiOversold}, MACD bearish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}${stochBear ? " · Stoch↓" : ""}` };
+        return { side: "SELL", rationale: `EMA${profile.emaFast}<EMA${profile.emaSlow}, price<EMA${profile.emaFast} (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≥ ${profile.rsiOversold}, MACD bearish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
       }
       return { side: "FLAT", rationale: "Multi-confirmation not aligned (need trend + RSI band + MACD)" };
     }
@@ -418,8 +392,8 @@ function buildDecision(args: {
                     : side === "SELL" ? ind.macdHist < 0 && ind.macdHist <= ind.macdPrev
                     : false;
   if (macdAgrees) momentumScore += 13;
-  const rsiAligned = side === "BUY" ? ind.rsi >= 45 && ind.rsi <= 70
-                    : side === "SELL" ? ind.rsi <= 55 && ind.rsi >= 30
+  const rsiAligned = side === "BUY" ? ind.rsi <= profile.rsiOverbought
+                    : side === "SELL" ? ind.rsi >= profile.rsiOversold
                     : false;
   if (rsiAligned) momentumScore += 12;
   const momentumReason = `RSI ${ind.rsi.toFixed(1)} | MACD hist ${ind.macdHist.toFixed(5)} (prev ${ind.macdPrev.toFixed(5)}) | Stoch %K ${ind.stochK.toFixed(1)}/%D ${ind.stochD.toFixed(1)}`;
@@ -442,9 +416,10 @@ function buildDecision(args: {
     : computeLevels(side, price, ind.atr, profile.atrSlMult, profile.rrTarget);
 
   let rrScore = 0;
-  if (rr >= 2.5) rrScore = 15;
-  else if (rr >= 1.8) rrScore = 11;
-  else if (rr >= 1.4) rrScore = 7;
+  const targetRr = Math.max(0.1, profile.rrTarget);
+  if (rr >= targetRr * 0.98) rrScore = 15;
+  else if (rr >= targetRr * 0.85) rrScore = 11;
+  else if (rr >= targetRr * 0.7) rrScore = 7;
   const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)})`;
 
   const breakdown: ConfidenceBreakdown = {
