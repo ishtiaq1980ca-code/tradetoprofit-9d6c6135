@@ -46,6 +46,11 @@ export type PairProfile = {
   rsiPeriod: number;
   rsiOversold: number;
   rsiOverbought: number;
+  /** Optional momentum band bounds (PDF manual):
+   *  BUY only when rsi >= rsiBuyMin (default 55)
+   *  SELL only when rsi <= rsiSellMax (default 45)                       */
+  rsiBuyMin?: number;
+  rsiSellMax?: number;
   adxMin: number;
   bbPeriod: number;
   bbStd: number;
@@ -59,6 +64,7 @@ export type PairProfile = {
   maxAtrPct: number;
   preferredSessions: Array<"Sydney" | "Tokyo" | "London" | "New York">;
 };
+
 
 const COMMON = {
   emaFast: 50, emaMid: 100, emaSlow: 200,
