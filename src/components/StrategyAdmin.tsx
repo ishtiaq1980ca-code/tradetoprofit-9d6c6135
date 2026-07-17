@@ -147,6 +147,7 @@ export function StrategyAdmin() {
 
   return (
     <div className="space-y-4">
+      <ManualStrategyPanel />
       <BuiltInStrategyPanel />
       <Card className="border-border/60 bg-card/70">
       <CardHeader>
