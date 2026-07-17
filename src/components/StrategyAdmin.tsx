@@ -15,8 +15,9 @@ import { useStrategies, type CustomStrategy } from "@/lib/strategies";
 import { DEFAULT_PARAMS } from "@/lib/strategy";
 import { useBot } from "@/lib/tradingBot";
 import { SYMBOLS } from "@/lib/format";
+import { allProfiles } from "@/lib/pairProfiles";
 import { toast } from "sonner";
-import { Sparkles, Trash2, Pencil, X, Cpu } from "lucide-react";
+import { Sparkles, Trash2, Pencil, X, Cpu, BookOpen } from "lucide-react";
 
 type Draft = {
   id?: string;
