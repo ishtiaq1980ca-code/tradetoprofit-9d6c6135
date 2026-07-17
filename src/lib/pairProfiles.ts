@@ -73,9 +73,10 @@ const COMMON = {
   stochK: 14, stochD: 3, atrPeriod: 14,
 };
 
-// Baseline FX profile — built-in currency strategy.
-// EMA Fast 20 / EMA Slow 50, RSI(14) buy<=65 sell>=35, ADX >= 25,
-// MACD required, ATR SL 2.2 / ATR TP 2.8 (rr = 2.8/2.2).
+// Baseline FX profile — Detailed Forex Strategy Manual (PDF).
+// Trend TF H4 / Confirmation H1 / Entry M15.
+// EMA50 & EMA200 trend + ADX>25, RSI(14) 55–65 BUY / 35–45 SELL,
+// MACD required, ATR SL 1.5, TP RR 1:2.
 function fxProfile(
   symbol: string,
   overrides: Partial<PairProfile> = {},
@@ -84,17 +85,19 @@ function fxProfile(
     ...COMMON,
     symbol,
     strategy: "fx_multi_confirmation",
-    label: `${symbol} — Multi-Confirmation`,
-    description: "EMA20/50 trend + RSI(14) 35–65 band + MACD required + ADX≥25 + ATR SL 2.2 / TP 2.8.",
-    emaFast: 20,
-    emaMid: 50,
-    emaSlow: 50,
+    label: `${symbol} — Manual Multi-Confirmation`,
+    description: "H4/H1/M15 trend pullback. EMA50/200 + ADX>25, RSI 55–65 BUY / 35–45 SELL, MACD cross required, ATR SL 1.5× / RR 1:2.",
+    emaFast: 50,
+    emaMid: 100,
+    emaSlow: 200,
     rsiPeriod: 14,
     rsiOversold: 35,
     rsiOverbought: 65,
+    rsiBuyMin: 55,
+    rsiSellMax: 45,
     adxMin: 25,
-    atrSlMult: 2.2,
-    rrTarget: 2.8 / 2.2,
+    atrSlMult: 1.5,
+    rrTarget: 2.0,
     maxSpreadPct: symbol.endsWith("JPY") ? 0.03 : 0.025,
     minAtrPct: symbol.endsWith("JPY") ? 0.012 : 0.01,
     maxAtrPct: /GBP(AUD|NZD|CAD|CHF)|EUR(NZD|AUD)|AUDNZD/.test(symbol) ? 1.6 : symbol.endsWith("JPY") ? 1.4 : 1.2,
@@ -102,6 +105,7 @@ function fxProfile(
     ...overrides,
   };
 }
+
 
 
 export const PAIR_PROFILES: Record<string, PairProfile> = {
