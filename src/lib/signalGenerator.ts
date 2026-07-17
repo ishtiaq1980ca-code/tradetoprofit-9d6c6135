@@ -197,12 +197,12 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       return { side: "FLAT", rationale: "Inside prior session range" };
     }
     case "fx_multi_confirmation": {
-      // Built-in FX strategy requested by the user:
-      //   Confidence 80, EMA Fast 20 / EMA Slow 50, RSI(14)
-      //   BUY allowed while RSI <= 65, SELL allowed while RSI >= 35,
-      //   ADX >= 25, MACD required, ATR SL 2.2 / ATR TP 2.8.
-      // Do not add session/Stoch/over-extension hard blocks here; those extra
-      // guards were preventing valid strategy signals from being sent.
+      // Built-in FX strategy — Detailed Forex Strategy Manual (PDF):
+      //   H4 trend / H1 confirmation / M15 entry.
+      //   EMA50 & EMA200 trend + ADX > 25, MACD cross required,
+      //   BUY when RSI 55–65 in an up-trend pullback to EMA50,
+      //   SELL when RSI 35–45 in a down-trend pullback to EMA50,
+      //   ATR SL 1.5×, RR 1:2.
       const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
       const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
       const atrPct = (ind.atr / price) * 100;
@@ -220,16 +220,19 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       const sessionTag = inLondonOrNY
         ? (sess.active.includes("London") && sess.active.includes("New York") ? "London+NY overlap" : sess.active.includes("London") ? "London" : "New York")
         : (sess.active.length ? sess.active.join("+") : "off-session");
-      const buyRsiOk = ind.rsi <= profile.rsiOverbought;
-      const sellRsiOk = ind.rsi >= profile.rsiOversold;
+      const rsiBuyMin = profile.rsiBuyMin ?? 0;
+      const rsiSellMax = profile.rsiSellMax ?? 100;
+      const buyRsiOk = ind.rsi <= profile.rsiOverbought && ind.rsi >= rsiBuyMin;
+      const sellRsiOk = ind.rsi >= profile.rsiOversold && ind.rsi <= rsiSellMax;
       if (trendUpFx && price > ind.ema50 && buyRsiOk && macdBull) {
-        return { side: "BUY", rationale: `EMA${profile.emaFast}>EMA${profile.emaSlow}, price>EMA${profile.emaFast} (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≤ ${profile.rsiOverbought}, MACD bullish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
+        return { side: "BUY", rationale: `EMA50>EMA200, price>EMA50 (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} in [${rsiBuyMin},${profile.rsiOverbought}], MACD bullish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
       }
       if (trendDnFx && price < ind.ema50 && sellRsiOk && macdBear) {
-        return { side: "SELL", rationale: `EMA${profile.emaFast}<EMA${profile.emaSlow}, price<EMA${profile.emaFast} (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} ≥ ${profile.rsiOversold}, MACD bearish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
+        return { side: "SELL", rationale: `EMA50<EMA200, price<EMA50 (${distFromEmaFastAtr.toFixed(2)}×ATR), RSI ${ind.rsi.toFixed(1)} in [${profile.rsiOversold},${rsiSellMax}], MACD bearish, ADX ${ind.adx.toFixed(1)} ≥ ${profile.adxMin} · ${sessionTag}` };
       }
-      return { side: "FLAT", rationale: "Multi-confirmation not aligned (need trend + RSI band + MACD)" };
+      return { side: "FLAT", rationale: "Manual not aligned (need trend + RSI momentum band + MACD)" };
     }
+
 
     case "gold_multi_confirmation": {
       // Dedicated gold playbook — trades around the clock, weights ATR
