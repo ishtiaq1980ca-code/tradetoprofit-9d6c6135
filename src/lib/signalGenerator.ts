@@ -416,9 +416,10 @@ function buildDecision(args: {
     : computeLevels(side, price, ind.atr, profile.atrSlMult, profile.rrTarget);
 
   let rrScore = 0;
-  if (rr >= 2.5) rrScore = 15;
-  else if (rr >= 1.8) rrScore = 11;
-  else if (rr >= 1.4) rrScore = 7;
+  const targetRr = Math.max(0.1, profile.rrTarget);
+  if (rr >= targetRr * 0.98) rrScore = 15;
+  else if (rr >= targetRr * 0.85) rrScore = 11;
+  else if (rr >= targetRr * 0.7) rrScore = 7;
   const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)})`;
 
   const breakdown: ConfidenceBreakdown = {

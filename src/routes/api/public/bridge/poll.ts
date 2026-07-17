@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
 
-const MIN_BRIDGE_RR = 1.8;
+// Matches the built-in ATR SL 2.2 / ATR TP 2.8 strategy (RR ≈ 1.27).
+const MIN_BRIDGE_RR = 1.25;
 const MIN_BRIDGE_VERSION = 2026071401;
 
 function signalRiskError(signal: any): string | null {

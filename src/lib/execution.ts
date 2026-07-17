@@ -34,7 +34,10 @@ const SPECS: Record<string, SymbolSpec> = {
   XAUUSD: XAU,
 };
 
-export const MIN_EXECUTION_RR = 1.9;
+// User strategy uses ATR SL 2.2 and ATR TP 2.8, i.e. RR ≈ 1.27.
+// Keep the execution floor just below that so the requested SL/TP profile is
+// preserved instead of silently widening TP and starving valid signals.
+export const MIN_EXECUTION_RR = 1.25;
 
 export function getSymbolSpec(symbol: string): SymbolSpec {
   return SPECS[symbol] ?? FX5;
