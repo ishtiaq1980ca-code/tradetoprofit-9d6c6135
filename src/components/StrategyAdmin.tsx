@@ -15,8 +15,9 @@ import { useStrategies, type CustomStrategy } from "@/lib/strategies";
 import { DEFAULT_PARAMS } from "@/lib/strategy";
 import { useBot } from "@/lib/tradingBot";
 import { SYMBOLS } from "@/lib/format";
+import { allProfiles } from "@/lib/pairProfiles";
 import { toast } from "sonner";
-import { Sparkles, Trash2, Pencil, X, Cpu } from "lucide-react";
+import { Sparkles, Trash2, Pencil, X, Cpu, BookOpen } from "lucide-react";
 
 type Draft = {
   id?: string;
@@ -146,6 +147,7 @@ export function StrategyAdmin() {
 
   return (
     <div className="space-y-4">
+      <ManualStrategyPanel />
       <BuiltInStrategyPanel />
       <Card className="border-border/60 bg-card/70">
       <CardHeader>
@@ -328,6 +330,62 @@ function BuiltInStrategyPanel() {
           <div><Label className="text-xs">ATR × TP</Label>
             <Input type="number" step={0.1} min={0.1} value={bot.atrTpMult} onChange={(e) => bot.setAtrTpMult(num(e.target.value, 0.7))} disabled={!bot.useBuiltInStrategy} /></div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManualStrategyPanel() {
+  const profiles = useMemo(() => allProfiles(), []);
+  const fx = profiles.filter((p) => p.strategy === "fx_multi_confirmation");
+  const gold = profiles.filter((p) => p.strategy === "gold_multi_confirmation");
+  const sample = fx[0];
+  return (
+    <Card className="border-bull/40 bg-card/70">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-bull" />
+          Manual Multi-Confirmation Strategy (PDF)
+          <Badge variant="outline" className="border-bull/40 text-bull">active · built-in</Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Detailed Forex Strategy Manual — automatically applied to every FX pair. Gold (XAUUSD) uses its own dedicated playbook.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border border-border/40 bg-background/40 p-3">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">FX pairs ({fx.length})</div>
+          <div className="grid gap-x-4 gap-y-1 md:grid-cols-2 text-xs">
+            <div><span className="text-muted-foreground">Timeframes:</span> H4 trend / H1 confirmation / M15 entry</div>
+            <div><span className="text-muted-foreground">Trend filter:</span> EMA {sample?.emaFast}/{sample?.emaSlow}</div>
+            <div><span className="text-muted-foreground">RSI({sample?.rsiPeriod}):</span> BUY {sample?.rsiBuyMin}–{sample?.rsiOverbought} · SELL {sample?.rsiOversold}–{sample?.rsiSellMax}</div>
+            <div><span className="text-muted-foreground">ADX min:</span> {sample?.adxMin}</div>
+            <div><span className="text-muted-foreground">MACD:</span> cross required</div>
+            <div><span className="text-muted-foreground">Risk:</span> ATR SL {sample?.atrSlMult}× · RR 1:{sample?.rrTarget}</div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {fx.map((p) => (
+              <Badge key={p.symbol} variant="outline" className="border-border/40 text-[10px]">{p.symbol}</Badge>
+            ))}
+          </div>
+        </div>
+
+        {gold.map((p) => (
+          <div key={p.symbol} className="rounded-lg border border-border/40 bg-background/40 p-3">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Gold — {p.symbol}</div>
+            <div className="grid gap-x-4 gap-y-1 md:grid-cols-2 text-xs">
+              <div><span className="text-muted-foreground">Trend:</span> EMA {p.emaFast}/{p.emaSlow}</div>
+              <div><span className="text-muted-foreground">RSI({p.rsiPeriod}):</span> {p.rsiOversold}/{p.rsiOverbought}</div>
+              <div><span className="text-muted-foreground">ADX min:</span> {p.adxMin}</div>
+              <div><span className="text-muted-foreground">Risk:</span> ATR SL {p.atrSlMult}× · RR 1:{p.rrTarget}</div>
+              <div className="md:col-span-2"><span className="text-muted-foreground">Sessions:</span> 24h (Sydney/Tokyo/London/NY)</div>
+            </div>
+          </div>
+        ))}
+
+        <p className="text-[11px] text-muted-foreground">
+          Ye strategy code mein built-in hai (per-pair profiles). Isko tune karne ke liye "Custom Strategies" mein specific pair ke liye override banayein.
+        </p>
       </CardContent>
     </Card>
   );
