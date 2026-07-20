@@ -87,13 +87,27 @@ class PriceFeed {
     return at > 0 && Date.now() - at < maxAgeMs;
   }
 
+  /** Force an immediate anchor refresh (e.g. after tab returns to foreground). */
+  refreshAnchor() {
+    void this.anchor();
+  }
+
+
   private notify() {
     this.state = { ...this.state, updatedAt: Date.now() };
     this.subs.forEach((s) => s(this.state));
   }
 
+  private lastTickAt = 0;
   private tick() {
     const now = Date.now();
+    // Timer-drift self-heal: if the browser throttled us (e.g. background tab)
+    // and >20s elapsed since the last tick, anchor state is likely stale.
+    // Force a fresh anchor fetch so scans don't stall on "no live anchor".
+    if (this.lastTickAt > 0 && now - this.lastTickAt > 20_000) {
+      void this.anchor();
+    }
+    this.lastTickAt = now;
     for (const sym of SYMBOLS) {
       const price = this.state.prices[sym];
       if (!price) continue;
@@ -113,6 +127,7 @@ class PriceFeed {
     }
     this.notify();
   }
+
 
   private reseeded = new Set<string>();
 

@@ -962,10 +962,16 @@ export function BotEngine() {
       if (document.visibilityState !== "visible") return;
       scanInFlight = false;
       useBot.setState({ lastScanAt: 0 });
+      // Re-anchor the price feed immediately — background tabs throttle the
+      // 30s anchor timer, so `hasLiveAnchor()` goes stale and every scan
+      // blocks with "waiting for live broker-aligned price" until refresh.
+      priceFeed.refreshAnchor();
       hydrateAccessToken(true).finally(() => {
         refreshMt5Heartbeat();
+        if (useBot.getState().enabled) void runScan();
       });
     };
+
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
     window.addEventListener("online", onVisibility);
