@@ -1019,6 +1019,10 @@ export function BotEngine() {
       clearInterval(id);
       clearInterval(heartbeatId);
       clearInterval(sessionId);
+      if (tickWorker) {
+        try { tickWorker.postMessage({ type: "stop" }); } catch { /* noop */ }
+        tickWorker.terminate();
+      }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
       window.removeEventListener("online", onVisibility);
@@ -1026,6 +1030,7 @@ export function BotEngine() {
       authSub.subscription.unsubscribe();
       supabase.removeChannel(fillCh);
     };
+
   }, []);
   return null;
 }
