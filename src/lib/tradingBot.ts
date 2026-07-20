@@ -948,12 +948,39 @@ export function BotEngine() {
       )
       .subscribe();
 
+    // Web Worker heartbeat — background tabs throttle setInterval to ~1/min,
+    // which stalls scans and price-feed anchoring. Workers are NOT throttled,
+    // so we drive the scan cadence from a worker tick.
+    let tickWorker: Worker | null = null;
+    try {
+      const WorkerCtor = new URL("./tickWorker.ts", import.meta.url);
+      tickWorker = new Worker(WorkerCtor, { type: "module" });
+      tickWorker.postMessage({ type: "start", intervalMs: 1000 });
+      let lastAnchorAt = 0;
+      tickWorker.onmessage = () => {
+        const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
+        // Keep the price feed anchored even when the tab is hidden.
+        const now = Date.now();
+        if (now - lastAnchorAt > 30_000) {
+          lastAnchorAt = now;
+          priceFeed.refreshAnchor();
+        }
+        if (!enabled) return;
+        if (now - lastScanAt < scanIntervalMs) return;
+        void runScan();
+      };
+    } catch (e: any) {
+      useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to timers` });
+    }
+
+    // Fallback timer (also serves as a safety net if the worker fails silently).
     const id = setInterval(() => {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       void runScan();
     }, 250);
+
 
     // When the tab returns to foreground, browsers may have throttled our
     // scan/heartbeat timers. Force an immediate refresh + scan so the user
