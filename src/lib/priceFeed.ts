@@ -87,6 +87,12 @@ class PriceFeed {
     return at > 0 && Date.now() - at < maxAgeMs;
   }
 
+  /** Force an immediate anchor refresh (e.g. after tab returns to foreground). */
+  refreshAnchor() {
+    void this.anchor();
+  }
+
+
   private notify() {
     this.state = { ...this.state, updatedAt: Date.now() };
     this.subs.forEach((s) => s(this.state));
