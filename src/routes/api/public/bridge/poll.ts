@@ -55,7 +55,7 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           return Response.json({ enabled: false, reason: "mt5_stale", signals: [] });
         }
 
-        // Daily loss kill switch + daily profit target halt
+        // Daily loss kill switch
         const today = new Date(); today.setUTCHours(0, 0, 0, 0);
         if (latestSnap?.created_at && new Date(latestSnap.created_at) >= today && Number(latestSnap.balance) > 0) {
           const dailyPnl = Number(latestSnap.daily_pnl);
@@ -63,13 +63,6 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           const lossPct = -(dailyPnl / balance) * 100;
           if (lossPct >= Number(settings.max_daily_loss)) {
             return Response.json({ enabled: false, reason: "daily_loss_limit", signals: [] });
-          }
-          const profitTarget = Number((settings as any).daily_profit_target ?? 0);
-          if (profitTarget > 0) {
-            const profitPct = (dailyPnl / balance) * 100;
-            if (profitPct >= profitTarget) {
-              return Response.json({ enabled: false, reason: "daily_profit_target", signals: [] });
-            }
           }
         }
 

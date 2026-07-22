@@ -1,0 +1,1 @@
+UPDATE public.bot_settings SET enabled = true, daily_profit_target = 0 WHERE id = 1;
