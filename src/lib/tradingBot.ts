@@ -164,6 +164,28 @@ async function insertSignalDirect(row: {
   reason: string;
   status: "pending";
 }) {
+  // Prefer the worker path so the actual network send does not depend on
+  // the main thread being awake (background tab / OS sleep).
+  const token = await hydrateAccessToken();
+  if (token && tickWorker) {
+    try {
+      const res = await sendSignalViaWorker(row, token);
+      if (!res.error) return { error: null as null | { message: string } };
+      // Retry once on auth failure via worker with fresh token
+      if (res.status === 401) {
+        const fresh = await hydrateAccessToken(true);
+        if (fresh) {
+          const res2 = await sendSignalViaWorker(row, fresh);
+          if (!res2.error) return { error: null as null | { message: string } };
+          return { error: { message: res2.error } };
+        }
+      }
+      return { error: { message: res.error } };
+    } catch (e: any) {
+      // Worker unavailable → fall through to main-thread fetch
+      useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Worker signal send failed: ${e?.message ?? "unknown"} — falling back to main-thread` });
+    }
+  }
   try {
     await directRestFetch("signals", {
       method: "POST",
@@ -175,6 +197,50 @@ async function insertSignalDirect(row: {
     return { error: { message: e?.message ?? "signal queue failed" } };
   }
 }
+
+// ---------------------- Tick Worker (background-safe) ---------------------
+// The worker owns:
+//   - the scan heartbeat tick (setInterval survives tab throttling)
+//   - the price-anchor HTTP fetch (kept alive when the tab is hidden)
+//   - the MT5 signal-insert HTTP POST (so the network call is not blocked
+//     by a stalled main thread)
+// A main-thread watchdog auto-restarts the worker if it goes silent.
+let tickWorker: Worker | null = null;
+let lastWorkerTickAt = 0;
+let lastWorkerReadyAt = 0;
+let workerRestartCount = 0;
+let workerStalledLoggedAt = 0;
+const WORKER_STALL_MS = 5_000;
+let nextSignalReqId = 1;
+const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: number }) => void>();
+
+function sendSignalViaWorker(
+  row: Record<string, unknown>,
+  token: string,
+): Promise<{ error: string | null; status?: number }> {
+  return new Promise((resolve) => {
+    if (!tickWorker) return resolve({ error: "worker unavailable" });
+    const reqId = nextSignalReqId++;
+    const timer = window.setTimeout(() => {
+      if (pendingSignalCalls.has(reqId)) {
+        pendingSignalCalls.delete(reqId);
+        resolve({ error: "worker signal timeout" });
+      }
+    }, 12_000);
+    pendingSignalCalls.set(reqId, (r) => {
+      window.clearTimeout(timer);
+      resolve(r);
+    });
+    try {
+      tickWorker.postMessage({ type: "insertSignal", reqId, row, token });
+    } catch (e: any) {
+      window.clearTimeout(timer);
+      pendingSignalCalls.delete(reqId);
+      resolve({ error: e?.message ?? "worker post failed" });
+    }
+  });
+}
+
 
 let heartbeatFailureCount = 0;
 async function refreshMt5Heartbeat() {
