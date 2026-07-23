@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { checkBridgeAuth } from "@/lib/bridge-auth.server";
+import { resolveBridgeAuth } from "@/lib/bridge-auth.server";
 
 const Schema = z.object({
   signal_id: z.string().uuid().nullable().optional(),
