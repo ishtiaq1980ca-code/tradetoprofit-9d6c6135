@@ -758,9 +758,29 @@ def execute_signal(sig: dict) -> bool:
         report_trade_failure(sig, original_symbol, "broker symbol not found; set SYMBOL_OVERRIDES to exact Market Watch symbol")
         return False
     tick = mt5.symbol_info_tick(symbol)
+    # If the broker connection has dropped (typical port=443 error), the last
+    # cached tick may be many seconds/minutes old. Trusting it makes the drift
+    # check reject every fresh signal. Force a reconnect + re-poll before
+    # deciding the tick is unusable.
+    def _tick_age(t) -> float:
+        try:
+            return max(0.0, time.time() - float(getattr(t, "time", 0) or 0))
+        except Exception:
+            return 0.0
+    if tick is None or _tick_age(tick) > 15:
+        print(f"stale/no tick for {symbol} (age={_tick_age(tick):.1f}s, last_error={mt5.last_error()}) — reconnecting MT5")
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+        time.sleep(1)
+        if connect_mt5():
+            mt5.symbol_select(symbol, True)
+            tick = mt5.symbol_info_tick(symbol)
     if tick is None:
-        report_trade_failure(sig, symbol, "no live tick")
+        report_trade_failure(sig, symbol, "no live tick (broker connection down; check MT5 port=443)")
         return False
+    tick_is_fresh = _tick_age(tick) <= 15
     info = mt5.symbol_info(symbol)
     if info is None or not info.visible:
         report_trade_failure(sig, symbol, "symbol not visible/available")
