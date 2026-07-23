@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026071401                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026072301                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -758,9 +758,29 @@ def execute_signal(sig: dict) -> bool:
         report_trade_failure(sig, original_symbol, "broker symbol not found; set SYMBOL_OVERRIDES to exact Market Watch symbol")
         return False
     tick = mt5.symbol_info_tick(symbol)
+    # If the broker connection has dropped (typical port=443 error), the last
+    # cached tick may be many seconds/minutes old. Trusting it makes the drift
+    # check reject every fresh signal. Force a reconnect + re-poll before
+    # deciding the tick is unusable.
+    def _tick_age(t) -> float:
+        try:
+            return max(0.0, time.time() - float(getattr(t, "time", 0) or 0))
+        except Exception:
+            return 0.0
+    if tick is None or _tick_age(tick) > 15:
+        print(f"stale/no tick for {symbol} (age={_tick_age(tick):.1f}s, last_error={mt5.last_error()}) — reconnecting MT5")
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+        time.sleep(1)
+        if connect_mt5():
+            mt5.symbol_select(symbol, True)
+            tick = mt5.symbol_info_tick(symbol)
     if tick is None:
-        report_trade_failure(sig, symbol, "no live tick")
+        report_trade_failure(sig, symbol, "no live tick (broker connection down; check MT5 port=443)")
         return False
+    tick_is_fresh = _tick_age(tick) <= 15
     info = mt5.symbol_info(symbol)
     if info is None or not info.visible:
         report_trade_failure(sig, symbol, "symbol not visible/available")
@@ -801,11 +821,18 @@ def execute_signal(sig: dict) -> bool:
 
     # Reject stale fills adaptively. Adverse moves stay tight; favorable moves
     # are allowed because SL/TP are rebuilt around the live MT5 entry below.
-    if sig_entry > 0:
-        stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
-        if stale_reason:
-            report_trade_failure(sig, symbol, stale_reason)
-            return False
+    # Skip the drift check entirely when the broker tick itself is stale — the
+    # comparison would be meaningless and would falsely reject good signals
+    # during a transient port=443 disconnect.
+    if sig_entry > 0 and tick_is_fresh:
+        drift_pct = abs((price - sig_entry) / sig_entry) if sig_entry > 0 else 0
+        if drift_pct <= 0.02:  # >2% gap = almost certainly a bad/stale tick, not real market move
+            stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
+            if stale_reason:
+                report_trade_failure(sig, symbol, stale_reason)
+                return False
+        else:
+            print(f"{symbol} suspicious tick gap {drift_pct*100:.2f}% (live={price} sig={sig_entry}) — bypassing drift check, MT5 will validate on order_send")
     normalized = _normalize_stops(symbol, is_buy, price,
                                   sig_sl, sig_tp,
                                   sig_entry, spread)
