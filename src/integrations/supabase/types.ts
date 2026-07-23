@@ -85,6 +85,7 @@ export type Database = {
           start_balance: number
           symbol: string
           total_trades: number
+          user_id: string | null
           win_rate: number
           wins: number
         }
@@ -101,6 +102,7 @@ export type Database = {
           start_balance: number
           symbol: string
           total_trades: number
+          user_id?: string | null
           win_rate: number
           wins: number
         }
@@ -117,6 +119,7 @@ export type Database = {
           start_balance?: number
           symbol?: string
           total_trades?: number
+          user_id?: string | null
           win_rate?: number
           wins?: number
         }
@@ -483,6 +486,7 @@ export type Database = {
           stop_loss: number | null
           symbol: string
           take_profit: number | null
+          user_id: string | null
         }
         Insert: {
           closed_at?: string | null
@@ -500,6 +504,7 @@ export type Database = {
           stop_loss?: number | null
           symbol: string
           take_profit?: number | null
+          user_id?: string | null
         }
         Update: {
           closed_at?: string | null
@@ -517,6 +522,7 @@ export type Database = {
           stop_loss?: number | null
           symbol?: string
           take_profit?: number | null
+          user_id?: string | null
         }
         Relationships: [
           {
