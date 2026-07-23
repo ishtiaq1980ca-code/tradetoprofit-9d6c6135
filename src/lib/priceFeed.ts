@@ -173,7 +173,9 @@ class PriceFeed {
     return true;
   }
 
-  private async anchor() {
+  /** Apply anchor data fetched externally (e.g. from the tick Web Worker so
+   *  background-tab HTTP is never throttled). Same blend logic as anchor(). */
+  applyAnchorData(data: { rates?: Record<string, number> | null; xau?: number | null }) {
     let liveCount = 0;
     const anchoredAt = Date.now();
     const mark = (sym: string, target: number | null | undefined) => {
@@ -183,41 +185,39 @@ class PriceFeed {
         liveCount += 1;
       }
     };
+    const rates = data?.rates;
+    if (rates) {
+      const usdPer = (ccy: string) => {
+        if (ccy === "USD") return 1;
+        const rate = Number(rates[ccy]);
+        return Number.isFinite(rate) && rate > 0 ? 1 / rate : null;
+      };
+      for (const sym of SYMBOLS) {
+        if (sym === "XAUUSD" || sym.length !== 6) continue;
+        const base = usdPer(sym.slice(0, 3));
+        const quote = usdPer(sym.slice(3, 6));
+        if (base && quote) mark(sym, base / quote);
+      }
+    }
+    if (data?.xau != null && Number.isFinite(data.xau) && data.xau > 0) {
+      mark("XAUUSD", Number(data.xau));
+    }
+    if (liveCount > 0) this.state.source = "live";
+    this.notify();
+  }
+
+  private async anchor() {
+    let rates: Record<string, number> | null = null;
+    let xau: number | null = null;
     try {
       const r = await fetch("https://open.er-api.com/v6/latest/USD");
-      if (r.ok) {
-        const j: any = await r.json();
-        const rates = j?.rates;
-        if (rates) {
-          const usdPer = (ccy: string) => {
-            if (ccy === "USD") return 1;
-            const rate = Number(rates[ccy]);
-            return Number.isFinite(rate) && rate > 0 ? 1 / rate : null;
-          };
-          for (const sym of SYMBOLS) {
-            if (sym === "XAUUSD" || sym.length !== 6) continue;
-            const base = usdPer(sym.slice(0, 3));
-            const quote = usdPer(sym.slice(3, 6));
-            if (base && quote) mark(sym, base / quote);
-          }
-        }
-      }
-    } catch {
-      /* offline / CORS — keep simulating */
-    }
+      if (r.ok) { const j: any = await r.json(); if (j?.rates) rates = j.rates; }
+    } catch { /* offline / CORS */ }
     try {
       const r = await fetch("https://api.gold-api.com/price/XAU");
-      if (r.ok) {
-        const j: any = await r.json();
-        if (j?.price) {
-          mark("XAUUSD", Number(j.price));
-        }
-      }
-    } catch {
-      /* keep simulating gold */
-    }
-    this.state.source = liveCount > 0 ? "live" : "simulated";
-    this.notify();
+      if (r.ok) { const j: any = await r.json(); if (j?.price) xau = Number(j.price); }
+    } catch { /* keep simulating gold */ }
+    this.applyAnchorData({ rates, xau });
   }
 }
 
