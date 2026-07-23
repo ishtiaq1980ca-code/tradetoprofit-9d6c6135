@@ -1014,52 +1014,125 @@ export function BotEngine() {
       )
       .subscribe();
 
-    // Web Worker heartbeat — background tabs throttle setInterval to ~1/min,
-    // which stalls scans and price-feed anchoring. Workers are NOT throttled,
-    // so we drive the scan cadence from a worker tick.
-    let tickWorker: Worker | null = null;
-    try {
-      const WorkerCtor = new URL("./tickWorker.ts", import.meta.url);
-      tickWorker = new Worker(WorkerCtor, { type: "module" });
-      tickWorker.postMessage({ type: "start", intervalMs: 1000 });
-      let lastAnchorAt = 0;
-      tickWorker.onmessage = () => {
-        const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
-        // Keep the price feed anchored even when the tab is hidden.
-        const now = Date.now();
-        if (now - lastAnchorAt > 30_000) {
-          lastAnchorAt = now;
-          priceFeed.refreshAnchor();
-        }
-        if (!enabled) return;
-        if (now - lastScanAt < scanIntervalMs) return;
-        void runScan();
-      };
-    } catch (e: any) {
-      useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to timers` });
-    }
+    // ---------- Background-safe tick worker + auto-restart watchdog ----------
+    // The worker owns: tick heartbeat, price-anchor fetch, signal-insert POST.
+    // If it goes silent for >WORKER_STALL_MS, the watchdog restarts it and
+    // surfaces the stall to the user via a toast + log entry.
+    const { url: sbUrl, key: sbKey } = supabaseRestConfig();
 
-    // Fallback timer (also serves as a safety net if the worker fails silently).
+    const wireWorker = async () => {
+      const token = await hydrateAccessToken();
+      try {
+        const workerUrl = new URL("./tickWorker.ts", import.meta.url);
+        const w = new Worker(workerUrl, { type: "module" });
+        w.onmessage = (e: MessageEvent) => {
+          const msg = e.data;
+          if (!msg || typeof msg !== "object") return;
+          lastWorkerTickAt = Date.now();
+          switch (msg.type) {
+            case "ready":
+              lastWorkerReadyAt = Date.now();
+              break;
+            case "tick": {
+              const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
+              if (!enabled) return;
+              if (Date.now() - lastScanAt < scanIntervalMs) return;
+              void runScan();
+              break;
+            }
+            case "anchor":
+              priceFeed.applyAnchorData({ rates: msg.rates ?? null, xau: msg.xau ?? null });
+              break;
+            case "signalResult": {
+              const resolver = pendingSignalCalls.get(msg.reqId);
+              if (resolver) {
+                pendingSignalCalls.delete(msg.reqId);
+                resolver({ error: msg.error ?? null, status: msg.status });
+              }
+              break;
+            }
+          }
+        };
+        w.onerror = (ev) => {
+          useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Worker error: ${ev.message ?? "unknown"} — will auto-restart` });
+        };
+        tickWorker = w;
+        lastWorkerTickAt = Date.now();
+        w.postMessage({
+          type: "start",
+          intervalMs: 1000,
+          anchorMs: 30_000,
+          supabaseUrl: sbUrl,
+          supabaseKey: sbKey,
+          token,
+        });
+      } catch (e: any) {
+        useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to main-thread timers` });
+        tickWorker = null;
+      }
+    };
+
+    const teardownWorker = () => {
+      if (!tickWorker) return;
+      try { tickWorker.postMessage({ type: "stop" }); } catch { /* noop */ }
+      try { tickWorker.terminate(); } catch { /* noop */ }
+      tickWorker = null;
+    };
+
+    void wireWorker();
+
+    // Push a fresh access token into the worker whenever it changes so the
+    // signal-insert POST always uses a valid bearer.
+    const pushTokenToWorker = () => {
+      if (!tickWorker) return;
+      try { tickWorker.postMessage({ type: "setToken", token: cachedAccessToken }); } catch { /* noop */ }
+    };
+
+    // Watchdog: detect worker stalls (missing ticks for >WORKER_STALL_MS)
+    // and rebuild the worker automatically. Runs on the main thread; if the
+    // main thread itself is throttled the fallback timer below still fires.
+    const watchdogId = setInterval(() => {
+      const now = Date.now();
+      const age = now - lastWorkerTickAt;
+      if (age > WORKER_STALL_MS && lastWorkerReadyAt > 0) {
+        if (now - workerStalledLoggedAt > 15_000) {
+          workerStalledLoggedAt = now;
+          workerRestartCount++;
+          useBot.getState().pushLog({
+            t: now,
+            level: "warn",
+            msg: `Bot heartbeat stalled (no tick for ${(age / 1000).toFixed(1)}s) — restarting worker (#${workerRestartCount})`,
+          });
+          if (workerRestartCount <= 3 || workerRestartCount % 5 === 0) {
+            toast.warning(`Bot heartbeat stalled — auto-restarting (#${workerRestartCount})`);
+          }
+        }
+        teardownWorker();
+        void wireWorker();
+      }
+    }, 2_500);
+
+    // Fallback timer: also serves as safety net if the worker fails silently.
     const id = setInterval(() => {
       const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
       if (!enabled) return;
       if (Date.now() - lastScanAt < scanIntervalMs) return;
       void runScan();
-    }, 250);
+    }, 500);
 
-
-    // When the tab returns to foreground, browsers may have throttled our
-    // scan/heartbeat timers. Force an immediate refresh + scan so the user
-    // does not need to manually reload to resume trading.
+    // When the tab returns to foreground, force an immediate refresh + scan.
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
       scanInFlight = false;
       useBot.setState({ lastScanAt: 0 });
-      // Re-anchor the price feed immediately — background tabs throttle the
-      // 30s anchor timer, so `hasLiveAnchor()` goes stale and every scan
-      // blocks with "waiting for live broker-aligned price" until refresh.
+      // If the worker went silent while hidden, restart it now.
+      if (!tickWorker || Date.now() - lastWorkerTickAt > WORKER_STALL_MS) {
+        teardownWorker();
+        void wireWorker();
+      }
       priceFeed.refreshAnchor();
       hydrateAccessToken(true).finally(() => {
+        pushTokenToWorker();
         refreshMt5Heartbeat();
         if (useBot.getState().enabled) void runScan();
       });
@@ -1069,9 +1142,9 @@ export function BotEngine() {
     window.addEventListener("focus", onVisibility);
     window.addEventListener("online", onVisibility);
 
-    // Keep the scanner self-healing without blocking on auth locks. The
-    // Supabase client auto-refreshes tokens; this interval only clears a stuck
-    // scan and keeps the MT5 snapshot fresh when the bot is active.
+    const tokenPushId = setInterval(pushTokenToWorker, 60_000);
+
+    // Keep the scanner self-healing without blocking on auth locks.
     const sessionId = setInterval(() => {
       if (scanInFlight && Date.now() - scanInFlightSince > SCAN_INFLIGHT_TIMEOUT_MS) {
         scanInFlight = false;
@@ -1085,10 +1158,9 @@ export function BotEngine() {
       clearInterval(id);
       clearInterval(heartbeatId);
       clearInterval(sessionId);
-      if (tickWorker) {
-        try { tickWorker.postMessage({ type: "stop" }); } catch { /* noop */ }
-        tickWorker.terminate();
-      }
+      clearInterval(watchdogId);
+      clearInterval(tokenPushId);
+      teardownWorker();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
       window.removeEventListener("online", onVisibility);
