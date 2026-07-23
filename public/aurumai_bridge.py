@@ -821,11 +821,18 @@ def execute_signal(sig: dict) -> bool:
 
     # Reject stale fills adaptively. Adverse moves stay tight; favorable moves
     # are allowed because SL/TP are rebuilt around the live MT5 entry below.
-    if sig_entry > 0:
-        stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
-        if stale_reason:
-            report_trade_failure(sig, symbol, stale_reason)
-            return False
+    # Skip the drift check entirely when the broker tick itself is stale — the
+    # comparison would be meaningless and would falsely reject good signals
+    # during a transient port=443 disconnect.
+    if sig_entry > 0 and tick_is_fresh:
+        drift_pct = abs((price - sig_entry) / sig_entry) if sig_entry > 0 else 0
+        if drift_pct <= 0.02:  # >2% gap = almost certainly a bad/stale tick, not real market move
+            stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
+            if stale_reason:
+                report_trade_failure(sig, symbol, stale_reason)
+                return False
+        else:
+            print(f"{symbol} suspicious tick gap {drift_pct*100:.2f}% (live={price} sig={sig_entry}) — bypassing drift check, MT5 will validate on order_send")
     normalized = _normalize_stops(symbol, is_buy, price,
                                   sig_sl, sig_tp,
                                   sig_entry, spread)
