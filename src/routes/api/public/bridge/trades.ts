@@ -23,15 +23,18 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const unauth = await checkBridgeAuth(request);
-        if (unauth) return unauth;
+        const auth = await resolveBridgeAuth(request);
+        if ("response" in auth) return auth.response;
         const body = await request.json();
         const parsed = Schema.safeParse(body);
         if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const d = parsed.data;
-        const { failure_reason: failureReason, ...tradeRow } = d;
+        const { failure_reason: failureReason, ...tradeBase } = d;
+        // Attach the owning user_id derived from the license token used by the
+        // bridge so SELECT RLS can scope trades to their owner.
+        const tradeRow = { ...tradeBase, user_id: auth.userId };
         const rejectedSignalUpdate = async () => {
           if (!failureReason || !d.signal_id) return { status: "rejected", mt5_ticket: d.mt5_ticket ?? null };
           const { data: sig } = await supabaseAdmin.from("signals").select("reason").eq("id", d.signal_id).maybeSingle();
