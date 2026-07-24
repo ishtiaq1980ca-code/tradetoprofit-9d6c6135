@@ -40,6 +40,7 @@ let supabaseUrl = "";
 let supabaseKey = "";
 let authToken: string | null = null;
 const post = (msg: unknown) => (self as unknown as Worker).postMessage(msg);
+const SIGNAL_TIMEOUT_MS = 5_000;
 
 async function fetchAnchors() {
   let rates: Record<string, number> | null = null;
@@ -69,9 +70,10 @@ async function insertSignal(reqId: number, row: Record<string, unknown>, tokenOv
     post({ type: "signalResult", reqId, error: "auth token unavailable" });
     return;
   }
+  let abortId: ReturnType<typeof setTimeout> | null = null;
   try {
     const controller = new AbortController();
-    const abortId = setTimeout(() => controller.abort(), 8_000);
+    abortId = setTimeout(() => controller.abort(), SIGNAL_TIMEOUT_MS);
     const res = await fetch(`${supabaseUrl}/rest/v1/signals`, {
       method: "POST",
       signal: controller.signal,
@@ -83,7 +85,6 @@ async function insertSignal(reqId: number, row: Record<string, unknown>, tokenOv
       },
       body: JSON.stringify(row),
     });
-    clearTimeout(abortId);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       post({ type: "signalResult", reqId, status: res.status, error: text || `${res.status} ${res.statusText}` });
@@ -91,7 +92,10 @@ async function insertSignal(reqId: number, row: Record<string, unknown>, tokenOv
     }
     post({ type: "signalResult", reqId, status: res.status, error: null });
   } catch (e: any) {
-    post({ type: "signalResult", reqId, error: e?.message ?? "network error" });
+    const message = e?.name === "AbortError" ? "worker signal timeout" : (e?.message ?? "network error");
+    post({ type: "signalResult", reqId, error: message });
+  } finally {
+    if (abortId) clearTimeout(abortId);
   }
 }
 
