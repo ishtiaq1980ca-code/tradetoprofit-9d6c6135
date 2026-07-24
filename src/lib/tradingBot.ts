@@ -168,23 +168,29 @@ async function insertSignalDirect(row: {
   // Prefer the worker path so the actual network send does not depend on
   // the main thread being awake (background tab / OS sleep).
   const token = await hydrateAccessToken();
+  let workerError: string | null = null;
   if (token && tickWorker) {
     try {
       const res = await sendSignalViaWorker(row, token);
       if (!res.error) return { error: null as null | { message: string } };
+      workerError = res.error;
       // Retry once on auth failure via worker with fresh token
       if (res.status === 401) {
         const fresh = await hydrateAccessToken(true);
         if (fresh) {
           const res2 = await sendSignalViaWorker(row, fresh);
           if (!res2.error) return { error: null as null | { message: string } };
-          return { error: { message: res2.error } };
+          workerError = res2.error;
         }
       }
-      return { error: { message: res.error } };
     } catch (e: any) {
       // Worker unavailable → fall through to main-thread fetch
-      useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Worker signal send failed: ${e?.message ?? "unknown"} — falling back to main-thread` });
+      workerError = e?.message ?? "unknown";
+    }
+    const now = Date.now();
+    if (workerError && now - workerSignalFallbackLoggedAt > 30_000) {
+      workerSignalFallbackLoggedAt = now;
+      useBot.getState().pushLog({ t: now, level: "warn", msg: `Worker queue path failed (${workerError}) — retrying direct queue` });
     }
   }
   try {
@@ -195,7 +201,8 @@ async function insertSignalDirect(row: {
     });
     return { error: null as null | { message: string } };
   } catch (e: any) {
-    return { error: { message: e?.message ?? "signal queue failed" } };
+    const directError = e?.message ?? "signal queue failed";
+    return { error: { message: workerError ? `worker: ${workerError}; direct: ${directError}` : directError } };
   }
 }
 
@@ -228,7 +235,7 @@ function sendSignalViaWorker(
         pendingSignalCalls.delete(reqId);
         resolve({ error: "worker signal timeout" });
       }
-    }, 12_000);
+    }, WORKER_SIGNAL_TIMEOUT_MS);
     pendingSignalCalls.set(reqId, (r) => {
       window.clearTimeout(timer);
       resolve(r);
