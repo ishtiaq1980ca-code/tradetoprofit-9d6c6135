@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026072301                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026072401                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -52,6 +52,7 @@ MAGIC        = 770077                             # unique magic number for Auru
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
 MAX_ADVERSE_ENTRY_DRIFT_PCT = 0.0020              # 0.20% adverse move allowed — signals execute immediately, rarely rejected as "stale"
 MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0060            # 0.60% favorable move allowed; SL/TP are rebuilt around live MT5 fill
+PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker gap is feed mismatch; rebuild from MT5 price
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
@@ -83,7 +84,7 @@ try:
         "POLL_SEC", "SLIPPAGE", "MAGIC",
         "USD_TRAIL_TRIGGER", "USD_TRAIL_STEP",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
-        "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT",
+        "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
     )
     for _k in _OVERRIDABLE:
@@ -826,11 +827,13 @@ def execute_signal(sig: dict) -> bool:
     # during a transient port=443 disconnect.
     if sig_entry > 0 and tick_is_fresh:
         drift_pct = abs((price - sig_entry) / sig_entry) if sig_entry > 0 else 0
-        if drift_pct <= 0.02:  # >2% gap = almost certainly a bad/stale tick, not real market move
+        if drift_pct <= PRICE_SOURCE_MISMATCH_BYPASS_PCT:
             stale_reason = _entry_drift_reject_reason(is_buy, price, sig_entry, sig_sl, spread, "live")
             if stale_reason:
                 report_trade_failure(sig, symbol, stale_reason)
                 return False
+        elif drift_pct <= 0.02:
+            print(f"{symbol} broker/dashboard price gap {drift_pct*100:.2f}% (live={price} sig={sig_entry}) — rebuilding SL/TP from MT5 price")
         else:
             print(f"{symbol} suspicious tick gap {drift_pct*100:.2f}% (live={price} sig={sig_entry}) — bypassing drift check, MT5 will validate on order_send")
     normalized = _normalize_stops(symbol, is_buy, price,
@@ -890,12 +893,14 @@ def execute_signal(sig: dict) -> bool:
         live_tp = float(position.tp or 0)
 
         if sig_entry > 0:
-            stale_reason = _entry_drift_reject_reason(is_buy, filled_price, sig_entry, sig_sl, spread, "filled")
-            if stale_reason:
-                reason = stale_reason.replace("stale signal", "bad MT5 fill", 1)
-                _close_position(position, reason)
-                report_trade_failure(sig, symbol, reason, ticket)
-                return False
+            filled_drift_pct = abs((filled_price - sig_entry) / sig_entry)
+            if filled_drift_pct <= PRICE_SOURCE_MISMATCH_BYPASS_PCT:
+                stale_reason = _entry_drift_reject_reason(is_buy, filled_price, sig_entry, sig_sl, spread, "filled")
+                if stale_reason:
+                    reason = stale_reason.replace("stale signal", "bad MT5 fill", 1)
+                    _close_position(position, reason)
+                    report_trade_failure(sig, symbol, reason, ticket)
+                    return False
 
         fixed = _normalize_stops(symbol, is_buy, filled_price, sig_sl, sig_tp, sig_entry, spread)
         if fixed is None:
