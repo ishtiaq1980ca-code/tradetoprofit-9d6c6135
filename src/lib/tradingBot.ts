@@ -39,6 +39,7 @@ const SCAN_INFLIGHT_TIMEOUT_MS = 30_000;
 const ALL_TRADE_SYMBOLS = [...SYMBOLS];
 const DIRECT_REST_TIMEOUT_MS = 8_000;
 const AUTH_TIMEOUT_MS = 4_000;
+const WORKER_SIGNAL_TIMEOUT_MS = 7_000;
 
 let cachedAccessToken: string | null = null;
 let authHydrateInFlight: Promise<string | null> | null = null;
@@ -210,6 +211,7 @@ let lastWorkerTickAt = 0;
 let lastWorkerReadyAt = 0;
 let workerRestartCount = 0;
 let workerStalledLoggedAt = 0;
+let workerSignalFallbackLoggedAt = 0;
 const WORKER_STALL_MS = 5_000;
 let nextSignalReqId = 1;
 const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: number }) => void>();
