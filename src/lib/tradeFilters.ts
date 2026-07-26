@@ -92,3 +92,33 @@ export function estimatedSpread(symbol: string, price: number): number {
   if (symbol.endsWith("JPY")) return 0.015;
   return Math.max(0.00008, price * 0.00008);
 }
+
+// ---------------------- Regime filters (v3 §5) ----------------------------
+// Global entry-side gates run BEFORE the confluence check. If any fails,
+// no trade regardless of what the indicators say.
+
+/** ATR-spike filter: skip entries if current ATR > 1.5x its 20-period avg. */
+export function atrSpikeFilter(atrCurrent: number, atrSeries: number[]): FilterResult {
+  const lookback = atrSeries.slice(-21, -1).filter((v) => isFinite(v) && v > 0);
+  if (lookback.length < 5) return { pass: true, reason: "ATR spike: insufficient history" };
+  const avg = lookback.reduce((a, b) => a + b, 0) / lookback.length;
+  if (avg <= 0) return { pass: true, reason: "ATR spike: no baseline" };
+  const ratio = atrCurrent / avg;
+  if (ratio > 1.5) return { pass: false, reason: `ATR spike ${ratio.toFixed(2)}× 20-avg (> 1.5×) — regime unstable` };
+  return { pass: true, reason: `ATR ${ratio.toFixed(2)}× 20-avg (≤ 1.5×)` };
+}
+
+/** ADX ceiling: skip entries if ADX > 40 (over-extended trend). */
+export function adxCeilingFilter(adxValue: number): FilterResult {
+  if (adxValue > 40) return { pass: false, reason: `ADX ${adxValue.toFixed(1)} > 40 ceiling — likely late-trend` };
+  return { pass: true, reason: `ADX ${adxValue.toFixed(1)} ≤ 40` };
+}
+
+/** Extension filter: skip entries where price is > 3× ATR from EMA200. */
+export function extensionFilter(price: number, ema200Value: number, atrValue: number): FilterResult {
+  if (atrValue <= 0) return { pass: true, reason: "Extension: no ATR" };
+  const dist = Math.abs(price - ema200Value) / atrValue;
+  if (dist > 3) return { pass: false, reason: `Price ${dist.toFixed(2)}× ATR from EMA200 (> 3×) — extended` };
+  return { pass: true, reason: `Price ${dist.toFixed(2)}× ATR from EMA200 (≤ 3×)` };
+}
+
