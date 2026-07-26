@@ -373,8 +373,8 @@ export const useBot = create<BotStore>()(
       enabled: false,
       scanIntervalMs: 1_000,
       minConfidence: 80,
-      riskPct: 3,
-      maxDailyLossPct: 10,
+      riskPct: 1,           // v3 §8: per-trade risk 1% of equity
+      maxDailyLossPct: 3,   // v3 §8: daily drawdown cap 3%
       atrSlMult: 2.2,
       atrTpMult: 2.8,
       emaFast: 20,
@@ -384,7 +384,7 @@ export const useBot = create<BotStore>()(
       rsiSellMin: 35,
       useMacd: true,
       adxMin: 25,
-      maxOpenTrades: 15,
+      maxOpenTrades: 6,     // v3 §8: max total open positions 6
       maxTradesPerSymbol: 2,
       maxSameDirectionTrades: 2,
       maxDailyTrades: 20,
