@@ -446,10 +446,12 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 15,
+      version: 16,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
-          persisted.riskPct = 3;
+          // v16 (Strategy Update v3 §8): per-trade risk 1%, daily cap 3%.
+          persisted.riskPct = 1;
+          if (version < 16) persisted.maxDailyLossPct = 3;
           // v15: align saved browser settings with the built-in strategy.
           if (version < 15) {
             persisted.minConfidence = 80;
@@ -473,12 +475,10 @@ export const useBot = create<BotStore>()(
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
           }
-          // v11: cap concurrent trades at 15 (was 70+ in older builds)
-          if (version < 11 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 15) {
-            persisted.maxOpenTrades = 15;
+          // v16: cap concurrent trades at 6 (v3 §8).
+          if (version < 16 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 6) {
+            persisted.maxOpenTrades = 6;
           }
-          // v13: daily loss default $100 on $1000 account → 10%
-          if (version < 13) persisted.maxDailyLossPct = 10;
           // v14: allow up to 2 same-direction duplicate trades per symbol
           if (version < 14 || typeof persisted.maxSameDirectionTrades !== "number") {
             persisted.maxSameDirectionTrades = 2;
@@ -486,6 +486,7 @@ export const useBot = create<BotStore>()(
         }
         return persisted;
       },
+
 
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? window.localStorage : (undefined as any),
