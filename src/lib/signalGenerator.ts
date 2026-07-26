@@ -19,9 +19,11 @@ import {
 import { getPairProfile, type PairProfile, type StrategyKind } from "./pairProfiles";
 import {
   estimatedSpread, newsFilter, sessionFilter, spreadFilter, volatilityFilter,
+  atrSpikeFilter, adxCeilingFilter, extensionFilter,
   type FilterResult,
 } from "./tradeFilters";
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
+import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
 
 // Confidence gates: gold requires 85%, FX currencies 80%.
@@ -277,6 +279,7 @@ export function generateTradeDecision(
 ): TradeDecision | null {
   const profile = getPairProfile(symbol);
   if (!profile) return null;
+  if (profile.disabled) return null; // v3 §2: USDCHF & GBPJPY paused
   if (candles.length < Math.max(profile.emaSlow, 60) + 5) return null;
 
   const closes = candles.map((c) => c.close);
@@ -328,6 +331,11 @@ export function generateTradeDecision(
   const spread = estimatedSpread(symbol, price);
   const fSpread = spreadFilter(symbol, price, spread, profile.maxSpreadPct);
   const fVol = volatilityFilter(price, ind.atr, profile.minAtrPct, profile.maxAtrPct);
+  // v3 §5: regime filters (skip gold — has its own playbook).
+  const isGold = profile.strategy === "gold_multi_confirmation";
+  const fAtrSpike = isGold ? { pass: true, reason: "ATR spike: n/a (gold)" } : atrSpikeFilter(ind.atr, atrArr);
+  const fAdxCeil = isGold ? { pass: true, reason: "ADX ceiling: n/a (gold)" } : adxCeilingFilter(ind.adx);
+  const fExt = isGold ? { pass: true, reason: "Extension: n/a (gold)" } : extensionFilter(price, ind.ema200, ind.atr);
   // London/NY are preferred, but Asian session should be *stricter*, not a
   // hard block. The fx_multi_confirmation playbook above already raises ADX
   // and ATR requirements during Asian-only hours, so keep the filter passing
@@ -336,7 +344,8 @@ export function generateTradeDecision(
     ? { pass: true, reason: `Session ${activeSessions().primary} accepted (${profile.strategy === "gold_multi_confirmation" ? "gold 24h" : "London/NY priority"})` }
     : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
-  filters.push(fSpread, fVol, fSess, fNews);
+  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews);
+  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News"];
 
   const firstBlock = filters.find((f) => !f.pass);
   if (firstBlock) {
@@ -344,7 +353,7 @@ export function generateTradeDecision(
       profile, ind, price, balance, params,
       side: pb.side,
       strategyRationale: pb.rationale,
-      filters: filters.map((f, i) => ({ name: ["Spread", "Volatility", "Session", "News"][i], ...f })),
+      filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
       blocked: firstBlock.reason,
     });
   }
@@ -353,7 +362,7 @@ export function generateTradeDecision(
     profile, ind, price, balance, params,
     side: pb.side,
     strategyRationale: pb.rationale,
-    filters: filters.map((f, i) => ({ name: ["Spread", "Volatility", "Session", "News"][i], ...f })),
+    filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
     blocked: null,
   });
 }
@@ -413,17 +422,23 @@ function buildDecision(args: {
   if (rsiAligned && macdAgrees) structureScore += 8;
   const structureReason = `ADX ${ind.adx.toFixed(1)} (min ${profile.adxMin}) | trend stack ${ind.ema50 > ind.ema200 ? "bull" : "bear"}`;
 
-  // Trade plan
-  const { stopLoss, takeProfit, slDistance, rr } = side === "FLAT"
-    ? { stopLoss: 0, takeProfit: 0, slDistance: 0, rr: 0 }
-    : computeLevels(side, price, ind.atr, profile.atrSlMult, profile.rrTarget);
+  // Trade plan — enforce v3 §4 minimum stop-loss floor per tier.
+  let stopLoss = 0, takeProfit = 0, slDistance = 0, rr = 0;
+  if (side !== "FLAT") {
+    const minStop = minStopDistance(profile.symbol, profile.tier);
+    const effectiveAtrSlMult = minStop > 0 && ind.atr > 0
+      ? Math.max(profile.atrSlMult, minStop / ind.atr)
+      : profile.atrSlMult;
+    const lv = computeLevels(side, price, ind.atr, effectiveAtrSlMult, profile.rrTarget);
+    stopLoss = lv.stopLoss; takeProfit = lv.takeProfit; slDistance = lv.slDistance; rr = lv.rr;
+  }
 
   let rrScore = 0;
   const targetRr = Math.max(0.1, profile.rrTarget);
   if (rr >= targetRr * 0.98) rrScore = 15;
   else if (rr >= targetRr * 0.85) rrScore = 11;
   else if (rr >= targetRr * 0.7) rrScore = 7;
-  const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)})`;
+  const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)}, tier ${profile.tier})`;
 
   const breakdown: ConfidenceBreakdown = {
     trend: Math.round(trendScore),
