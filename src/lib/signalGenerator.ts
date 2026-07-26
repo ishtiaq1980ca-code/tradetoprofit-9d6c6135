@@ -422,17 +422,23 @@ function buildDecision(args: {
   if (rsiAligned && macdAgrees) structureScore += 8;
   const structureReason = `ADX ${ind.adx.toFixed(1)} (min ${profile.adxMin}) | trend stack ${ind.ema50 > ind.ema200 ? "bull" : "bear"}`;
 
-  // Trade plan
-  const { stopLoss, takeProfit, slDistance, rr } = side === "FLAT"
-    ? { stopLoss: 0, takeProfit: 0, slDistance: 0, rr: 0 }
-    : computeLevels(side, price, ind.atr, profile.atrSlMult, profile.rrTarget);
+  // Trade plan — enforce v3 §4 minimum stop-loss floor per tier.
+  let stopLoss = 0, takeProfit = 0, slDistance = 0, rr = 0;
+  if (side !== "FLAT") {
+    const minStop = minStopDistance(profile.symbol, profile.tier);
+    const effectiveAtrSlMult = minStop > 0 && ind.atr > 0
+      ? Math.max(profile.atrSlMult, minStop / ind.atr)
+      : profile.atrSlMult;
+    const lv = computeLevels(side, price, ind.atr, effectiveAtrSlMult, profile.rrTarget);
+    stopLoss = lv.stopLoss; takeProfit = lv.takeProfit; slDistance = lv.slDistance; rr = lv.rr;
+  }
 
   let rrScore = 0;
   const targetRr = Math.max(0.1, profile.rrTarget);
   if (rr >= targetRr * 0.98) rrScore = 15;
   else if (rr >= targetRr * 0.85) rrScore = 11;
   else if (rr >= targetRr * 0.7) rrScore = 7;
-  const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)})`;
+  const rrReason = `R:R ${rr.toFixed(2)} (target ${profile.rrTarget}, SL dist ${slDistance.toFixed(5)}, tier ${profile.tier})`;
 
   const breakdown: ConfidenceBreakdown = {
     trend: Math.round(trendScore),
