@@ -11,14 +11,22 @@ export type RiskParams = {
   trailStartAtR: number;      // start trailing after +N×R
   trailStepR: number;         // trail distance in R once active
   maxDailyLossPct: number;    // halt for the day when reached
+  maxWeeklyLossPct: number;   // halt for the week when reached (v3 §8)
+  maxMonthlyLossPct: number;  // halt for the month when reached (v3 §8)
 };
 
+// v3 §8: per-trade risk 1%, daily 3%, weekly 8%, monthly 12%.
+// Tier-specific BE/trailing come from pairProfiles.tierExitParams — these
+// are only fallbacks used by paper-trade tick management when a tier is
+// unavailable (e.g. gold, which keeps its existing playbook).
 export const DEFAULT_RISK: RiskParams = {
-  riskPct: 3,
-  breakEvenAtR: 1.0,        // BE at +1R
-  trailStartAtR: 1.5,       // trail after +1.5R
-  trailStepR: 1.0,          // trail 1R behind price
-  maxDailyLossPct: 5,
+  riskPct: 1,
+  breakEvenAtR: 0.5,
+  trailStartAtR: 1.0,
+  trailStepR: 1.0,
+  maxDailyLossPct: 3,
+  maxWeeklyLossPct: 8,
+  maxMonthlyLossPct: 12,
 };
 
 /** ATR-based stop loss distance in price units. */
