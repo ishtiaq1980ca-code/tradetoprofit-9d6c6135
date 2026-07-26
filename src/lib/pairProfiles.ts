@@ -1,7 +1,7 @@
-// Pair-specific strategy profiles — Corrected Multi-Pair Forex Strategy v2.
-// Per-pair differentiated ADX / RSI / ATR-SL, grouped by correlation cluster.
-// Common to all FX pairs: H4/H1/M15 trend align, EMA50/200 + MACD required,
-// RR 1:2, sessions: Sydney/Tokyo/London/New York.
+// Pair-specific strategy profiles — Strategy Update v3.
+// Per-pair differentiated ADX, RSI zones and ATR-SL, grouped into volatility
+// tiers (1 = calm, 2 = medium, 3 = volatile) that also drive the exit engine.
+// USDCHF and GBPJPY are DISABLED — no new entries pending audit.
 //
 // MT5 bridge / execution layer is NOT touched by this file.
 
@@ -15,6 +15,8 @@ export type StrategyKind =
   | "session_breakout"
   | "fx_multi_confirmation"
   | "gold_multi_confirmation";
+
+export type PairTier = 1 | 2 | 3 | "gold";
 
 export const FX_CURRENCY_PAIRS = [
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD",
@@ -36,6 +38,9 @@ export type PairProfile = {
   strategy: StrategyKind;
   label: string;
   description: string;
+  tier: PairTier;
+  disabled?: boolean;
+  disabledReason?: string;
   emaFast: number;
   emaMid: number;
   emaSlow: number;
@@ -69,26 +74,69 @@ const COMMON = {
   stochK: 14, stochD: 3, atrPeriod: 14,
 };
 
-// Build a per-pair FX profile from the v2 manual's differentiated parameters.
+// Tier defaults for entry RSI zones (v3 §3)
+const TIER_RSI = {
+  1: { buy: [56, 64] as [number, number], sell: [36, 44] as [number, number] },
+  2: { buy: [55, 65] as [number, number], sell: [35, 45] as [number, number] },
+  3: { buy: [50, 68] as [number, number], sell: [30, 50] as [number, number] },
+};
+
+/** Exit-engine parameters per volatility tier (v3 §4). */
+export type TierExitParams = {
+  breakEvenAtR: number;
+  partialAtR: number;
+  partialPct: number;        // 0..1
+  trailStartAtR: number;     // R multiple at which trailing engages
+  trailAtrMult: number;      // trail distance in ATRs
+  minStopPips: number;       // absolute minimum SL distance
+  minStopPipsJpy?: number;   // JPY-quoted override in pips (1 pip = 0.01)
+};
+
+export const TIER_EXITS: Record<Exclude<PairTier, "gold">, TierExitParams> = {
+  1: { breakEvenAtR: 0.6,  partialAtR: 1.6, partialPct: 0.25, trailStartAtR: 1.0, trailAtrMult: 1.5, minStopPips: 12 },
+  2: { breakEvenAtR: 0.5,  partialAtR: 1.5, partialPct: 0.28, trailStartAtR: 1.0, trailAtrMult: 1.3, minStopPips: 15 },
+  3: { breakEvenAtR: 0.45, partialAtR: 1.4, partialPct: 0.30, trailStartAtR: 1.0, trailAtrMult: 1.3, minStopPips: 20, minStopPipsJpy: 20 },
+};
+
+export function tierExitParams(tier: PairTier): TierExitParams | null {
+  if (tier === "gold") return null; // gold keeps its existing playbook
+  return TIER_EXITS[tier];
+}
+
+/** Minimum stop-loss distance in price units for a pair, per v3 §4 floor. */
+export function minStopDistance(symbol: string, tier: PairTier): number {
+  if (tier === "gold") return 0; // gold unchanged
+  const t = TIER_EXITS[tier];
+  const isJpy = symbol.endsWith("JPY");
+  const pipSize = isJpy ? 0.01 : 0.0001;
+  const pips = isJpy && t.minStopPipsJpy ? t.minStopPipsJpy : t.minStopPips;
+  return pips * pipSize;
+}
+
+// Build a per-pair FX profile using tier defaults + per-pair overrides.
 function fx(
   symbol: string,
+  tier: 1 | 2 | 3,
   adxMin: number,
-  buy: [number, number],   // RSI buy zone
-  sell: [number, number],  // RSI sell zone
   atrSlMult: number,
   sessions: Session[],
+  extras: { disabled?: boolean; disabledReason?: string; note?: string } = {},
 ): PairProfile {
   const isJpy = symbol.endsWith("JPY");
   const isHighAtr = /GBP(JPY|AUD|NZD)|EUR(NZD|AUD)|AUDNZD/.test(symbol);
+  const { buy, sell } = TIER_RSI[tier];
   return {
     ...COMMON,
     symbol,
     strategy: "fx_multi_confirmation",
-    label: `${symbol} — Multi-Pair v2`,
+    tier,
+    disabled: extras.disabled,
+    disabledReason: extras.disabledReason,
+    label: `${symbol} — Tier ${tier}${extras.disabled ? " · DISABLED" : ""}`,
     description:
-      `H4/H1/M15 trend align. EMA50/200 + MACD, ADX≥${adxMin}, ` +
+      `Tier ${tier}. H4/H1/M15 align, EMA50/200 + MACD, ADX≥${adxMin}, ` +
       `RSI BUY ${buy[0]}–${buy[1]} / SELL ${sell[0]}–${sell[1]}, ` +
-      `ATR SL ${atrSlMult}× / RR 1:2.`,
+      `ATR SL ${atrSlMult}× / RR 1:2.${extras.note ? " " + extras.note : ""}`,
     rsiOversold: sell[0],
     rsiOverbought: buy[1],
     rsiBuyMin: buy[0],
@@ -106,11 +154,12 @@ function fx(
 }
 
 export const PAIR_PROFILES: Record<string, PairProfile> = {
-  // ---- Gold: dedicated playbook, untouched ----
+  // ---- Gold: dedicated playbook, unchanged (v3 §2) ----
   XAUUSD: {
     ...COMMON,
     symbol: "XAUUSD",
     strategy: "gold_multi_confirmation",
+    tier: "gold",
     label: "XAUUSD — Gold Multi-Confirmation",
     description: "Gold-specific: EMA50/200 trend + wider RSI band + MACD + ATR expansion.",
     adxMin: 10,
@@ -122,43 +171,43 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
     preferredSessions: ["Sydney", "Tokyo", "London", "New York"],
   },
 
-  // ---- 5.1 USD majors ----
-  EURUSD: fx("EURUSD", 22, [57, 63], [37, 43], 1.6, ["London", "New York"]),
-  GBPUSD: fx("GBPUSD", 25, [55, 65], [35, 45], 1.5, ["London", "New York"]),
-  USDJPY: fx("USDJPY", 27, [53, 67], [33, 47], 1.3, ["Tokyo", "New York"]),
-  USDCHF: fx("USDCHF", 22, [57, 63], [37, 43], 1.6, ["London", "New York"]),
-  USDCAD: fx("USDCAD", 25, [55, 65], [35, 45], 1.5, ["New York"]),
-  AUDUSD: fx("AUDUSD", 24, [55, 65], [35, 45], 1.5, ["Sydney", "London"]),
-  NZDUSD: fx("NZDUSD", 24, [55, 65], [35, 45], 1.5, ["Sydney", "London"]),
+  // ---- Tier 1 (calm) ----
+  EURUSD: fx("EURUSD", 1, 22, 1.6, ["London", "New York"]),
+  USDCHF: fx("USDCHF", 1, 22, 1.6, ["London", "New York"], {
+    disabled: true, disabledReason: "Pause new entries — audit before re-enabling (v3: worst pair, PF 0.12)",
+  }),
+  EURGBP: fx("EURGBP", 1, 20, 1.7, ["London"]),
+  EURCHF: fx("EURCHF", 1, 20, 1.8, ["London"], { note: "CHF cluster — monitor closely" }),
+  AUDCHF: fx("AUDCHF", 1, 22, 1.6, ["Sydney", "London"], { note: "Best CHF-cluster pair" }),
+  CADCHF: fx("CADCHF", 1, 21, 1.7, ["New York", "London"], { note: "CHF cluster — monitor" }),
+  AUDNZD: fx("AUDNZD", 1, 20, 1.8, ["Sydney"]),
+  NZDCHF: fx("NZDCHF", 1, 21, 1.7, ["Sydney", "London"], { note: "CHF cluster — monitor" }),
 
-  // ---- 5.2 EUR crosses ----
-  EURGBP: fx("EURGBP", 20, [56, 64], [36, 44], 1.7, ["London"]),
-  EURJPY: fx("EURJPY", 27, [53, 67], [33, 47], 1.3, ["Tokyo", "London"]),
-  EURCHF: fx("EURCHF", 20, [58, 62], [38, 42], 1.8, ["London"]),
-  EURAUD: fx("EURAUD", 25, [55, 65], [35, 45], 1.5, ["London"]),
-  EURCAD: fx("EURCAD", 25, [55, 65], [35, 45], 1.5, ["London", "New York"]),
-  EURNZD: fx("EURNZD", 25, [55, 65], [35, 45], 1.5, ["London"]),
+  // ---- Tier 2 (medium) ----
+  GBPUSD: fx("GBPUSD", 2, 25, 1.5, ["London", "New York"], { note: "Flipped to losing — watch" }),
+  USDCAD: fx("USDCAD", 2, 25, 1.5, ["New York"], { note: "Flipped to flat — watch" }),
+  AUDUSD: fx("AUDUSD", 2, 24, 1.5, ["Sydney", "London"]),
+  NZDUSD: fx("NZDUSD", 2, 24, 1.5, ["Sydney", "London"]),
+  EURAUD: fx("EURAUD", 2, 25, 1.5, ["London"]),
+  EURCAD: fx("EURCAD", 2, 25, 1.5, ["London", "New York"]),
+  EURNZD: fx("EURNZD", 2, 25, 1.5, ["London"]),
+  GBPCHF: fx("GBPCHF", 2, 25, 1.5, ["London"], { note: "CHF cluster — monitor" }),
+  AUDCAD: fx("AUDCAD", 2, 24, 1.5, ["Sydney", "New York"]),
+  NZDCAD: fx("NZDCAD", 2, 24, 1.5, ["Sydney", "New York"]),
 
-  // ---- 5.3 GBP crosses ----
-  GBPAUD: fx("GBPAUD", 28, [52, 68], [32, 48], 1.2, ["London"]),
-  GBPCAD: fx("GBPCAD", 27, [53, 67], [33, 47], 1.3, ["London", "New York"]),
-  GBPCHF: fx("GBPCHF", 25, [55, 65], [35, 45], 1.5, ["London"]),
-  GBPJPY: fx("GBPJPY", 30, [50, 70], [30, 50], 1.1, ["Tokyo", "London"]),
-  GBPNZD: fx("GBPNZD", 28, [52, 68], [32, 48], 1.2, ["London"]),
-
-  // ---- 5.4 AUD crosses ----
-  AUDCAD: fx("AUDCAD", 24, [55, 65], [35, 45], 1.5, ["Sydney", "New York"]),
-  AUDCHF: fx("AUDCHF", 22, [57, 63], [37, 43], 1.6, ["Sydney", "London"]),
-  AUDJPY: fx("AUDJPY", 27, [53, 67], [33, 47], 1.3, ["Tokyo", "Sydney"]),
-  AUDNZD: fx("AUDNZD", 20, [58, 62], [38, 42], 1.8, ["Sydney"]),
-
-  // ---- 5.5 Other crosses ----
-  CADCHF: fx("CADCHF", 21, [57, 63], [37, 43], 1.7, ["New York", "London"]),
-  CADJPY: fx("CADJPY", 27, [53, 67], [33, 47], 1.3, ["Tokyo", "New York"]),
-  CHFJPY: fx("CHFJPY", 26, [54, 66], [34, 46], 1.3, ["Tokyo", "London"]),
-  NZDCAD: fx("NZDCAD", 24, [55, 65], [35, 45], 1.5, ["Sydney", "New York"]),
-  NZDCHF: fx("NZDCHF", 21, [57, 63], [37, 43], 1.7, ["Sydney", "London"]),
-  NZDJPY: fx("NZDJPY", 26, [54, 66], [34, 46], 1.3, ["Tokyo", "Sydney"]),
+  // ---- Tier 3 (volatile) ----
+  USDJPY: fx("USDJPY", 3, 27, 1.3, ["Tokyo", "New York"]),
+  EURJPY: fx("EURJPY", 3, 27, 1.3, ["Tokyo", "London"]),
+  GBPAUD: fx("GBPAUD", 3, 28, 1.2, ["London"]),
+  GBPCAD: fx("GBPCAD", 3, 27, 1.3, ["London", "New York"], { note: "Flipped to badly losing — watch" }),
+  GBPJPY: fx("GBPJPY", 3, 30, 1.1, ["Tokyo", "London"], {
+    disabled: true, disabledReason: "Pause new entries — v3 stop-widening did not help; needs independent review",
+  }),
+  GBPNZD: fx("GBPNZD", 3, 28, 1.2, ["London"]),
+  AUDJPY: fx("AUDJPY", 3, 27, 1.3, ["Tokyo", "Sydney"]),
+  CADJPY: fx("CADJPY", 3, 27, 1.3, ["Tokyo", "New York"], { note: "Flipped to losing — watch" }),
+  CHFJPY: fx("CHFJPY", 3, 26, 1.3, ["Tokyo", "London"]),
+  NZDJPY: fx("NZDJPY", 3, 26, 1.3, ["Tokyo", "Sydney"]),
 };
 
 export function getPairProfile(symbol: string): PairProfile | null {
@@ -168,3 +217,9 @@ export function getPairProfile(symbol: string): PairProfile | null {
 export function allProfiles(): PairProfile[] {
   return Object.values(PAIR_PROFILES);
 }
+
+/** Currency-cluster exposure caps (v3 §6). % of equity per currency leg. */
+export const CURRENCY_EXPOSURE_CAPS: Record<string, number> = {
+  USD: 3.0, EUR: 3.0,
+  GBP: 2.5, JPY: 2.5, AUD: 2.5, NZD: 2.5, CAD: 2.5, CHF: 2.5,
+};
