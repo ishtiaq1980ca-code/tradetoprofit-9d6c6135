@@ -279,6 +279,7 @@ export function generateTradeDecision(
 ): TradeDecision | null {
   const profile = getPairProfile(symbol);
   if (!profile) return null;
+  if (profile.disabled) return null; // v3 §2: USDCHF & GBPJPY paused
   if (candles.length < Math.max(profile.emaSlow, 60) + 5) return null;
 
   const closes = candles.map((c) => c.close);
@@ -330,6 +331,11 @@ export function generateTradeDecision(
   const spread = estimatedSpread(symbol, price);
   const fSpread = spreadFilter(symbol, price, spread, profile.maxSpreadPct);
   const fVol = volatilityFilter(price, ind.atr, profile.minAtrPct, profile.maxAtrPct);
+  // v3 §5: regime filters (skip gold — has its own playbook).
+  const isGold = profile.strategy === "gold_multi_confirmation";
+  const fAtrSpike = isGold ? { pass: true, reason: "ATR spike: n/a (gold)" } : atrSpikeFilter(ind.atr, atrArr);
+  const fAdxCeil = isGold ? { pass: true, reason: "ADX ceiling: n/a (gold)" } : adxCeilingFilter(ind.adx);
+  const fExt = isGold ? { pass: true, reason: "Extension: n/a (gold)" } : extensionFilter(price, ind.ema200, ind.atr);
   // London/NY are preferred, but Asian session should be *stricter*, not a
   // hard block. The fx_multi_confirmation playbook above already raises ADX
   // and ATR requirements during Asian-only hours, so keep the filter passing
@@ -338,7 +344,8 @@ export function generateTradeDecision(
     ? { pass: true, reason: `Session ${activeSessions().primary} accepted (${profile.strategy === "gold_multi_confirmation" ? "gold 24h" : "London/NY priority"})` }
     : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
-  filters.push(fSpread, fVol, fSess, fNews);
+  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews);
+  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News"];
 
   const firstBlock = filters.find((f) => !f.pass);
   if (firstBlock) {
