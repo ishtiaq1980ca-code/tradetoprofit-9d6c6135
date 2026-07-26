@@ -19,9 +19,11 @@ import {
 import { getPairProfile, type PairProfile, type StrategyKind } from "./pairProfiles";
 import {
   estimatedSpread, newsFilter, sessionFilter, spreadFilter, volatilityFilter,
+  atrSpikeFilter, adxCeilingFilter, extensionFilter,
   type FilterResult,
 } from "./tradeFilters";
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
+import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
 
 // Confidence gates: gold requires 85%, FX currencies 80%.
