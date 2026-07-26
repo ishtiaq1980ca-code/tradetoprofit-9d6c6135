@@ -353,7 +353,7 @@ export function generateTradeDecision(
       profile, ind, price, balance, params,
       side: pb.side,
       strategyRationale: pb.rationale,
-      filters: filters.map((f, i) => ({ name: ["Spread", "Volatility", "Session", "News"][i], ...f })),
+      filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
       blocked: firstBlock.reason,
     });
   }
@@ -362,7 +362,7 @@ export function generateTradeDecision(
     profile, ind, price, balance, params,
     side: pb.side,
     strategyRationale: pb.rationale,
-    filters: filters.map((f, i) => ({ name: ["Spread", "Volatility", "Session", "News"][i], ...f })),
+    filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
     blocked: null,
   });
 }
