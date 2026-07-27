@@ -626,21 +626,13 @@ async function runScan() {
     bot.pushLog({ t: Date.now(), level: "info", msg: "Synced with MT5: cleared stale local paper positions (MT5 has 0 open trades)" });
   }
 
-  // Daily reset
-  const today = new Date().toDateString();
-  if (bot.haltedDate && bot.haltedDate !== today) {
+  // Daily-loss halt is DISABLED by user request. Any leftover halt flag from a
+  // previous session is cleared so the bot never blocks itself.
+  if (bot.haltedToday || bot.haltedDate) {
     useBot.setState({ haltedToday: false, haltedDate: null });
   }
 
-  // Self-heal a stale halt flag: if MT5 shows the account is not actually in
-  // loss (e.g. daily P/L is flat or positive), clear the halt so trading can
-  // resume from live broker data instead of a stale local flag.
-  if (bot.haltedToday && mt5HeartbeatFresh() && latestMt5DailyPnl != null && latestMt5DailyPnl >= 0) {
-    useBot.setState({ haltedToday: false, haltedDate: null });
-    bot.pushLog({ t: Date.now(), level: "info", msg: `Halt cleared — MT5 daily P/L is $${latestMt5DailyPnl.toFixed(2)}` });
-  }
 
-  if (useBot.getState().haltedToday) return;
 
   // Weekend pause
   const sess = activeSessions();
@@ -655,20 +647,9 @@ async function runScan() {
 
 
 
-  // Max daily loss circuit breaker — always measured against the LIVE MT5
-  // balance when the bridge is fresh, so a real +$7 day is never mis-flagged
-  // as a loss. Only fall back to the local starting balance when MT5 data
-  // is unavailable.
-  const dpnl = dailyPnlFor();
-  const liveBalance = latestMt5Balance != null && mt5HeartbeatFresh() ? latestMt5Balance : 0;
-  const baseBalance = liveBalance > 0 ? liveBalance : acc.startingBalance;
-  const lossPct = baseBalance > 0 ? (dpnl / baseBalance) * 100 : 0;
-  if (dpnl < 0 && lossPct <= -bot.maxDailyLossPct) {
-    useBot.setState({ haltedToday: true, haltedDate: today });
-    bot.pushLog({ t: Date.now(), level: "warn", msg: `Daily loss ${lossPct.toFixed(2)}% (MT5) — trading halted` });
-    toast.error(`Daily loss limit hit (${lossPct.toFixed(2)}%). Bot halted for today.`);
-    return;
-  }
+  // Max daily loss circuit breaker: DISABLED by user request — the bot no
+  // longer halts itself on daily drawdown.
+
 
   useBot.setState({ lastScanAt: Date.now() });
 
