@@ -55,16 +55,8 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           return Response.json({ enabled: false, reason: "mt5_stale", signals: [] });
         }
 
-        // Daily loss kill switch
-        const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-        if (latestSnap?.created_at && new Date(latestSnap.created_at) >= today && Number(latestSnap.balance) > 0) {
-          const dailyPnl = Number(latestSnap.daily_pnl);
-          const balance = Number(latestSnap.balance);
-          const lossPct = -(dailyPnl / balance) * 100;
-          if (lossPct >= Number(settings.max_daily_loss)) {
-            return Response.json({ enabled: false, reason: "daily_loss_limit", signals: [] });
-          }
-        }
+        // Daily loss kill switch: DISABLED by user request.
+
 
         const freshCutoff = new Date(Date.now() - 20_000).toISOString();
         const retryCutoff = new Date(Date.now() - 3_000).toISOString();
