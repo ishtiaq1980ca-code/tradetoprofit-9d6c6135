@@ -628,10 +628,10 @@ async function runScan() {
 
   // Daily-loss halt is DISABLED by user request. Any leftover halt flag from a
   // previous session is cleared so the bot never blocks itself.
-  const today = new Date().toDateString();
   if (bot.haltedToday || bot.haltedDate) {
     useBot.setState({ haltedToday: false, haltedDate: null });
   }
+
 
 
   // Weekend pause
