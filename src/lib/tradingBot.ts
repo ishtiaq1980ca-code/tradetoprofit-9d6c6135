@@ -626,21 +626,13 @@ async function runScan() {
     bot.pushLog({ t: Date.now(), level: "info", msg: "Synced with MT5: cleared stale local paper positions (MT5 has 0 open trades)" });
   }
 
-  // Daily reset
+  // Daily-loss halt is DISABLED by user request. Any leftover halt flag from a
+  // previous session is cleared so the bot never blocks itself.
   const today = new Date().toDateString();
-  if (bot.haltedDate && bot.haltedDate !== today) {
+  if (bot.haltedToday || bot.haltedDate) {
     useBot.setState({ haltedToday: false, haltedDate: null });
   }
 
-  // Self-heal a stale halt flag: if MT5 shows the account is not actually in
-  // loss (e.g. daily P/L is flat or positive), clear the halt so trading can
-  // resume from live broker data instead of a stale local flag.
-  if (bot.haltedToday && mt5HeartbeatFresh() && latestMt5DailyPnl != null && latestMt5DailyPnl >= 0) {
-    useBot.setState({ haltedToday: false, haltedDate: null });
-    bot.pushLog({ t: Date.now(), level: "info", msg: `Halt cleared — MT5 daily P/L is $${latestMt5DailyPnl.toFixed(2)}` });
-  }
-
-  if (useBot.getState().haltedToday) return;
 
   // Weekend pause
   const sess = activeSessions();
