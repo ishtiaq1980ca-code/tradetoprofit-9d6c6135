@@ -647,20 +647,9 @@ async function runScan() {
 
 
 
-  // Max daily loss circuit breaker — always measured against the LIVE MT5
-  // balance when the bridge is fresh, so a real +$7 day is never mis-flagged
-  // as a loss. Only fall back to the local starting balance when MT5 data
-  // is unavailable.
-  const dpnl = dailyPnlFor();
-  const liveBalance = latestMt5Balance != null && mt5HeartbeatFresh() ? latestMt5Balance : 0;
-  const baseBalance = liveBalance > 0 ? liveBalance : acc.startingBalance;
-  const lossPct = baseBalance > 0 ? (dpnl / baseBalance) * 100 : 0;
-  if (dpnl < 0 && lossPct <= -bot.maxDailyLossPct) {
-    useBot.setState({ haltedToday: true, haltedDate: today });
-    bot.pushLog({ t: Date.now(), level: "warn", msg: `Daily loss ${lossPct.toFixed(2)}% (MT5) — trading halted` });
-    toast.error(`Daily loss limit hit (${lossPct.toFixed(2)}%). Bot halted for today.`);
-    return;
-  }
+  // Max daily loss circuit breaker: DISABLED by user request — the bot no
+  // longer halts itself on daily drawdown.
+
 
   useBot.setState({ lastScanAt: Date.now() });
 
