@@ -1113,7 +1113,7 @@ def main():
                 elif data.get("reason"):
                     print(f"Bot disabled by server: {data['reason']}")
             else:
-                print(f"poll failed: {err}")
+                _log_net_err("poll failed:", err)
 
             manage_trailing_stops()
 
