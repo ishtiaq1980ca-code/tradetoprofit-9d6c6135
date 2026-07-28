@@ -1025,6 +1025,7 @@ export function BotEngine() {
     const { url: sbUrl, key: sbKey } = supabaseRestConfig();
 
     const wireWorker = async () => {
+      if (workerDisabled) return;
       const token = await hydrateAccessToken();
       try {
         const workerUrl = new URL("./tickWorker.ts", import.meta.url);
@@ -1036,6 +1037,7 @@ export function BotEngine() {
           switch (msg.type) {
             case "ready":
               lastWorkerReadyAt = Date.now();
+              workerBootFailures = 0;
               break;
             case "tick": {
               const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
@@ -1058,7 +1060,22 @@ export function BotEngine() {
           }
         };
         w.onerror = (ev) => {
-          useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Worker error: ${ev.message ?? "unknown"} — will auto-restart` });
+          // A worker that never reached "ready" cannot be fixed by retrying
+          // forever — give up after a few attempts and use main-thread timers
+          // instead of flooding the audit log once per second.
+          if (lastWorkerReadyAt === 0) workerBootFailures++;
+          if (workerBootFailures >= MAX_WORKER_BOOT_FAILURES) {
+            workerDisabled = true;
+            teardownWorker();
+            logThrottled(
+              "worker-disabled",
+              "warn",
+              "Background worker unavailable — running on main-thread timers (bot keeps trading)",
+              5 * 60_000,
+            );
+            return;
+          }
+          logThrottled("worker-error", "warn", `Worker error: ${ev.message ?? "unknown"} — will auto-restart`, 30_000);
         };
         tickWorker = w;
         lastWorkerTickAt = Date.now();
@@ -1071,7 +1088,9 @@ export function BotEngine() {
           token,
         });
       } catch (e: any) {
-        useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to main-thread timers` });
+        workerBootFailures++;
+        if (workerBootFailures >= MAX_WORKER_BOOT_FAILURES) workerDisabled = true;
+        logThrottled("worker-boot", "warn", `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to main-thread timers`, 60_000);
         tickWorker = null;
       }
     };
