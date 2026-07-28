@@ -219,9 +219,22 @@ let lastWorkerReadyAt = 0;
 let workerRestartCount = 0;
 let workerStalledLoggedAt = 0;
 let workerSignalFallbackLoggedAt = 0;
+let workerBootFailures = 0;
+let workerDisabled = false;
 const WORKER_STALL_MS = 5_000;
+const MAX_WORKER_BOOT_FAILURES = 3;
 let nextSignalReqId = 1;
 const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: number }) => void>();
+
+// Repeated status messages (license blocked, bridge offline, worker errors)
+// used to flood the audit log every scan tick. Throttle them per key.
+const lastLoggedAt = new Map<string, number>();
+function logThrottled(key: string, level: "info" | "warn" | "error", msg: string, everyMs = 60_000) {
+  const now = Date.now();
+  if (now - (lastLoggedAt.get(key) ?? 0) < everyMs) return;
+  lastLoggedAt.set(key, now);
+  useBot.getState().pushLog({ t: now, level, msg });
+}
 
 function sendSignalViaWorker(
   row: Record<string, unknown>,
