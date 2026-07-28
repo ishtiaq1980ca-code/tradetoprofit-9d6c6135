@@ -100,35 +100,101 @@ except Exception as _e:
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}", "X-Aurum-Bridge-Version": str(BRIDGE_VERSION)}
-SESSION = requests.Session()
-SESSION.headers.update(HEADERS)
+
+
+def _new_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    # Retry TCP/DNS/SSL hiccups (typical "port=443" transient errors) via
+    # urllib3 retries on the HTTPS adapter so a single dropped keep-alive
+    # does not surface as a poll failure.
+    try:
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        retry = Retry(
+            total=3, connect=3, read=2, backoff_factor=0.3,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=frozenset(["GET", "POST"]),
+            raise_on_status=False,
+        )
+        s.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=8))
+        s.mount("http://", HTTPAdapter(max_retries=retry))
+    except Exception:
+        pass
+    return s
+
+
+SESSION = _new_session()
+_LAST_NET_ERR = {"msg": "", "count": 0, "ts": 0.0}
+
+
+def _reset_session():
+    """Drop the current HTTPS session on connection errors so the next
+    request opens a fresh TCP/TLS socket instead of reusing a dead one."""
+    global SESSION
+    try:
+        SESSION.close()
+    except Exception:
+        pass
+    SESSION = _new_session()
+
+
+def _is_conn_error(exc: Exception) -> bool:
+    from requests.exceptions import ConnectionError as ReqConnErr, Timeout, SSLError
+    return isinstance(exc, (ReqConnErr, Timeout, SSLError))
+
+
+def _log_net_err(prefix: str, err: str):
+    """Rate-limit repeated network errors so the log isn't spammed with
+    identical 'port=443' lines when the internet is briefly down."""
+    now = time.time()
+    if _LAST_NET_ERR["msg"] == err and now - _LAST_NET_ERR["ts"] < 30:
+        _LAST_NET_ERR["count"] += 1
+        return
+    if _LAST_NET_ERR["count"] > 0:
+        print(f"  (previous network error repeated {_LAST_NET_ERR['count']}x)")
+    _LAST_NET_ERR["msg"] = err
+    _LAST_NET_ERR["ts"] = now
+    _LAST_NET_ERR["count"] = 0
+    print(f"{prefix} {err}")
 
 
 def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
     """Post to the dashboard and print server-side validation errors."""
-    try:
-        r = SESSION.post(f"{BASE_URL}{path}", json=payload, timeout=timeout)
-        if not r.ok:
-            print(f"POST {path} HTTP {r.status_code}: {r.text[:240]}")
+    for attempt in range(2):
+        try:
+            r = SESSION.post(f"{BASE_URL}{path}", json=payload, timeout=timeout)
+            if not r.ok:
+                print(f"POST {path} HTTP {r.status_code}: {r.text[:240]}")
+                return False
+            return True
+        except Exception as e:
+            if _is_conn_error(e) and attempt == 0:
+                _reset_session()
+                continue
+            _log_net_err(f"POST {path} failed:", str(e))
             return False
-        return True
-    except Exception as e:
-        print(f"POST {path} failed: {e}")
-        return False
+    return False
 
 
 def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
     """GET JSON through one persistent HTTPS session for lower latency."""
-    try:
-        r = SESSION.get(f"{BASE_URL}{path}", timeout=timeout)
-        if not r.ok:
-            return False, None, f"HTTP {r.status_code}: {r.text[:160]}"
+    for attempt in range(2):
         try:
-            return True, r.json(), ""
-        except Exception:
-            return False, None, f"non-JSON response. Check BASE_URL; current value is {BASE_URL}"
-    except Exception as e:
-        return False, None, str(e)
+            r = SESSION.get(f"{BASE_URL}{path}", timeout=timeout)
+            if not r.ok:
+                return False, None, f"HTTP {r.status_code}: {r.text[:160]}"
+            try:
+                return True, r.json(), ""
+            except Exception:
+                return False, None, f"non-JSON response. Check BASE_URL; current value is {BASE_URL}"
+        except Exception as e:
+            if _is_conn_error(e) and attempt == 0:
+                _reset_session()
+                continue
+            return False, None, str(e)
+    return False, None, "unknown network error"
+
 
 
 def connect_mt5() -> bool:
