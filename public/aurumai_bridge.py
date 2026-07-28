@@ -1125,7 +1125,9 @@ def main():
                 sync_closed_trades()
                 last_closed_sync = time.time()
         except Exception as e:
-            print(f"poll failed: {e}")
+            if _is_conn_error(e):
+                _reset_session()
+            _log_net_err("poll failed:", str(e))
 
         time.sleep(POLL_SEC)
 
