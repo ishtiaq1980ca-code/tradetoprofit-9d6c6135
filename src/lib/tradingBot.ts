@@ -605,14 +605,14 @@ async function runScan() {
 
   // License gate — bot will not place trades without a valid token
   if (!bot.licenseValid) {
-    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: no active license token" });
+    logThrottled("no-license", "warn", "Blocked: no active license token");
     return;
   }
 
   // Never mark trades as queued while the MT5 bridge is offline/stale. This
   // prevents the app from showing trades that cannot be executed on MT5.
   if (!mt5HeartbeatFresh()) {
-    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running" });
+    logThrottled("mt5-stale", "warn", "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running");
     return;
   }
 
