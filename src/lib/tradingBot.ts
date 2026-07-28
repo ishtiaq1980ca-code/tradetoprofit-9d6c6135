@@ -1115,6 +1115,7 @@ export function BotEngine() {
     // and rebuild the worker automatically. Runs on the main thread; if the
     // main thread itself is throttled the fallback timer below still fires.
     const watchdogId = setInterval(() => {
+      if (workerDisabled) return;
       const now = Date.now();
       const age = now - lastWorkerTickAt;
       if (age > WORKER_STALL_MS && lastWorkerReadyAt > 0) {
