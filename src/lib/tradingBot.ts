@@ -219,9 +219,22 @@ let lastWorkerReadyAt = 0;
 let workerRestartCount = 0;
 let workerStalledLoggedAt = 0;
 let workerSignalFallbackLoggedAt = 0;
+let workerBootFailures = 0;
+let workerDisabled = false;
 const WORKER_STALL_MS = 5_000;
+const MAX_WORKER_BOOT_FAILURES = 3;
 let nextSignalReqId = 1;
 const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: number }) => void>();
+
+// Repeated status messages (license blocked, bridge offline, worker errors)
+// used to flood the audit log every scan tick. Throttle them per key.
+const lastLoggedAt = new Map<string, number>();
+function logThrottled(key: string, level: "info" | "warn" | "trade", msg: string, everyMs = 60_000) {
+  const now = Date.now();
+  if (now - (lastLoggedAt.get(key) ?? 0) < everyMs) return;
+  lastLoggedAt.set(key, now);
+  useBot.getState().pushLog({ t: now, level, msg });
+}
 
 function sendSignalViaWorker(
   row: Record<string, unknown>,
@@ -605,14 +618,14 @@ async function runScan() {
 
   // License gate — bot will not place trades without a valid token
   if (!bot.licenseValid) {
-    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: no active license token" });
+    logThrottled("no-license", "warn", "Blocked: no active license token");
     return;
   }
 
   // Never mark trades as queued while the MT5 bridge is offline/stale. This
   // prevents the app from showing trades that cannot be executed on MT5.
   if (!mt5HeartbeatFresh()) {
-    bot.pushLog({ t: Date.now(), level: "warn", msg: "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running" });
+    logThrottled("mt5-stale", "warn", "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running");
     return;
   }
 
@@ -1012,6 +1025,7 @@ export function BotEngine() {
     const { url: sbUrl, key: sbKey } = supabaseRestConfig();
 
     const wireWorker = async () => {
+      if (workerDisabled) return;
       const token = await hydrateAccessToken();
       try {
         const workerUrl = new URL("./tickWorker.ts", import.meta.url);
@@ -1023,6 +1037,7 @@ export function BotEngine() {
           switch (msg.type) {
             case "ready":
               lastWorkerReadyAt = Date.now();
+              workerBootFailures = 0;
               break;
             case "tick": {
               const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
@@ -1045,7 +1060,22 @@ export function BotEngine() {
           }
         };
         w.onerror = (ev) => {
-          useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Worker error: ${ev.message ?? "unknown"} — will auto-restart` });
+          // A worker that never reached "ready" cannot be fixed by retrying
+          // forever — give up after a few attempts and use main-thread timers
+          // instead of flooding the audit log once per second.
+          if (lastWorkerReadyAt === 0) workerBootFailures++;
+          if (workerBootFailures >= MAX_WORKER_BOOT_FAILURES) {
+            workerDisabled = true;
+            teardownWorker();
+            logThrottled(
+              "worker-disabled",
+              "warn",
+              "Background worker unavailable — running on main-thread timers (bot keeps trading)",
+              5 * 60_000,
+            );
+            return;
+          }
+          logThrottled("worker-error", "warn", `Worker error: ${ev.message ?? "unknown"} — will auto-restart`, 30_000);
         };
         tickWorker = w;
         lastWorkerTickAt = Date.now();
@@ -1058,7 +1088,9 @@ export function BotEngine() {
           token,
         });
       } catch (e: any) {
-        useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to main-thread timers` });
+        workerBootFailures++;
+        if (workerBootFailures >= MAX_WORKER_BOOT_FAILURES) workerDisabled = true;
+        logThrottled("worker-boot", "warn", `Background worker unavailable: ${e?.message ?? "unknown"} — falling back to main-thread timers`, 60_000);
         tickWorker = null;
       }
     };
@@ -1083,6 +1115,7 @@ export function BotEngine() {
     // and rebuild the worker automatically. Runs on the main thread; if the
     // main thread itself is throttled the fallback timer below still fires.
     const watchdogId = setInterval(() => {
+      if (workerDisabled) return;
       const now = Date.now();
       const age = now - lastWorkerTickAt;
       if (age > WORKER_STALL_MS && lastWorkerReadyAt > 0) {
