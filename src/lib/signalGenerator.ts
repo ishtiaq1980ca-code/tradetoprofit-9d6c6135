@@ -25,6 +25,7 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
+import { evaluateStructure } from "./marketStructure";
 
 // Confidence gates: gold requires 85%, FX currencies 80%.
 export const MIN_CONFIDENCE_GOLD = 85;
@@ -336,16 +337,15 @@ export function generateTradeDecision(
   const fAtrSpike = isGold ? { pass: true, reason: "ATR spike: n/a (gold)" } : atrSpikeFilter(ind.atr, atrArr);
   const fAdxCeil = isGold ? { pass: true, reason: "ADX ceiling: n/a (gold)" } : adxCeilingFilter(ind.adx);
   const fExt = isGold ? { pass: true, reason: "Extension: n/a (gold)" } : extensionFilter(price, ind.ema200, ind.atr);
-  // London/NY are preferred, but Asian session should be *stricter*, not a
-  // hard block. The fx_multi_confirmation playbook above already raises ADX
-  // and ATR requirements during Asian-only hours, so keep the filter passing
-  // and record the session note instead of preventing all major-pair signals.
   const fSess = profile.strategy === "fx_multi_confirmation" || profile.strategy === "gold_multi_confirmation"
     ? { pass: true, reason: `Session ${activeSessions().primary} accepted (${profile.strategy === "gold_multi_confirmation" ? "gold 24h" : "London/NY priority"})` }
     : sessionFilter(profile.preferredSessions);
   const fNews = newsFilter(symbol);
-  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews);
-  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News"];
+  // Market structure guard — no counter-trend trades. Applied to BUY/SELL only.
+  const struct = evaluateStructure(pb.side as "BUY" | "SELL", candles);
+  const fStruct: FilterResult = { pass: struct.pass, reason: `Structure — ${struct.reason}` };
+  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews, fStruct);
+  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News", "Structure"];
 
   const firstBlock = filters.find((f) => !f.pass);
   if (firstBlock) {

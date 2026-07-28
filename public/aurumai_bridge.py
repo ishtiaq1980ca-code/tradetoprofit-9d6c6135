@@ -59,8 +59,8 @@ MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.
 USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50
 USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
-PARTIAL_TP_R = 1.0                                # at +1R close PARTIAL_TP_PCT of lot, move SL to BE for remainder
-PARTIAL_TP_PCT = 0.50                             # 50% partial close
+PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
+PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
 # --- Trailing throttle ---
 TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
 TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
@@ -637,6 +637,8 @@ _PARTIAL_TAKEN: set[int] = set()
 def _apply_partial_tp(position) -> bool:
     """Prompt 4: at +1R close PARTIAL_TP_PCT of lot and move SL to breakeven.
     Uses the position's original SL distance as 1R."""
+    if PARTIAL_TP_PCT <= 0:
+        return False  # partial-close disabled
     if position.magic != MAGIC:
         return False
     ticket = int(position.ticket)

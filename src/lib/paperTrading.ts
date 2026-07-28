@@ -165,18 +165,7 @@ export const useAccount = create<Store>()(
               }
             }
           } else {
-            // Legacy R-based: partial @1R, BE @0.5R, trail 1R behind.
-            if (!p.partialTaken && moveInR >= 1) {
-              const halfLot = Math.max(0.01, Math.round((p.lot / 2) * 100) / 100);
-              if (halfLot < p.lot) {
-                const profit = pnlOf({ ...p, lot: halfLot }, price);
-                balance += profit;
-                newClosed.push({ ...p, lot: halfLot, closedAt: Date.now(), exit: price, profit, closeReason: "partial @1R" });
-                updated.lot = Math.round((p.lot - halfLot) * 100) / 100;
-                updated.partialTaken = true;
-                touched = true;
-              }
-            }
+            // Partial close disabled per user request — ride to TP or trailing SL.
             if (!updated.breakEvenTriggered && moveInR >= 0.5) {
               updated.stopLoss = p.entry; updated.breakEvenTriggered = true; touched = true;
             }
