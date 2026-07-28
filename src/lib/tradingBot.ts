@@ -229,7 +229,7 @@ const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: 
 // Repeated status messages (license blocked, bridge offline, worker errors)
 // used to flood the audit log every scan tick. Throttle them per key.
 const lastLoggedAt = new Map<string, number>();
-function logThrottled(key: string, level: "info" | "warn" | "error", msg: string, everyMs = 60_000) {
+function logThrottled(key: string, level: "info" | "warn" | "trade", msg: string, everyMs = 60_000) {
   const now = Date.now();
   if (now - (lastLoggedAt.get(key) ?? 0) < everyMs) return;
   lastLoggedAt.set(key, now);
