@@ -582,22 +582,23 @@ def _apply_usd_trailing_stop(position) -> bool:
     if profit < effective_trigger:
         return False
 
-    # Rule 3: if the current SL is already in profit territory, wait until
-    # price has covered TRAIL_TP_PROGRESS_GATE of the way to TP before
-    # advancing SL again. This stops "trail every few cents" behaviour.
+    # Optional extra gate (disabled by default in v2 — steps are discrete).
     sl_already_positive = (
         old_sl > 0 and ((is_buy and old_sl > entry) or ((not is_buy) and old_sl < entry))
     )
-    if sl_already_positive and tp > 0:
+    if TRAIL_TP_PROGRESS_GATE > 0 and sl_already_positive and tp > 0:
         cur_price = float(tick.bid if is_buy else tick.ask)
         tp_total = abs(tp - entry)
         tp_moved = (cur_price - entry) if is_buy else (entry - cur_price)
         if tp_total > 0 and (tp_moved / tp_total) < TRAIL_TP_PROGRESS_GATE:
             return False
 
-    # Lock (profit - step) USD of profit. Below BE clamps to entry so we
-    # never move SL backward into loss.
-    lock_usd = max(0.0, profit - USD_TRAIL_STEP)
+    # Smart Trailing v2 — step ladder. SL always sits one full USD_TRAIL_STEP
+    # behind the highest completed profit step:
+    #   +$1.5 → BE (lock $0), +$3 → lock $1.5, +$4.5 → lock $3, ...
+    step = max(0.01, float(USD_TRAIL_STEP))
+    steps_done = int(profit // step)
+    lock_usd = max(0.0, (steps_done - 1) * step)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
