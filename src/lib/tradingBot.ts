@@ -397,7 +397,7 @@ export const useBot = create<BotStore>()(
       rsiSellMin: 35,
       useMacd: true,
       adxMin: 25,
-      maxOpenTrades: 6,     // v3 §8: max total open positions 6
+      maxOpenTrades: 15,    // reverted to previous cap: max 15 concurrent trades
       maxTradesPerSymbol: 2,
       maxSameDirectionTrades: 2,
       maxDailyTrades: 20,
@@ -459,7 +459,7 @@ export const useBot = create<BotStore>()(
     }),
     {
       name: "aurum-bot-v7",
-      version: 16,
+      version: 17,
       migrate: (persisted: any, version: number) => {
         if (persisted && typeof persisted === "object") {
           // v16 (Strategy Update v3 §8): per-trade risk 1%, daily cap 3%.
@@ -488,10 +488,12 @@ export const useBot = create<BotStore>()(
           if (version < 7 || typeof persisted.scanIntervalMs !== "number" || persisted.scanIntervalMs > 1_000) {
             persisted.scanIntervalMs = 1_000;
           }
-          // v16: cap concurrent trades at 6 (v3 §8).
-          if (version < 16 || typeof persisted.maxOpenTrades !== "number" || persisted.maxOpenTrades > 6) {
-            persisted.maxOpenTrades = 6;
+          // v17: back to the previous cap of 15 concurrent trades, and
+          // balance-based lot sizing (tier limits) re-enabled.
+          if (version < 17 || typeof persisted.maxOpenTrades !== "number") {
+            persisted.maxOpenTrades = 15;
           }
+          if (version < 17) persisted.useTierLimits = true;
           // v14: allow up to 2 same-direction duplicate trades per symbol
           if (version < 14 || typeof persisted.maxSameDirectionTrades !== "number") {
             persisted.maxSameDirectionTrades = 2;
@@ -566,12 +568,12 @@ export function detectTier(balance: number): 500 | 1000 | 2000 | null {
   return null;
 }
 
-/** Max simultaneous open lot exposure permitted by tier. Sized so multiple
- *  full per-trade lots (0.08) can coexist up to maxOpenTrades. */
+/** Max simultaneous open lot exposure permitted by tier. Sized so 15 full
+ *  per-trade lots can coexist (matches the restored maxOpenTrades = 15). */
 export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
   if (tier === 2000) return 1.20;
-  if (tier === 1000) return 0.80;
-  if (tier === 500) return 0.48;
+  if (tier === 1000) return 1.20;
+  if (tier === 500) return 0.90;
   return 0;
 }
 
@@ -579,7 +581,6 @@ export function tierLotCap(tier: 500 | 1000 | 2000 | null): number {
  *  ≤$100 → 0.02, ≤$250 → 0.04, ≤$500 → 0.06, ≥$1000 → 0.08. */
 export function lotForBalance(balance: number): number {
   if (balance >= 1000) return 0.08;
-  if (balance > 500) return 0.06;
   if (balance > 250) return 0.06;
   if (balance > 100) return 0.04;
   return 0.02;
