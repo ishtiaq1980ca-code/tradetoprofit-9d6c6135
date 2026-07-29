@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026072801                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026072902                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -56,15 +56,20 @@ PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker g
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
-USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50
-USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00
+USD_TRAIL_TRIGGER = 1.5                           # Smart Trailing v2: no SL move until floating profit ≥ +$1.50
+USD_TRAIL_STEP = 1.5                              # step ladder: +$1.5 → BE, +$3 → +$1.5, +$4.5 → +$3, ...
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
 # --- Trailing throttle ---
 TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
 TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
-TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after 65% of the way to TP
+TRAIL_TP_PROGRESS_GATE = 0.0                      # steps are discrete now, no extra TP-progress gate needed
+# --- Market structure exit (Smart Trailing v2 §3) ---
+STRUCTURE_EXIT_ENABLED = True                     # close early when structure/trend flips against an open trade
+STRUCTURE_TF_MIN = 15                             # timeframe (minutes) used for structure analysis
+STRUCTURE_CHECK_SEC = 20.0                        # how often to re-evaluate structure per ticket
+STRUCTURE_EXIT_MAX_PROFIT = 0.0                   # only exit early while trade is at/below this floating profit
 
 # ============= AUTO-DETECT MODE =============
 # The bridge now auto-detects your broker account (login/server) from the
@@ -86,6 +91,7 @@ try:
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
+        "STRUCTURE_EXIT_ENABLED", "STRUCTURE_TF_MIN", "STRUCTURE_CHECK_SEC", "STRUCTURE_EXIT_MAX_PROFIT",
     )
     for _k in _OVERRIDABLE:
         if hasattr(_cfg, _k):
@@ -576,22 +582,23 @@ def _apply_usd_trailing_stop(position) -> bool:
     if profit < effective_trigger:
         return False
 
-    # Rule 3: if the current SL is already in profit territory, wait until
-    # price has covered TRAIL_TP_PROGRESS_GATE of the way to TP before
-    # advancing SL again. This stops "trail every few cents" behaviour.
+    # Optional extra gate (disabled by default in v2 — steps are discrete).
     sl_already_positive = (
         old_sl > 0 and ((is_buy and old_sl > entry) or ((not is_buy) and old_sl < entry))
     )
-    if sl_already_positive and tp > 0:
+    if TRAIL_TP_PROGRESS_GATE > 0 and sl_already_positive and tp > 0:
         cur_price = float(tick.bid if is_buy else tick.ask)
         tp_total = abs(tp - entry)
         tp_moved = (cur_price - entry) if is_buy else (entry - cur_price)
         if tp_total > 0 and (tp_moved / tp_total) < TRAIL_TP_PROGRESS_GATE:
             return False
 
-    # Lock (profit - step) USD of profit. Below BE clamps to entry so we
-    # never move SL backward into loss.
-    lock_usd = max(0.0, profit - USD_TRAIL_STEP)
+    # Smart Trailing v2 — step ladder. SL always sits one full USD_TRAIL_STEP
+    # behind the highest completed profit step:
+    #   +$1.5 → BE (lock $0), +$3 → lock $1.5, +$4.5 → lock $3, ...
+    step = max(0.01, float(USD_TRAIL_STEP))
+    steps_done = int(profit // step)
+    lock_usd = max(0.0, (steps_done - 1) * step)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
@@ -694,11 +701,92 @@ def _apply_partial_tp(position) -> bool:
     return False
 
 
+
+_LAST_STRUCT_CHECK_TS: dict[int, float] = {}
+
+
+def _ema_series(values, period: int):
+    if not values or period <= 0 or len(values) < period:
+        return None
+    k = 2.0 / (period + 1.0)
+    ema = sum(values[:period]) / period
+    for v in values[period:]:
+        ema = v * k + ema * (1 - k)
+    return ema
+
+
+def _structure_flipped(symbol: str, is_buy: bool) -> str | None:
+    """Return a reason string when higher-timeframe structure has flipped
+    against an open trade (trend reversal / structure break), else None."""
+    tf_map = {1: mt5.TIMEFRAME_M1, 5: mt5.TIMEFRAME_M5, 15: mt5.TIMEFRAME_M15,
+              30: mt5.TIMEFRAME_M30, 60: mt5.TIMEFRAME_H1}
+    tf = tf_map.get(int(STRUCTURE_TF_MIN), mt5.TIMEFRAME_M15)
+    rates = mt5.copy_rates_from_pos(symbol, tf, 0, 220)
+    if rates is None or len(rates) < 60:
+        return None
+    closes = [float(r["close"]) for r in rates]
+    highs = [float(r["high"]) for r in rates]
+    lows = [float(r["low"]) for r in rates]
+    # drop the still-forming candle
+    closes, highs, lows = closes[:-1], highs[:-1], lows[:-1]
+    if len(closes) < 60:
+        return None
+
+    ema_fast = _ema_series(closes, 50)
+    ema_slow = _ema_series(closes, min(200, len(closes) - 1))
+    if ema_fast is None or ema_slow is None:
+        return None
+    trend_bull = ema_fast >= ema_slow
+
+    # Swing structure over the last 20 completed candles vs the 20 before that.
+    recent_high, prev_high = max(highs[-20:]), max(highs[-40:-20])
+    recent_low, prev_low = min(lows[-20:]), min(lows[-40:-20])
+    price = closes[-1]
+
+    if is_buy:
+        broke_down = recent_low < prev_low and price < ema_fast
+        if (not trend_bull) and broke_down:
+            return "HTF trend flipped bearish + lower-low structure break"
+    else:
+        broke_up = recent_high > prev_high and price > ema_fast
+        if trend_bull and broke_up:
+            return "HTF trend flipped bullish + higher-high structure break"
+    return None
+
+
+def _apply_structure_exit(position) -> bool:
+    """Smart Trailing v2 §3: if setup is invalidated, take the small loss now
+    instead of waiting for the full stop loss."""
+    if not STRUCTURE_EXIT_ENABLED or position.magic != MAGIC:
+        return False
+    ticket = int(position.ticket)
+    now = time.time()
+    if now - _LAST_STRUCT_CHECK_TS.get(ticket, 0.0) < STRUCTURE_CHECK_SEC:
+        return False
+    _LAST_STRUCT_CHECK_TS[ticket] = now
+
+    profit = float(position.profit or 0)
+    # Never cut winners early (Golden Rule) — only rescue losing/flat trades.
+    if profit > STRUCTURE_EXIT_MAX_PROFIT:
+        return False
+    is_buy = position.type == mt5.POSITION_TYPE_BUY
+    reason = _structure_flipped(position.symbol, is_buy)
+    if not reason:
+        return False
+    if _close_position(position, f"structure exit: {reason}"):
+        print(f"Structure exit ticket={ticket} profit=${profit:.2f} — {reason}")
+        return True
+    return False
+
+
 def manage_trailing_stops() -> int:
     positions = mt5.positions_get() or []
     moved = 0
     for p in positions:
         try:
+            if _apply_structure_exit(p):
+                moved += 1
+                continue
             _apply_partial_tp(p)
             if _apply_usd_trailing_stop(p):
                 moved += 1

@@ -75,12 +75,11 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      // Default to R-based trailing (BE @ 0.5R, partial @ 1R, trail 1R behind).
-      // USD-based trail was too tight for FX at 0.01 lots (locks within pips
-      // of entry and gets stopped by spread), so paper trades kept dying.
-      trailTriggerUsd: 1,
-      trailStepUsd: 1,
-      useUsdTrail: false,
+      // Smart Trailing v2: USD step ladder — BE at +$1.5, then SL trails
+      // $1.5 behind each completed $1.5 profit step.
+      trailTriggerUsd: 1.5,
+      trailStepUsd: 1.5,
+      useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
       setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
       setUseUsdTrail: (v) => set({ useUsdTrail: v }),
@@ -149,11 +148,13 @@ export const useAccount = create<Store>()(
           let updated: Position = { ...p };
 
           if (s.useUsdTrail) {
-            // USD-based trailing: once floating profit ≥ trigger, lock SL so we
-            // keep (profit − trailStep) USD of profit. SL ratchets, never widens.
+            // Smart Trailing v2 step ladder: nothing moves until +$1.5, then
+            // +$1.5 → BE, +$3 → lock $1.5, +$4.5 → lock $3, and so on.
             const profitUsd = pnlOf(p, price);
             if (profitUsd >= s.trailTriggerUsd) {
-              const lockUsd = profitUsd - s.trailStepUsd;
+              const step = Math.max(0.01, s.trailStepUsd);
+              const stepsDone = Math.floor(profitUsd / step);
+              const lockUsd = Math.max(0, (stepsDone - 1) * step);
               const vpu = valuePerUnit(p.symbol) * p.lot || 1;
               const priceMoveForLock = lockUsd / vpu;
               const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
@@ -195,14 +196,13 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 4,
+      version: 5,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // v4: switch back to R-based trailing. USD $1 trail was too tight
-          // for FX at 0.01 lots and killed paper trades near breakeven.
-          persisted.useUsdTrail = false;
-          persisted.trailTriggerUsd = 1;
-          persisted.trailStepUsd = 1;
+          // v5: Smart Trailing v2 — USD step ladder, BE at +$1.5, step $1.5.
+          persisted.useUsdTrail = true;
+          persisted.trailTriggerUsd = 1.5;
+          persisted.trailStepUsd = 1.5;
         }
         return persisted;
       },
