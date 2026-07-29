@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026072801                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026072902                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -56,15 +56,20 @@ PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker g
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
-USD_TRAIL_TRIGGER = 0.5                           # start protecting once floating profit is at least +$0.50
-USD_TRAIL_STEP = 0.5                              # tight ratchet: +$1 locks +$0.50, +$1.50 locks +$1.00
+USD_TRAIL_TRIGGER = 1.5                           # Smart Trailing v2: no SL move until floating profit ≥ +$1.50
+USD_TRAIL_STEP = 1.5                              # step ladder: +$1.5 → BE, +$3 → +$1.5, +$4.5 → +$3, ...
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
 # --- Trailing throttle ---
 TRAIL_MIN_INTERVAL_SEC = 5.0                      # do not modify same ticket more than once every N seconds
 TRAIL_MIN_STEP_USD = 0.10                         # new SL must lock at least this many extra USD vs last saved SL
-TRAIL_TP_PROGRESS_GATE = 0.65                     # once SL is already in profit, only advance after 65% of the way to TP
+TRAIL_TP_PROGRESS_GATE = 0.0                      # steps are discrete now, no extra TP-progress gate needed
+# --- Market structure exit (Smart Trailing v2 §3) ---
+STRUCTURE_EXIT_ENABLED = True                     # close early when structure/trend flips against an open trade
+STRUCTURE_TF_MIN = 15                             # timeframe (minutes) used for structure analysis
+STRUCTURE_CHECK_SEC = 20.0                        # how often to re-evaluate structure per ticket
+STRUCTURE_EXIT_MAX_PROFIT = 0.0                   # only exit early while trade is at/below this floating profit
 
 # ============= AUTO-DETECT MODE =============
 # The bridge now auto-detects your broker account (login/server) from the
