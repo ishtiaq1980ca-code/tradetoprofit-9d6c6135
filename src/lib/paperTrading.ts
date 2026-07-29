@@ -75,12 +75,11 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      // Default to R-based trailing (BE @ 0.5R, partial @ 1R, trail 1R behind).
-      // USD-based trail was too tight for FX at 0.01 lots (locks within pips
-      // of entry and gets stopped by spread), so paper trades kept dying.
-      trailTriggerUsd: 1,
-      trailStepUsd: 1,
-      useUsdTrail: false,
+      // Smart Trailing v2: USD step ladder — BE at +$1.5, then SL trails
+      // $1.5 behind each completed $1.5 profit step.
+      trailTriggerUsd: 1.5,
+      trailStepUsd: 1.5,
+      useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
       setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
       setUseUsdTrail: (v) => set({ useUsdTrail: v }),
