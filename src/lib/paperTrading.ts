@@ -196,14 +196,13 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 4,
+      version: 5,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // v4: switch back to R-based trailing. USD $1 trail was too tight
-          // for FX at 0.01 lots and killed paper trades near breakeven.
-          persisted.useUsdTrail = false;
-          persisted.trailTriggerUsd = 1;
-          persisted.trailStepUsd = 1;
+          // v5: Smart Trailing v2 — USD step ladder, BE at +$1.5, step $1.5.
+          persisted.useUsdTrail = true;
+          persisted.trailTriggerUsd = 1.5;
+          persisted.trailStepUsd = 1.5;
         }
         return persisted;
       },
