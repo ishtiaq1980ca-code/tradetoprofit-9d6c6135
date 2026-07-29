@@ -701,11 +701,92 @@ def _apply_partial_tp(position) -> bool:
     return False
 
 
+
+_LAST_STRUCT_CHECK_TS: dict[int, float] = {}
+
+
+def _ema_series(values, period: int):
+    if not values or period <= 0 or len(values) < period:
+        return None
+    k = 2.0 / (period + 1.0)
+    ema = sum(values[:period]) / period
+    for v in values[period:]:
+        ema = v * k + ema * (1 - k)
+    return ema
+
+
+def _structure_flipped(symbol: str, is_buy: bool) -> str | None:
+    """Return a reason string when higher-timeframe structure has flipped
+    against an open trade (trend reversal / structure break), else None."""
+    tf_map = {1: mt5.TIMEFRAME_M1, 5: mt5.TIMEFRAME_M5, 15: mt5.TIMEFRAME_M15,
+              30: mt5.TIMEFRAME_M30, 60: mt5.TIMEFRAME_H1}
+    tf = tf_map.get(int(STRUCTURE_TF_MIN), mt5.TIMEFRAME_M15)
+    rates = mt5.copy_rates_from_pos(symbol, tf, 0, 220)
+    if rates is None or len(rates) < 60:
+        return None
+    closes = [float(r["close"]) for r in rates]
+    highs = [float(r["high"]) for r in rates]
+    lows = [float(r["low"]) for r in rates]
+    # drop the still-forming candle
+    closes, highs, lows = closes[:-1], highs[:-1], lows[:-1]
+    if len(closes) < 60:
+        return None
+
+    ema_fast = _ema_series(closes, 50)
+    ema_slow = _ema_series(closes, min(200, len(closes) - 1))
+    if ema_fast is None or ema_slow is None:
+        return None
+    trend_bull = ema_fast >= ema_slow
+
+    # Swing structure over the last 20 completed candles vs the 20 before that.
+    recent_high, prev_high = max(highs[-20:]), max(highs[-40:-20])
+    recent_low, prev_low = min(lows[-20:]), min(lows[-40:-20])
+    price = closes[-1]
+
+    if is_buy:
+        broke_down = recent_low < prev_low and price < ema_fast
+        if (not trend_bull) and broke_down:
+            return "HTF trend flipped bearish + lower-low structure break"
+    else:
+        broke_up = recent_high > prev_high and price > ema_fast
+        if trend_bull and broke_up:
+            return "HTF trend flipped bullish + higher-high structure break"
+    return None
+
+
+def _apply_structure_exit(position) -> bool:
+    """Smart Trailing v2 §3: if setup is invalidated, take the small loss now
+    instead of waiting for the full stop loss."""
+    if not STRUCTURE_EXIT_ENABLED or position.magic != MAGIC:
+        return False
+    ticket = int(position.ticket)
+    now = time.time()
+    if now - _LAST_STRUCT_CHECK_TS.get(ticket, 0.0) < STRUCTURE_CHECK_SEC:
+        return False
+    _LAST_STRUCT_CHECK_TS[ticket] = now
+
+    profit = float(position.profit or 0)
+    # Never cut winners early (Golden Rule) — only rescue losing/flat trades.
+    if profit > STRUCTURE_EXIT_MAX_PROFIT:
+        return False
+    is_buy = position.type == mt5.POSITION_TYPE_BUY
+    reason = _structure_flipped(position.symbol, is_buy)
+    if not reason:
+        return False
+    if _close_position(position, f"structure exit: {reason}"):
+        print(f"Structure exit ticket={ticket} profit=${profit:.2f} — {reason}")
+        return True
+    return False
+
+
 def manage_trailing_stops() -> int:
     positions = mt5.positions_get() or []
     moved = 0
     for p in positions:
         try:
+            if _apply_structure_exit(p):
+                moved += 1
+                continue
             _apply_partial_tp(p)
             if _apply_usd_trailing_stop(p):
                 moved += 1
