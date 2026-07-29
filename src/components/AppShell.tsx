@@ -25,6 +25,14 @@ const baseNav = [
 ] as const;
 const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck } as const;
 
+// Client (non-admin) accounts only see these four sections.
+const clientNav = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/positions", label: "Positions", icon: ListChecks },
+  { to: "/backtest", label: "Backtest", icon: BarChart3 },
+  { to: "/bridge", label: "MT5 Bridge", icon: PlugZap },
+] as const;
+
 
 function NavList({ pathname, onNavigate, items }: { pathname: string; onNavigate?: () => void; items: ReadonlyArray<{ to: string; label: string; icon: any }> }) {
   return (
@@ -109,7 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const { isAdmin } = useIsAdmin();
-  const items = useMemo(() => (isAdmin ? [...baseNav, adminNav] : [...baseNav]), [isAdmin]);
+  const items = useMemo(() => (isAdmin ? [...baseNav, adminNav] : [...clientNav]), [isAdmin]);
   return (
     <AuthGate>
       <div className="flex min-h-screen">
