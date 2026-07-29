@@ -149,11 +149,13 @@ export const useAccount = create<Store>()(
           let updated: Position = { ...p };
 
           if (s.useUsdTrail) {
-            // USD-based trailing: once floating profit ≥ trigger, lock SL so we
-            // keep (profit − trailStep) USD of profit. SL ratchets, never widens.
+            // Smart Trailing v2 step ladder: nothing moves until +$1.5, then
+            // +$1.5 → BE, +$3 → lock $1.5, +$4.5 → lock $3, and so on.
             const profitUsd = pnlOf(p, price);
             if (profitUsd >= s.trailTriggerUsd) {
-              const lockUsd = profitUsd - s.trailStepUsd;
+              const step = Math.max(0.01, s.trailStepUsd);
+              const stepsDone = Math.floor(profitUsd / step);
+              const lockUsd = Math.max(0, (stepsDone - 1) * step);
               const vpu = valuePerUnit(p.symbol) * p.lot || 1;
               const priceMoveForLock = lockUsd / vpu;
               const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
