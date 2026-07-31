@@ -623,11 +623,21 @@ async function runScan() {
     return;
   }
 
-  // Never mark trades as queued while the MT5 bridge is offline/stale. This
-  // prevents the app from showing trades that cannot be executed on MT5.
+  // PHASE 10 §10 — MT5 stability protection. A temporary stale heartbeat must
+  // NEVER disable the bot. We retry the heartbeat, log a warning only, and the
+  // engine keeps running so trading resumes automatically once MT5 answers.
   if (!mt5HeartbeatFresh()) {
-    logThrottled("mt5-stale", "warn", "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running");
-    return;
+    await refreshMt5Heartbeat();          // auto-reconnect attempt #1
+    if (!mt5HeartbeatFresh()) {
+      await new Promise((r) => setTimeout(r, 800));
+      await refreshMt5Heartbeat();        // auto-reconnect attempt #2
+    }
+    if (!mt5HeartbeatFresh()) {
+      logThrottled("mt5-stale", "warn",
+        "MT5 bridge heartbeat stale — auto-reconnecting, bot stays active and will resume automatically");
+      return; // skip THIS scan only; the engine loop keeps running
+    }
+    bot.pushLog({ t: Date.now(), level: "info", msg: "MT5 bridge reconnected — trading resumed automatically" });
   }
 
   // When MT5 is connected, the browser must not keep old virtual/paper
