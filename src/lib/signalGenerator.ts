@@ -569,5 +569,4 @@ function buildDecision(args: {
     qualityBreakdown: args.quality,
     gateChecks: args.gateChecks,
   };
-  };
 }
