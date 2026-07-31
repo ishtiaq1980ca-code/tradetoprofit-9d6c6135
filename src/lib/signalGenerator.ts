@@ -113,13 +113,7 @@ export type GeneratorParams = {
   context?: { duplicate?: boolean; recentStopCooldown?: boolean };
 };
 
-// Back-compat alias for the older Signals UI.
-export type HighConfidenceSignal = TradeDecision;
 
-export type GeneratorParams = {
-  minConfidence: number;
-  risk: RiskParams;
-};
 
 export const DEFAULT_GENERATOR_PARAMS: GeneratorParams = {
   minConfidence: MIN_CONFIDENCE_FX,
