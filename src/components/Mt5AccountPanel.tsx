@@ -37,14 +37,25 @@ export function Mt5AccountPanel() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  const fresh = snap ? Date.now() - new Date(snap.created_at).getTime() < 90_000 : false;
+  const ageMs = snap ? Date.now() - new Date(snap.created_at).getTime() : Infinity;
+  const fresh = ageMs < 90_000;
+  const status = !snap
+    ? { label: "🔴 Offline", tone: "bear" as const }
+    : ageMs < 20_000
+      ? { label: "🟢 Connected", tone: "bull" as const }
+      : ageMs < 45_000
+        ? { label: "🟠 Recovering", tone: "muted" as const }
+        : ageMs < 90_000
+          ? { label: "🟡 Reconnecting", tone: "muted" as const }
+          : { label: "🔴 Offline", tone: "bear" as const };
+  const ageLabel = !snap ? "—" : ageMs < 60_000 ? `${Math.max(0, Math.round(ageMs / 1000))} sec ago` : `${Math.round(ageMs / 60_000)} min ago`;
 
   return (
     <Card className="border-border/60 bg-card/70 backdrop-blur">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-base font-medium">Connected MT5 Account</CardTitle>
-        <Badge variant="outline" className={cn(fresh ? "border-bull/40 text-bull" : "border-border text-muted-foreground")}>
-          {snap ? (snap.mode === "real" ? "LIVE" : "DEMO") : "—"} · {fresh ? "Live" : snap ? "Stale" : "Offline"}
+        <Badge variant="outline" className={cn(status.tone === "bull" ? "border-bull/40 text-bull" : status.tone === "bear" ? "border-bear/40 text-bear" : "border-border text-muted-foreground")}>
+          {snap ? (snap.mode === "real" ? "LIVE" : "DEMO") : "—"} · {status.label}
         </Badge>
       </CardHeader>
       <CardContent>
@@ -56,11 +67,18 @@ export function Mt5AccountPanel() {
           </p>
         ) : (
           <div className="space-y-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+              <span>Heartbeat: <span className="text-foreground">{ageLabel}</span></span>
+              <span>MT5: <span className={fresh ? "text-bull" : "text-bear"}>{fresh ? "Connected" : "Waiting"}</span></span>
+              <span>Server: <span className="text-bull">Connected</span></span>
+              <span>Bridge: <span className="text-foreground">v2026073102</span></span>
+            </div>
             {!fresh && (
               <p className="rounded-md border border-bear/30 bg-bear/10 px-3 py-2 text-sm text-bear">
-                MT5 bridge heartbeat is stale. Restart the updated <code>aurumai_bridge.py</code>; new signals are paused until MT5 reconnects.
+                No MT5 heartbeat for over 90 seconds. The bridge self-heals automatically — keep <code>aurumai_bridge.py</code> running; it reconnects MT5, resends the heartbeat and resumes polling on its own.
               </p>
             )}
+
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Balance" value={fmt.money(snap.balance)} />
               <Field label="Equity" value={fmt.money(snap.equity)} />
