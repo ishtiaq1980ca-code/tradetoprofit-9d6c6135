@@ -4,6 +4,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD } from "./riskEngine";
 
 export type Position = {
   id: string;
