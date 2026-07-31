@@ -347,23 +347,64 @@ export function generateTradeDecision(
   filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews, fStruct);
   const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News", "Structure"];
 
+  // PHASE 10 §1 — Ultra-strict entry gate. EVERY confirmation must be TRUE.
+  const gate = strictEntryGate({
+    side: pb.side,
+    price,
+    profile,
+    candles,
+    ind: {
+      ema50: ind.ema50, ema200: ind.ema200, rsi: ind.rsi,
+      macdHist: ind.macdHist, macdPrev: ind.macdPrev, adx: ind.adx, atr: ind.atr,
+    },
+    spread: fSpread,
+    session: fSess,
+    news: fNews,
+    structure: fStruct,
+    duplicate: params.context?.duplicate,
+    recentStopCooldown: params.context?.recentStopCooldown,
+  });
+
+  // PHASE 10 §9 — Trade quality score (0–100), gate at >= 90.
+  const scored = computeTradeScore({
+    side: pb.side,
+    price,
+    profile,
+    candles,
+    ema50: ind.ema50, ema200: ind.ema200, rsi: ind.rsi,
+    macdHist: ind.macdHist, macdPrev: ind.macdPrev, adx: ind.adx, atr: ind.atr,
+    spreadPct: (spread / price) * 100,
+    structurePass: fStruct.pass,
+    newsClear: fNews.pass,
+  });
+
+  const allFilters = [
+    ...filters.map((f, i) => ({ name: filterNames[i], ...f })),
+    ...gate.checks.map((c) => ({ name: `Gate: ${c.name}`, pass: c.pass, reason: c.reason })),
+    {
+      name: "Trade quality score",
+      pass: scored.score.total >= MIN_TRADE_SCORE,
+      reason: `Score ${scored.score.total}/100 (min ${MIN_TRADE_SCORE}) — ${scored.notes.join(" | ")}`,
+    },
+  ];
+
   const firstBlock = filters.find((f) => !f.pass);
-  if (firstBlock) {
-    return buildDecision({
-      profile, ind, price, balance, params,
-      side: pb.side,
-      strategyRationale: pb.rationale,
-      filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
-      blocked: firstBlock.reason,
-    });
-  }
+  const blocked = firstBlock
+    ? firstBlock.reason
+    : !gate.pass
+      ? `Entry gate failed — ${gate.firstFailure}`
+      : scored.score.total < MIN_TRADE_SCORE
+        ? `Trade score ${scored.score.total}/100 < required ${MIN_TRADE_SCORE}`
+        : null;
 
   return buildDecision({
     profile, ind, price, balance, params,
     side: pb.side,
     strategyRationale: pb.rationale,
-    filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
-    blocked: null,
+    filters: allFilters,
+    blocked,
+    quality: scored.score,
+    qualityNotes: scored.notes,
   });
 }
 
