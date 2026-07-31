@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026072902                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026073101                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -56,8 +56,10 @@ PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker g
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
-USD_TRAIL_TRIGGER = 1.5                           # Smart Trailing v2: no SL move until floating profit ≥ +$1.50
-USD_TRAIL_STEP = 1.5                              # step ladder: +$1.5 → BE, +$3 → +$1.5, +$4.5 → +$3, ...
+USD_TRAIL_TRIGGER = 1.0                           # PHASE 10 §3: SL moves to break-even at +$1.00 profit (nothing before)
+USD_TRAIL_START   = 2.0                           # PHASE 10 §4: step trailing only begins at +$2.00 profit
+USD_TRAIL_STEP = 1.0                              # ladder: +$2 → +$1, +$3 → +$2, +$4 → +$3, ...
+WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
@@ -87,7 +89,7 @@ try:
     _OVERRIDABLE = (
         "BASE_URL", "BRIDGE_TOKEN", "MT5_LOGIN", "MT5_PASS", "MT5_SERVER",
         "POLL_SEC", "SLIPPAGE", "MAGIC",
-        "USD_TRAIL_TRIGGER", "USD_TRAIL_STEP",
+        "USD_TRAIL_TRIGGER", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -597,8 +599,14 @@ def _apply_usd_trailing_stop(position) -> bool:
     # behind the highest completed profit step:
     #   +$1.5 → BE (lock $0), +$3 → lock $1.5, +$4.5 → lock $3, ...
     step = max(0.01, float(USD_TRAIL_STEP))
-    steps_done = int(profit // step)
-    lock_usd = max(0.0, (steps_done - 1) * step)
+    adx_now = _current_adx(position.symbol)
+    if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
+        step = step * 2.0          # §8 dynamic trailing speed: let strong trends breathe
+    if profit < float(USD_TRAIL_START):
+        lock_usd = 0.0             # §3: break-even only, nothing else
+    else:
+        steps_done = int(profit // step)
+        lock_usd = max(0.0, (steps_done - 1) * step)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
@@ -715,21 +723,118 @@ def _ema_series(values, period: int):
     return ema
 
 
+def _rsi_last(closes, period: int = 14):
+    if len(closes) < period + 2:
+        return None
+    gains = losses = 0.0
+    for k in range(1, period + 1):
+        d = closes[k] - closes[k - 1]
+        gains += max(d, 0.0)
+        losses += max(-d, 0.0)
+    gains /= period
+    losses /= period
+    for k in range(period + 1, len(closes)):
+        d = closes[k] - closes[k - 1]
+        gains = (gains * (period - 1) + max(d, 0.0)) / period
+        losses = (losses * (period - 1) + max(-d, 0.0)) / period
+    if losses == 0:
+        return 100.0
+    return 100.0 - 100.0 / (1.0 + gains / losses)
+
+
+def _macd_hist_last2(closes):
+    """Return (hist, prev_hist) of the standard 12/26/9 MACD."""
+    if len(closes) < 60:
+        return None, None
+    def ema_list(vals, period):
+        k = 2.0 / (period + 1.0)
+        out = []
+        e = sum(vals[:period]) / period
+        out.append(e)
+        for v in vals[period:]:
+            e = v * k + e * (1 - k)
+            out.append(e)
+        return out
+    ef, es = ema_list(closes, 12), ema_list(closes, 26)
+    n = min(len(ef), len(es))
+    macd_line = [ef[len(ef) - n + i] - es[len(es) - n + i] for i in range(n)]
+    if len(macd_line) < 12:
+        return None, None
+    sig = ema_list(macd_line, 9)
+    m = min(len(macd_line), len(sig))
+    hist = [macd_line[len(macd_line) - m + i] - sig[len(sig) - m + i] for i in range(m)]
+    return hist[-1], hist[-2]
+
+
+def _atr_last(highs, lows, closes, period: int = 14):
+    if len(closes) < period + 2:
+        return None
+    trs = []
+    for k in range(1, len(closes)):
+        trs.append(max(highs[k] - lows[k], abs(highs[k] - closes[k - 1]), abs(lows[k] - closes[k - 1])))
+    a = sum(trs[:period]) / period
+    for t in trs[period:]:
+        a = (a * (period - 1) + t) / period
+    return a
+
+
+def _current_adx(symbol: str, period: int = 14):
+    """ADX on the structure timeframe — used for dynamic trailing speed."""
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 120)
+        if rates is None or len(rates) < period * 3:
+            return None
+        highs = [float(r["high"]) for r in rates][:-1]
+        lows = [float(r["low"]) for r in rates][:-1]
+        closes = [float(r["close"]) for r in rates][:-1]
+        tr = pdm = mdm = 0.0
+        adx_vals = []
+        prev_adx = None
+        dxs = []
+        for k in range(1, len(closes)):
+            up = highs[k] - highs[k - 1]
+            dn = lows[k - 1] - lows[k]
+            p = up if (up > dn and up > 0) else 0.0
+            m = dn if (dn > up and dn > 0) else 0.0
+            t = max(highs[k] - lows[k], abs(highs[k] - closes[k - 1]), abs(lows[k] - closes[k - 1]))
+            tr = tr - tr / period + t
+            pdm = pdm - pdm / period + p
+            mdm = mdm - mdm / period + m
+            if tr <= 0:
+                continue
+            pdi = 100.0 * pdm / tr
+            mdi = 100.0 * mdm / tr
+            denom = pdi + mdi
+            if denom > 0:
+                dxs.append(100.0 * abs(pdi - mdi) / denom)
+        if len(dxs) < period:
+            return None
+        adx = sum(dxs[:period]) / period
+        for d in dxs[period:]:
+            adx = (adx * (period - 1) + d) / period
+        return adx
+    except Exception:
+        return None
+
+
 def _structure_flipped(symbol: str, is_buy: bool) -> str | None:
-    """Return a reason string when higher-timeframe structure has flipped
-    against an open trade (trend reversal / structure break), else None."""
+    """PHASE 10 §2/§6 — confirmed reversal only. ALL of the following must be
+    true before an early exit is allowed (single candles / pullbacks ignored):
+      trend flip + BOS + close beyond structure + 2 candles + RSI + MACD + ATR.
+    """
     tf_map = {1: mt5.TIMEFRAME_M1, 5: mt5.TIMEFRAME_M5, 15: mt5.TIMEFRAME_M15,
               30: mt5.TIMEFRAME_M30, 60: mt5.TIMEFRAME_H1}
     tf = tf_map.get(int(STRUCTURE_TF_MIN), mt5.TIMEFRAME_M15)
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, 220)
-    if rates is None or len(rates) < 60:
+    if rates is None or len(rates) < 80:
         return None
     closes = [float(r["close"]) for r in rates]
+    opens = [float(r["open"]) for r in rates]
     highs = [float(r["high"]) for r in rates]
     lows = [float(r["low"]) for r in rates]
     # drop the still-forming candle
-    closes, highs, lows = closes[:-1], highs[:-1], lows[:-1]
-    if len(closes) < 60:
+    closes, opens, highs, lows = closes[:-1], opens[:-1], highs[:-1], lows[:-1]
+    if len(closes) < 70:
         return None
 
     ema_fast = _ema_series(closes, 50)
@@ -737,20 +842,41 @@ def _structure_flipped(symbol: str, is_buy: bool) -> str | None:
     if ema_fast is None or ema_slow is None:
         return None
     trend_bull = ema_fast >= ema_slow
-
-    # Swing structure over the last 20 completed candles vs the 20 before that.
-    recent_high, prev_high = max(highs[-20:]), max(highs[-40:-20])
-    recent_low, prev_low = min(lows[-20:]), min(lows[-40:-20])
     price = closes[-1]
 
+    # 1. Trend flip against the position
+    trend_flip = (not trend_bull) if is_buy else trend_bull
+    # 2/3. Break of structure + close beyond the broken level
+    recent_high, prev_high = max(highs[-20:]), max(highs[-40:-20])
+    recent_low, prev_low = min(lows[-20:]), min(lows[-40:-20])
     if is_buy:
-        broke_down = recent_low < prev_low and price < ema_fast
-        if (not trend_bull) and broke_down:
-            return "HTF trend flipped bearish + lower-low structure break"
+        bos = recent_low < prev_low
+        close_beyond = price < prev_low
     else:
-        broke_up = recent_high > prev_high and price > ema_fast
-        if trend_bull and broke_up:
-            return "HTF trend flipped bullish + higher-high structure break"
+        bos = recent_high > prev_high
+        close_beyond = price > prev_high
+    # 4. Two consecutive confirmed candles in the reversal direction
+    if is_buy:
+        two_candles = closes[-1] < opens[-1] and closes[-2] < opens[-2]
+    else:
+        two_candles = closes[-1] > opens[-1] and closes[-2] > opens[-2]
+    # 5. RSI reversal
+    r = _rsi_last(closes, 14)
+    rsi_ok = r is not None and (r < 45 if is_buy else r > 55)
+    # 6. MACD reversal
+    h, hp = _macd_hist_last2(closes)
+    if h is None:
+        macd_ok = False
+    else:
+        macd_ok = (h < 0 and h <= hp) if is_buy else (h > 0 and h >= hp)
+    # 7. ATR confirms real momentum (anti-noise)
+    a = _atr_last(highs, lows, closes, 14)
+    leg = abs(closes[-1] - closes[-3])
+    atr_ok = a is not None and a > 0 and leg >= a * 0.8
+
+    if trend_flip and bos and close_beyond and two_candles and rsi_ok and macd_ok and atr_ok:
+        return (f"confirmed reversal: trend flip + BOS + close beyond structure + 2 candles "
+                f"+ RSI {r:.1f} + MACD {h:.5f} + ATR momentum {leg:.5f}/{a:.5f}")
     return None
 
 
@@ -1173,8 +1299,14 @@ def discover_all_symbols() -> None:
 
 
 def main():
-    if not connect_mt5():
-        sys.exit(1)
+    # PHASE 10 §10 — never halt on a bad/stale MT5 connection. Retry forever
+    # with a short backoff until the terminal is up and logged in.
+    attempt = 0
+    while not connect_mt5():
+        attempt += 1
+        wait = min(30, 3 * attempt)
+        print(f"MT5 not ready (attempt {attempt}) — retrying in {wait}s. Bridge stays running.")
+        time.sleep(wait)
     discover_all_symbols()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     last_acct = 0

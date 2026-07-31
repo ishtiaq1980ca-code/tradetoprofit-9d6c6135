@@ -4,6 +4,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD } from "./riskEngine";
 
 export type Position = {
   id: string;
@@ -75,10 +76,9 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      // Smart Trailing v2: USD step ladder — BE at +$1.5, then SL trails
-      // $1.5 behind each completed $1.5 profit step.
-      trailTriggerUsd: 1.5,
-      trailStepUsd: 1.5,
+      // PHASE 10: BE at +$1.00, step trailing from +$2.00 in $1.00 steps.
+      trailTriggerUsd: BREAK_EVEN_USD,
+      trailStepUsd: TRAIL_STEP_USD,
       useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
       setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
@@ -148,13 +148,11 @@ export const useAccount = create<Store>()(
           let updated: Position = { ...p };
 
           if (s.useUsdTrail) {
-            // Smart Trailing v2 step ladder: nothing moves until +$1.5, then
-            // +$1.5 → BE, +$3 → lock $1.5, +$4.5 → lock $3, and so on.
+            // PHASE 10 §3/§4 — Intelligent BE + elite step trailing:
+            //   < $1 → no move, $1 → BE, $2 → +$1, $3 → +$2, $4 → +$3 ...
             const profitUsd = pnlOf(p, price);
-            if (profitUsd >= s.trailTriggerUsd) {
-              const step = Math.max(0.01, s.trailStepUsd);
-              const stepsDone = Math.floor(profitUsd / step);
-              const lockUsd = Math.max(0, (stepsDone - 1) * step);
+            const lockUsd = lockedProfitUsd(profitUsd, s.trailStepUsd);
+            if (lockUsd !== null) {
               const vpu = valuePerUnit(p.symbol) * p.lot || 1;
               const priceMoveForLock = lockUsd / vpu;
               const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
@@ -196,13 +194,13 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 5,
+      version: 6,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // v5: Smart Trailing v2 — USD step ladder, BE at +$1.5, step $1.5.
+          // v6: PHASE 10 — BE at +$1.00, step trailing from +$2.00, step $1.00.
           persisted.useUsdTrail = true;
-          persisted.trailTriggerUsd = 1.5;
-          persisted.trailStepUsd = 1.5;
+          persisted.trailTriggerUsd = BREAK_EVEN_USD;
+          persisted.trailStepUsd = TRAIL_STEP_USD;
         }
         return persisted;
       },

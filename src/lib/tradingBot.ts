@@ -623,11 +623,21 @@ async function runScan() {
     return;
   }
 
-  // Never mark trades as queued while the MT5 bridge is offline/stale. This
-  // prevents the app from showing trades that cannot be executed on MT5.
+  // PHASE 10 §10 — MT5 stability protection. A temporary stale heartbeat must
+  // NEVER disable the bot. We retry the heartbeat, log a warning only, and the
+  // engine keeps running so trading resumes automatically once MT5 answers.
   if (!mt5HeartbeatFresh()) {
-    logThrottled("mt5-stale", "warn", "Blocked: MT5 bridge heartbeat stale/offline — keep your existing bridge running");
-    return;
+    await refreshMt5Heartbeat();          // auto-reconnect attempt #1
+    if (!mt5HeartbeatFresh()) {
+      await new Promise((r) => setTimeout(r, 800));
+      await refreshMt5Heartbeat();        // auto-reconnect attempt #2
+    }
+    if (!mt5HeartbeatFresh()) {
+      logThrottled("mt5-stale", "warn",
+        "MT5 bridge heartbeat stale — auto-reconnecting, bot stays active and will resume automatically");
+      return; // skip THIS scan only; the engine loop keeps running
+    }
+    bot.pushLog({ t: Date.now(), level: "info", msg: "MT5 bridge reconnected — trading resumed automatically" });
   }
 
   // When MT5 is connected, the browser must not keep old virtual/paper
@@ -721,6 +731,19 @@ async function runScan() {
   const sameDirectionTotal = (sym: string, side: "BUY" | "SELL") =>
     (perSideCount[`${sym}:${side}`] ?? 0) + recentSameDirection(sym, side);
 
+  // PHASE 10 §1 — cooldown after a stop-loss on the same symbol. No re-entry
+  // into a symbol that just stopped us out until the cooldown expires.
+  const STOP_COOLDOWN_MS = 15 * 60_000;
+  const stoppedRecently = (sym: string) =>
+    acc.history.some(
+      (h) => h.symbol === sym &&
+        now - h.closedAt < STOP_COOLDOWN_MS &&
+        /stop/i.test(h.closeReason) &&
+        h.profit < 0,
+    );
+
+
+
 
   let opened = 0;
   let usedLot = openLot;
@@ -763,6 +786,10 @@ async function runScan() {
     const decision = generateTradeDecision(sym, candles, acc.balance, {
       minConfidence: Math.max(bot.minConfidence, symbolFloor),
       risk: { ...DEFAULT_RISK, riskPct: bot.riskPct, maxDailyLossPct: bot.maxDailyLossPct },
+      context: {
+        duplicate: (perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol,
+        recentStopCooldown: stoppedRecently(sym),
+      },
     });
     if (!decision) continue;
 
@@ -793,6 +820,8 @@ async function runScan() {
       lot: decision.lot,
       riskPct: decision.riskPct,
       riskReward: decision.riskReward,
+      qualityScore: decision.qualityScore,
+      gateChecks: decision.gateChecks,
     } as const;
 
     if (!decision.accepted || decision.side === "FLAT") {

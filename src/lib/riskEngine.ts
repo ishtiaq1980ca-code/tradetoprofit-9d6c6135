@@ -29,6 +29,31 @@ export const DEFAULT_RISK: RiskParams = {
   maxMonthlyLossPct: 12,
 };
 
+// PHASE 10 §3 / §4 — Intelligent break-even + elite step trailing (USD based).
+//   Profit < $1.00            → no SL movement at all
+//   Profit ≥ $1.00            → SL = entry (break-even), nothing else
+//   Profit ≥ $2.00            → SL = +$1, then +$3 → +$2, +$4 → +$3, ...
+// SL never moves backwards.
+export const BREAK_EVEN_USD = 1.0;
+export const TRAIL_START_USD = 2.0;
+export const TRAIL_STEP_USD = 1.0;
+
+/** Dynamic trailing speed (PHASE 10 §8): wider trail in strong trends. */
+export function trailStepForAdx(adxValue: number): number {
+  if (adxValue > 35) return TRAIL_STEP_USD * 2;   // wide trailing — let winners run
+  return TRAIL_STEP_USD;                           // normal trailing (ADX 25–35)
+}
+
+/** USD profit that must be locked in by the stop, given floating profit.
+ *  Returns null while the stop should not move at all. */
+export function lockedProfitUsd(profitUsd: number, stepUsd = TRAIL_STEP_USD): number | null {
+  if (profitUsd < BREAK_EVEN_USD) return null;              // §3: nothing moves
+  if (profitUsd < TRAIL_START_USD) return 0;                // §3: break-even only
+  const step = Math.max(0.1, stepUsd);
+  const stepsDone = Math.floor(profitUsd / step);
+  return Math.max(0, (stepsDone - 1) * step);               // §4: $2→+$1, $3→+$2 ...
+}
+
 /** ATR-based stop loss distance in price units. */
 export function atrStopDistance(atrVal: number, atrSlMult: number): number {
   return Math.max(0, atrVal * atrSlMult);

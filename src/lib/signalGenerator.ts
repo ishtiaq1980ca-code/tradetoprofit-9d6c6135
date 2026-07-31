@@ -26,6 +26,9 @@ import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./ri
 import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
 import { evaluateStructure } from "./marketStructure";
+import { strictEntryGate, type GateCheck } from "./entryGate";
+import { computeTradeScore, MIN_TRADE_SCORE, type ScoreComponents } from "./qualityScore";
+export { MIN_TRADE_SCORE } from "./qualityScore";
 
 // Confidence gates: gold requires 85%, FX currencies 80%.
 export const MIN_CONFIDENCE_GOLD = 85;
@@ -94,6 +97,10 @@ export type TradeDecision = {
   };
   reason: string;            // multi-line summary
   generatedAt: number;
+  /** PHASE 10 §9 — 0..100 institutional trade quality score. */
+  qualityScore: number;
+  qualityBreakdown?: ScoreComponents;
+  gateChecks?: GateCheck[];
 };
 
 // Back-compat alias for the older Signals UI.
@@ -102,7 +109,11 @@ export type HighConfidenceSignal = TradeDecision;
 export type GeneratorParams = {
   minConfidence: number;
   risk: RiskParams;
+  /** Runtime context from the engine (duplicate / stop-loss cooldown). */
+  context?: { duplicate?: boolean; recentStopCooldown?: boolean };
 };
+
+
 
 export const DEFAULT_GENERATOR_PARAMS: GeneratorParams = {
   minConfidence: MIN_CONFIDENCE_FX,
@@ -347,23 +358,65 @@ export function generateTradeDecision(
   filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews, fStruct);
   const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News", "Structure"];
 
+  // PHASE 10 §1 — Ultra-strict entry gate. EVERY confirmation must be TRUE.
+  const gate = strictEntryGate({
+    side: pb.side,
+    price,
+    profile,
+    candles,
+    ind: {
+      ema50: ind.ema50, ema200: ind.ema200, rsi: ind.rsi,
+      macdHist: ind.macdHist, macdPrev: ind.macdPrev, adx: ind.adx, atr: ind.atr,
+    },
+    spread: fSpread,
+    session: fSess,
+    news: fNews,
+    structure: fStruct,
+    duplicate: params.context?.duplicate,
+    recentStopCooldown: params.context?.recentStopCooldown,
+  });
+
+  // PHASE 10 §9 — Trade quality score (0–100), gate at >= 90.
+  const scored = computeTradeScore({
+    side: pb.side,
+    price,
+    profile,
+    candles,
+    ema50: ind.ema50, ema200: ind.ema200, rsi: ind.rsi,
+    macdHist: ind.macdHist, macdPrev: ind.macdPrev, adx: ind.adx, atr: ind.atr,
+    spreadPct: (spread / price) * 100,
+    structurePass: fStruct.pass,
+    newsClear: fNews.pass,
+  });
+
+  const allFilters = [
+    ...filters.map((f, i) => ({ name: filterNames[i], ...f })),
+    ...gate.checks.map((c) => ({ name: `Gate: ${c.name}`, pass: c.pass, reason: c.reason })),
+    {
+      name: "Trade quality score",
+      pass: scored.score.total >= MIN_TRADE_SCORE,
+      reason: `Score ${scored.score.total}/100 (min ${MIN_TRADE_SCORE}) — ${scored.notes.join(" | ")}`,
+    },
+  ];
+
   const firstBlock = filters.find((f) => !f.pass);
-  if (firstBlock) {
-    return buildDecision({
-      profile, ind, price, balance, params,
-      side: pb.side,
-      strategyRationale: pb.rationale,
-      filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
-      blocked: firstBlock.reason,
-    });
-  }
+  const blocked = firstBlock
+    ? firstBlock.reason
+    : !gate.pass
+      ? `Entry gate failed — ${gate.firstFailure}`
+      : scored.score.total < MIN_TRADE_SCORE
+        ? `Trade score ${scored.score.total}/100 < required ${MIN_TRADE_SCORE}`
+        : null;
 
   return buildDecision({
     profile, ind, price, balance, params,
     side: pb.side,
     strategyRationale: pb.rationale,
-    filters: filters.map((f, i) => ({ name: filterNames[i], ...f })),
-    blocked: null,
+    filters: allFilters,
+    blocked,
+    quality: scored.score,
+    qualityNotes: scored.notes,
+    gateChecks: gate.checks,
   });
 }
 
@@ -391,6 +444,9 @@ function buildDecision(args: {
   strategyRationale: string;
   filters: FilterSummary[];
   blocked: string | null;
+  quality?: ScoreComponents;
+  qualityNotes?: string[];
+  gateChecks?: GateCheck[];
 }): TradeDecision {
   const { profile, ind, price, balance, params, side, strategyRationale, filters, blocked } = args;
 
@@ -453,17 +509,21 @@ function buildDecision(args: {
   const lot = side === "FLAT" ? 0 : positionSize(profile.symbol, balance, params.risk.riskPct, slDistance);
   const riskReason = `Risk ${params.risk.riskPct}% of $${balance.toFixed(2)} → lot ${lot} | BE +${params.risk.breakEvenAtR}R | trail +${params.risk.trailStartAtR}R`;
 
-  const accepted = side !== "FLAT" && !blocked && breakdown.total >= params.minConfidence;
+  const qualityTotal = args.quality?.total ?? 0;
+  const scoreOk = side === "FLAT" ? false : qualityTotal >= MIN_TRADE_SCORE;
+  const accepted = side !== "FLAT" && !blocked && scoreOk && breakdown.total >= params.minConfidence;
   const rejectionReason = blocked
     ? blocked
     : side === "FLAT"
       ? "Strategy did not trigger"
-      : breakdown.total < params.minConfidence
-        ? `Confidence ${breakdown.total}% < ${params.minConfidence}%`
-        : undefined;
+      : !scoreOk
+        ? `Trade score ${qualityTotal}/100 < required ${MIN_TRADE_SCORE}`
+        : breakdown.total < params.minConfidence
+          ? `Confidence ${breakdown.total}% < ${params.minConfidence}%`
+          : undefined;
 
   const reasonLines = [
-    `${profile.symbol} ${side} | ${profile.label} | Confidence ${breakdown.total}%`,
+    `${profile.symbol} ${side} | ${profile.label} | Confidence ${breakdown.total}% | Trade Score ${qualityTotal}/100`,
     `  Strategy   ${strategyRationale}`,
     `  Trend      [${breakdown.trend}/25]  ${trendReason}`,
     `  Momentum   [${breakdown.momentum}/25]  ${momentumReason}`,
@@ -471,10 +531,12 @@ function buildDecision(args: {
     `  Structure  [${breakdown.structure}/20]  ${structureReason}`,
     `  R:R        [${breakdown.riskReward}/15]  ${rrReason}`,
     `  Risk              ${riskReason}`,
+    args.qualityNotes?.length ? `  Score      ${args.qualityNotes.join(" | ")}` : "",
     `  Filters    ${filters.map((f) => `${f.name}:${f.pass ? "OK" : "FAIL"}`).join("  ")}`,
     side !== "FLAT" ? `  Plan       Entry ${price.toFixed(5)} | SL ${stopLoss.toFixed(5)} | TP ${takeProfit.toFixed(5)}` : "",
     rejectionReason ? `  REJECTED   ${rejectionReason}` : `  ACCEPTED`,
   ].filter(Boolean).join("\n");
+
 
   return {
     symbol: profile.symbol,
@@ -504,5 +566,8 @@ function buildDecision(args: {
     },
     reason: reasonLines,
     generatedAt: Date.now(),
+    qualityScore: qualityTotal,
+    qualityBreakdown: args.quality,
+    gateChecks: args.gateChecks,
   };
 }
