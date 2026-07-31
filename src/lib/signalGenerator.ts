@@ -508,17 +508,21 @@ function buildDecision(args: {
   const lot = side === "FLAT" ? 0 : positionSize(profile.symbol, balance, params.risk.riskPct, slDistance);
   const riskReason = `Risk ${params.risk.riskPct}% of $${balance.toFixed(2)} → lot ${lot} | BE +${params.risk.breakEvenAtR}R | trail +${params.risk.trailStartAtR}R`;
 
-  const accepted = side !== "FLAT" && !blocked && breakdown.total >= params.minConfidence;
+  const qualityTotal = args.quality?.total ?? 0;
+  const scoreOk = side === "FLAT" ? false : qualityTotal >= MIN_TRADE_SCORE;
+  const accepted = side !== "FLAT" && !blocked && scoreOk && breakdown.total >= params.minConfidence;
   const rejectionReason = blocked
     ? blocked
     : side === "FLAT"
       ? "Strategy did not trigger"
-      : breakdown.total < params.minConfidence
-        ? `Confidence ${breakdown.total}% < ${params.minConfidence}%`
-        : undefined;
+      : !scoreOk
+        ? `Trade score ${qualityTotal}/100 < required ${MIN_TRADE_SCORE}`
+        : breakdown.total < params.minConfidence
+          ? `Confidence ${breakdown.total}% < ${params.minConfidence}%`
+          : undefined;
 
   const reasonLines = [
-    `${profile.symbol} ${side} | ${profile.label} | Confidence ${breakdown.total}%`,
+    `${profile.symbol} ${side} | ${profile.label} | Confidence ${breakdown.total}% | Trade Score ${qualityTotal}/100`,
     `  Strategy   ${strategyRationale}`,
     `  Trend      [${breakdown.trend}/25]  ${trendReason}`,
     `  Momentum   [${breakdown.momentum}/25]  ${momentumReason}`,
@@ -526,10 +530,12 @@ function buildDecision(args: {
     `  Structure  [${breakdown.structure}/20]  ${structureReason}`,
     `  R:R        [${breakdown.riskReward}/15]  ${rrReason}`,
     `  Risk              ${riskReason}`,
+    args.qualityNotes?.length ? `  Score      ${args.qualityNotes.join(" | ")}` : "",
     `  Filters    ${filters.map((f) => `${f.name}:${f.pass ? "OK" : "FAIL"}`).join("  ")}`,
     side !== "FLAT" ? `  Plan       Entry ${price.toFixed(5)} | SL ${stopLoss.toFixed(5)} | TP ${takeProfit.toFixed(5)}` : "",
     rejectionReason ? `  REJECTED   ${rejectionReason}` : `  ACCEPTED`,
   ].filter(Boolean).join("\n");
+
 
   return {
     symbol: profile.symbol,
