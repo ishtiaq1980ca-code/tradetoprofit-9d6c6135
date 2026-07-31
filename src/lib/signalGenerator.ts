@@ -97,6 +97,20 @@ export type TradeDecision = {
   };
   reason: string;            // multi-line summary
   generatedAt: number;
+  /** PHASE 10 §9 — 0..100 institutional trade quality score. */
+  qualityScore: number;
+  qualityBreakdown?: ScoreComponents;
+  gateChecks?: GateCheck[];
+};
+
+// Back-compat alias for the older Signals UI.
+export type HighConfidenceSignal = TradeDecision;
+
+export type GeneratorParams = {
+  minConfidence: number;
+  risk: RiskParams;
+  /** Runtime context from the engine (duplicate / stop-loss cooldown). */
+  context?: { duplicate?: boolean; recentStopCooldown?: boolean };
 };
 
 // Back-compat alias for the older Signals UI.
