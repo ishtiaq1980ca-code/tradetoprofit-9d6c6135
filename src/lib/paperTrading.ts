@@ -194,13 +194,13 @@ export const useAccount = create<Store>()(
     }),
     {
       name: "aurum-paper-account-v2",
-      version: 5,
+      version: 6,
       migrate: (persisted: any) => {
         if (persisted && typeof persisted === "object") {
-          // v5: Smart Trailing v2 — USD step ladder, BE at +$1.5, step $1.5.
+          // v6: PHASE 10 — BE at +$1.00, step trailing from +$2.00, step $1.00.
           persisted.useUsdTrail = true;
-          persisted.trailTriggerUsd = 1.5;
-          persisted.trailStepUsd = 1.5;
+          persisted.trailTriggerUsd = BREAK_EVEN_USD;
+          persisted.trailStepUsd = TRAIL_STEP_USD;
         }
         return persisted;
       },
