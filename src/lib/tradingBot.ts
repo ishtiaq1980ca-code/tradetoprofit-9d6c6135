@@ -731,6 +731,19 @@ async function runScan() {
   const sameDirectionTotal = (sym: string, side: "BUY" | "SELL") =>
     (perSideCount[`${sym}:${side}`] ?? 0) + recentSameDirection(sym, side);
 
+  // PHASE 10 §1 — cooldown after a stop-loss on the same symbol. No re-entry
+  // into a symbol that just stopped us out until the cooldown expires.
+  const STOP_COOLDOWN_MS = 15 * 60_000;
+  const stoppedRecently = (sym: string) =>
+    acc.history.some(
+      (h) => h.symbol === sym &&
+        now - h.closedAt < STOP_COOLDOWN_MS &&
+        /stop/i.test(h.closeReason) &&
+        h.profit < 0,
+    );
+
+
+
 
   let opened = 0;
   let usedLot = openLot;
