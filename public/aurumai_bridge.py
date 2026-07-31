@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026073101                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026073102                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -108,6 +108,76 @@ except Exception as _e:
 # ==================================
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}", "X-Aurum-Bridge-Version": str(BRIDGE_VERSION)}
+
+# ============= PHASE 11: logging, state, watchdog config =============
+HEARTBEAT_SEC = 5.0                               # §1 heartbeat every 5 seconds
+HEARTBEAT_BACKOFF = [5, 10, 20, 30]               # §2 exponential retry ladder
+WATCHDOG_SEC = 10.0                               # §5 watchdog interval
+
+import os
+import logging
+import threading
+
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_FILE = os.path.join(LOG_DIR, "bridge.log")
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+    _LOGGER = logging.getLogger("aurumai.bridge")
+    _LOGGER.setLevel(logging.INFO)
+    if not _LOGGER.handlers:
+        _fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        _LOGGER.addHandler(_fh)
+except Exception as _e:  # logging must never break trading
+    _LOGGER = None
+    print(f"Log file unavailable ({_e}) — console logging only")
+
+_builtin_print = print
+
+
+def print(*args, **kwargs):  # noqa: A001 - console + logs/bridge.log with timestamps
+    msg = " ".join(str(a) for a in args)
+    try:
+        if _LOGGER is not None:
+            _LOGGER.info(msg)
+    except Exception:
+        pass
+    _builtin_print(*args, **kwargs)
+
+
+MT5_LOCK = threading.RLock()
+HEARTBEAT_NOW = threading.Event()
+CONN = {
+    "state": "RECOVERING",       # CONNECTED | RECONNECTING | OFFLINE | RECOVERING
+    "mt5": False,
+    "internet": True,
+    "server": False,
+    "last_heartbeat_ok": 0.0,
+    "last_heartbeat_try": 0.0,
+    "heartbeat_fail": 0,
+    "last_poll_ok": 0.0,
+}
+_LAST_SERVER_REASON = {"reason": "", "ts": 0.0}
+_LAST_HB_LOG = {"ts": 0.0}
+
+
+def set_state(state: str, why: str = "") -> None:
+    if CONN["state"] != state:
+        CONN["state"] = state
+        print(f"STATE → {state}" + (f" ({why})" if why else ""))
+
+
+def _hb_log(msg: str) -> None:
+    """Heartbeat success lines are frequent — log to file, console every 60s."""
+    try:
+        if _LOGGER is not None:
+            _LOGGER.info(msg)
+    except Exception:
+        pass
+    now = time.time()
+    if now - _LAST_HB_LOG["ts"] > 60:
+        _LAST_HB_LOG["ts"] = now
+        _builtin_print(f"{dt.datetime.now().strftime('%H:%M:%S')} {msg} — state {CONN['state']}")
 
 
 def _new_session() -> requests.Session:
@@ -239,32 +309,60 @@ def connect_mt5() -> bool:
     return True
 
 
+def ensure_mt5(force: bool = False) -> bool:
+    """PHASE 11 §3/§9 — verify initialize/login/terminal_info/account_info and
+    reconnect automatically. Thread-safe; never raises."""
+    with MT5_LOCK:
+        try:
+            if not force:
+                term = mt5.terminal_info()
+                info = mt5.account_info()
+                if term is not None and getattr(term, "connected", True) and info is not None:
+                    CONN["mt5"] = True
+                    return True
+            print(f"MT5 connection lost/stale ({mt5.last_error()}) — reconnecting")
+            CONN["mt5"] = False
+            set_state("RECONNECTING", "mt5 reconnect started")
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            time.sleep(1)
+            ok = connect_mt5()
+            CONN["mt5"] = bool(ok)
+            if ok:
+                print("MT5 reconnect success")
+                set_state("RECOVERING", "mt5 reconnected, awaiting heartbeat")
+            return ok
+        except Exception as e:
+            print(f"MT5 reconnect exception: {e}")
+            CONN["mt5"] = False
+            return False
+
+
 def mt5_ready() -> bool:
     """Keep the terminal connection alive before polling/placing trades."""
-    if mt5.account_info() is not None:
-        return True
-    print(f"MT5 connection stale/lost: {mt5.last_error()} — reconnecting")
-    try:
-        mt5.shutdown()
-    except Exception:
-        pass
-    time.sleep(1)
-    return connect_mt5()
+    return ensure_mt5()
 
 
 def report_account() -> bool:
-    if not mt5_ready():
-        print("Account heartbeat skipped: MT5 is not connected")
+    """PHASE 11 §1 — full heartbeat payload. Returns True only when the
+    dashboard accepted it."""
+    if not ensure_mt5():
+        print("Heartbeat failed: MT5 is not connected")
         return False
-    info = mt5.account_info()
-    if info is None:
-        print(f"MT5 account_info failed: {mt5.last_error()}")
-        return False
-    now = dt.datetime.now(dt.UTC)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    history = mt5.history_deals_get(today, now) or []
-    daily_pnl = sum(d.profit for d in history if d.magic == MAGIC)
-    positions = mt5.positions_get() or []
+    with MT5_LOCK:
+        info = mt5.account_info()
+        term = mt5.terminal_info()
+        if info is None:
+            print(f"Heartbeat failed: MT5 account_info error {mt5.last_error()}")
+            CONN["mt5"] = False
+            return False
+        now = dt.datetime.now(dt.UTC)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        history = mt5.history_deals_get(today, now) or []
+        daily_pnl = sum(d.profit for d in history if d.magic == MAGIC)
+        positions = mt5.positions_get() or []
     payload = {
         "balance": float(info.balance),
         "equity": float(info.equity),
@@ -279,8 +377,107 @@ def report_account() -> bool:
         "company": str(getattr(info, "company", "") or ""),
         "currency": str(getattr(info, "currency", "") or ""),
         "leverage": int(getattr(info, "leverage", 0) or 0),
+        "terminal_connected": bool(getattr(term, "connected", True)) if term is not None else False,
+        "timestamp": now.isoformat(),
+        "bridge_version": BRIDGE_VERSION,
     }
-    return _post_json("/api/public/bridge/account", payload)
+    ok = _post_json("/api/public/bridge/account", payload)
+    CONN["server"] = bool(ok)
+    return ok
+
+
+# ============= PHASE 11: heartbeat + watchdog threads =============
+
+def request_heartbeat(reason: str = "") -> None:
+    """Ask the heartbeat thread to fire immediately."""
+    if reason:
+        print(f"Heartbeat requested: {reason}")
+    HEARTBEAT_NOW.set()
+
+
+def _heartbeat_loop() -> None:
+    fails = 0
+    while True:
+        delay = HEARTBEAT_SEC
+        try:
+            CONN["last_heartbeat_try"] = time.time()
+            ok = report_account()
+            if ok:
+                fails = 0
+                CONN["last_heartbeat_ok"] = time.time()
+                CONN["heartbeat_fail"] = 0
+                CONN["internet"] = True
+                if CONN["mt5"]:
+                    set_state("CONNECTED", "heartbeat sent")
+                _hb_log("heartbeat sent")
+            else:
+                fails += 1
+                CONN["heartbeat_fail"] = fails
+                delay = HEARTBEAT_BACKOFF[min(fails - 1, len(HEARTBEAT_BACKOFF) - 1)]
+                print(f"Heartbeat failed ({fails}) — retrying in {delay}s")
+                set_state("RECOVERING", "heartbeat failed")
+                if fails >= 2:
+                    _reset_session()
+                    ensure_mt5(force=True)
+        except Exception as e:
+            fails += 1
+            CONN["heartbeat_fail"] = fails
+            delay = HEARTBEAT_BACKOFF[min(fails - 1, len(HEARTBEAT_BACKOFF) - 1)]
+            print(f"Heartbeat exception ({fails}): {e} — retrying in {delay}s")
+        # never stop sending future heartbeats
+        HEARTBEAT_NOW.wait(delay)
+        HEARTBEAT_NOW.clear()
+
+
+def _internet_ok() -> bool:
+    import socket
+    from urllib.parse import urlparse
+    host = urlparse(BASE_URL).hostname or "tradetoprofit.lovable.app"
+    port = 443 if BASE_URL.startswith("https") else 80
+    try:
+        with socket.create_connection((host, port), timeout=4):
+            return True
+    except Exception:
+        return False
+
+
+def _watchdog_loop() -> None:
+    """PHASE 11 §5 — every 10s verify internet, MT5, login, heartbeat age."""
+    was_online = True
+    while True:
+        try:
+            online = _internet_ok()
+            CONN["internet"] = online
+            if not online:
+                if was_online:
+                    print("Watchdog: internet disconnected — retrying forever, no restart needed")
+                was_online = False
+                set_state("OFFLINE", "internet down")
+            else:
+                if not was_online:
+                    print("Watchdog: internet restored — resuming")
+                    _reset_session()
+                    request_heartbeat("internet restored")
+                was_online = True
+
+            if not ensure_mt5():
+                print("Watchdog: MT5 terminal unavailable — waiting for it to return")
+            hb_age = time.time() - CONN["last_heartbeat_ok"] if CONN["last_heartbeat_ok"] else 1e9
+            if hb_age > 20:
+                request_heartbeat(f"heartbeat age {int(min(hb_age, 99999))}s")
+            poll_age = time.time() - CONN["last_poll_ok"] if CONN["last_poll_ok"] else 1e9
+            if poll_age > 60 and online:
+                print("Watchdog: polling looks stalled — resetting HTTPS session")
+                _reset_session()
+        except Exception as e:
+            print(f"Watchdog exception (ignored): {e}")
+        time.sleep(WATCHDOG_SEC)
+
+
+def start_background_threads() -> None:
+    threading.Thread(target=_heartbeat_loop, name="heartbeat", daemon=True).start()
+    threading.Thread(target=_watchdog_loop, name="watchdog", daemon=True).start()
+    print("Heartbeat thread (5s) and watchdog thread (10s) started")
 
 
 _SYMBOL_CACHE: dict[str, str] = {}
@@ -1299,65 +1496,107 @@ def discover_all_symbols() -> None:
 
 
 def main():
-    # PHASE 10 §10 — never halt on a bad/stale MT5 connection. Retry forever
-    # with a short backoff until the terminal is up and logged in.
+    # PHASE 11 §12 — the bridge NEVER exits. It boots into RECOVERING state,
+    # starts the heartbeat + watchdog threads, and keeps polling forever.
+    set_state("RECOVERING", "bridge starting")
     attempt = 0
-    while not connect_mt5():
+    while not ensure_mt5(force=True):
         attempt += 1
         wait = min(30, 3 * attempt)
         print(f"MT5 not ready (attempt {attempt}) — retrying in {wait}s. Bridge stays running.")
         time.sleep(wait)
-    discover_all_symbols()
+    try:
+        discover_all_symbols()
+    except Exception as e:
+        print(f"Symbol discovery error (non-fatal): {e}")
+
+    start_background_threads()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
-    last_acct = 0
-    last_closed_sync = 0
+    print(f"Detailed logs: {LOG_FILE}")
+
+    last_closed_sync = 0.0
+    waited_first_heartbeat = time.time()
     while True:
         try:
-            if not mt5_ready():
-                time.sleep(POLL_SEC)
+            # Wait for the very first heartbeat to unlock server polling, but
+            # never block forever — the heartbeat thread keeps retrying.
+            if CONN["last_heartbeat_ok"] == 0 and time.time() - waited_first_heartbeat < 30:
+                request_heartbeat("initial heartbeat")
+                time.sleep(0.5)
                 continue
 
-            # First heartbeat unlocks server polling. Later heartbeats are sent
-            # after polling so account/history sync does not delay execution.
-            if last_acct == 0:
-                report_account()
-                last_acct = time.time()
+            if not mt5_ready():
+                set_state("RECONNECTING", "MT5 not ready in poll loop")
+                time.sleep(1.0)
+                continue
 
             ok, data, err = _get_json("/api/public/bridge/poll", timeout=5)
             if ok and data is not None:
+                CONN["server"] = True
+                CONN["last_poll_ok"] = time.time()
+                if CONN["state"] not in ("CONNECTED",) and CONN["mt5"] and CONN["last_heartbeat_ok"]:
+                    set_state("CONNECTED", "polling resumed")
+                reason = data.get("reason")
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
                     manage_trailing_stops()
-                    # Poll again immediately after a burst so queued signals do
-                    # not wait for another sleep cycle.
                     continue
-                elif data.get("reason"):
-                    print(f"Bot disabled by server: {data['reason']}")
+                elif reason:
+                    _log_server_reason(reason, data)
             else:
+                CONN["server"] = False
                 _log_net_err("poll failed:", err)
+                if CONN["state"] == "CONNECTED":
+                    set_state("RECOVERING", f"poll error: {err[:80]}")
 
             manage_trailing_stops()
-
-            if time.time() - last_acct > 15:
-                report_account()
-                last_acct = time.time()
 
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
                 last_closed_sync = time.time()
         except Exception as e:
+            # PHASE 11 §6 — the polling loop can never terminate.
             if _is_conn_error(e):
                 _reset_session()
-            _log_net_err("poll failed:", str(e))
+            _log_net_err("poll loop exception:", str(e))
+            set_state("RECOVERING", f"poll exception: {str(e)[:80]}")
+            time.sleep(5)
+            continue
 
         time.sleep(POLL_SEC)
 
 
+def _log_server_reason(reason: str, data: dict) -> None:
+    """PHASE 11 §4 — recover from server-side mt5_stale without a restart."""
+    now = time.time()
+    if now - _LAST_SERVER_REASON["ts"] < 15 and _LAST_SERVER_REASON["reason"] == reason:
+        return
+    _LAST_SERVER_REASON["reason"] = reason
+    _LAST_SERVER_REASON["ts"] = now
+    print(f"Server response: bot disabled ({reason})")
+    if reason == "mt5_stale":
+        set_state("RECOVERING", "server reported mt5_stale")
+        ensure_mt5(force=True)
+        _reset_session()
+        request_heartbeat("mt5_stale recovery")
+    elif reason == "bridge_update_required":
+        print(f"  Download the latest aurumai_bridge.py (required v{data.get('requiredVersion')}).")
+
+
 if __name__ == "__main__":
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("Shutting down")
+            break
+        except Exception as e:
+            # Absolute last resort: restart the whole loop in-process.
+            print(f"FATAL loop error, restarting bridge internals in 5s: {e}")
+            time.sleep(5)
+            continue
     try:
-        main()
-    except KeyboardInterrupt:
-        print("Shutting down")
-    finally:
         mt5.shutdown()
+    except Exception:
+        pass

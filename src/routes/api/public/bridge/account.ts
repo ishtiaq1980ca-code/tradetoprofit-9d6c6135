@@ -16,6 +16,10 @@ const Schema = z.object({
   company: z.string().optional(),
   currency: z.string().optional(),
   leverage: z.number().int().optional(),
+  // Heartbeat diagnostics (not persisted as columns)
+  terminal_connected: z.boolean().optional(),
+  timestamp: z.string().optional(),
+  bridge_version: z.number().optional(),
 });
 
 export const Route = createFileRoute("/api/public/bridge/account")({
@@ -27,10 +31,12 @@ export const Route = createFileRoute("/api/public/bridge/account")({
         const body = await request.json();
         const parsed = Schema.safeParse(body);
         if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });
+        const { terminal_connected, timestamp, bridge_version, ...row } = parsed.data;
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { error } = await supabaseAdmin.from("account_snapshots").insert({ ...parsed.data, user_id: auth.userId });
+        const { error } = await supabaseAdmin.from("account_snapshots").insert({ ...row, user_id: auth.userId });
         if (error) return Response.json({ error: error.message }, { status: 500 });
-        return Response.json({ ok: true });
+        return Response.json({ ok: true, terminal_connected, bridge_version, received_at: timestamp ?? new Date().toISOString() });
+
       },
     },
   },
