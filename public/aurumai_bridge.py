@@ -1299,65 +1299,107 @@ def discover_all_symbols() -> None:
 
 
 def main():
-    # PHASE 10 §10 — never halt on a bad/stale MT5 connection. Retry forever
-    # with a short backoff until the terminal is up and logged in.
+    # PHASE 11 §12 — the bridge NEVER exits. It boots into RECOVERING state,
+    # starts the heartbeat + watchdog threads, and keeps polling forever.
+    set_state("RECOVERING", "bridge starting")
     attempt = 0
-    while not connect_mt5():
+    while not ensure_mt5(force=True):
         attempt += 1
         wait = min(30, 3 * attempt)
         print(f"MT5 not ready (attempt {attempt}) — retrying in {wait}s. Bridge stays running.")
         time.sleep(wait)
-    discover_all_symbols()
+    try:
+        discover_all_symbols()
+    except Exception as e:
+        print(f"Symbol discovery error (non-fatal): {e}")
+
+    start_background_threads()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
-    last_acct = 0
-    last_closed_sync = 0
+    print(f"Detailed logs: {LOG_FILE}")
+
+    last_closed_sync = 0.0
+    waited_first_heartbeat = time.time()
     while True:
         try:
-            if not mt5_ready():
-                time.sleep(POLL_SEC)
+            # Wait for the very first heartbeat to unlock server polling, but
+            # never block forever — the heartbeat thread keeps retrying.
+            if CONN["last_heartbeat_ok"] == 0 and time.time() - waited_first_heartbeat < 30:
+                request_heartbeat("initial heartbeat")
+                time.sleep(0.5)
                 continue
 
-            # First heartbeat unlocks server polling. Later heartbeats are sent
-            # after polling so account/history sync does not delay execution.
-            if last_acct == 0:
-                report_account()
-                last_acct = time.time()
+            if not mt5_ready():
+                set_state("RECONNECTING", "MT5 not ready in poll loop")
+                time.sleep(1.0)
+                continue
 
             ok, data, err = _get_json("/api/public/bridge/poll", timeout=5)
             if ok and data is not None:
+                CONN["server"] = True
+                CONN["last_poll_ok"] = time.time()
+                if CONN["state"] not in ("CONNECTED",) and CONN["mt5"] and CONN["last_heartbeat_ok"]:
+                    set_state("CONNECTED", "polling resumed")
+                reason = data.get("reason")
                 if data.get("enabled") and data.get("signals"):
                     for sig in data["signals"]:
                         execute_signal(sig)
                     manage_trailing_stops()
-                    # Poll again immediately after a burst so queued signals do
-                    # not wait for another sleep cycle.
                     continue
-                elif data.get("reason"):
-                    print(f"Bot disabled by server: {data['reason']}")
+                elif reason:
+                    _log_server_reason(reason, data)
             else:
+                CONN["server"] = False
                 _log_net_err("poll failed:", err)
+                if CONN["state"] == "CONNECTED":
+                    set_state("RECOVERING", f"poll error: {err[:80]}")
 
             manage_trailing_stops()
-
-            if time.time() - last_acct > 15:
-                report_account()
-                last_acct = time.time()
 
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
                 last_closed_sync = time.time()
         except Exception as e:
+            # PHASE 11 §6 — the polling loop can never terminate.
             if _is_conn_error(e):
                 _reset_session()
-            _log_net_err("poll failed:", str(e))
+            _log_net_err("poll loop exception:", str(e))
+            set_state("RECOVERING", f"poll exception: {str(e)[:80]}")
+            time.sleep(5)
+            continue
 
         time.sleep(POLL_SEC)
 
 
+def _log_server_reason(reason: str, data: dict) -> None:
+    """PHASE 11 §4 — recover from server-side mt5_stale without a restart."""
+    now = time.time()
+    if now - _LAST_SERVER_REASON["ts"] < 15 and _LAST_SERVER_REASON["reason"] == reason:
+        return
+    _LAST_SERVER_REASON["reason"] = reason
+    _LAST_SERVER_REASON["ts"] = now
+    print(f"Server response: bot disabled ({reason})")
+    if reason == "mt5_stale":
+        set_state("RECOVERING", "server reported mt5_stale")
+        ensure_mt5(force=True)
+        _reset_session()
+        request_heartbeat("mt5_stale recovery")
+    elif reason == "bridge_update_required":
+        print(f"  Download the latest aurumai_bridge.py (required v{data.get('requiredVersion')}).")
+
+
 if __name__ == "__main__":
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("Shutting down")
+            break
+        except Exception as e:
+            # Absolute last resort: restart the whole loop in-process.
+            print(f"FATAL loop error, restarting bridge internals in 5s: {e}")
+            time.sleep(5)
+            continue
     try:
-        main()
-    except KeyboardInterrupt:
-        print("Shutting down")
-    finally:
         mt5.shutdown()
+    except Exception:
+        pass
