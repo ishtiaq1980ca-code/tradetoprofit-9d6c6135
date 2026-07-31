@@ -24,6 +24,10 @@ export type DecisionRecord = {
   lot?: number;
   riskPct?: number;
   riskReward?: number;
+  /** PHASE 10 §9 — 0–100 trade quality score. */
+  qualityScore?: number;
+  /** PHASE 10 §11 — per-check entry-gate audit trail. */
+  gateChecks?: Array<{ name: string; pass: boolean; reason: string }>;
 };
 
 type Store = {
