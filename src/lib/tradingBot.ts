@@ -820,6 +820,8 @@ async function runScan() {
       lot: decision.lot,
       riskPct: decision.riskPct,
       riskReward: decision.riskReward,
+      qualityScore: decision.qualityScore,
+      gateChecks: decision.gateChecks,
     } as const;
 
     if (!decision.accepted || decision.side === "FLAT") {
