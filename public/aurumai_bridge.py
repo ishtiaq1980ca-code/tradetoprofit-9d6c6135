@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026073101                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026073102                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
