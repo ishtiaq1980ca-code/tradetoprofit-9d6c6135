@@ -416,6 +416,7 @@ export function generateTradeDecision(
     blocked,
     quality: scored.score,
     qualityNotes: scored.notes,
+    gateChecks: gate.checks,
   });
 }
 
