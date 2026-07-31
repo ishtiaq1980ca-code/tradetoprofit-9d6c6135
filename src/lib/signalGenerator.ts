@@ -443,6 +443,9 @@ function buildDecision(args: {
   strategyRationale: string;
   filters: FilterSummary[];
   blocked: string | null;
+  quality?: ScoreComponents;
+  qualityNotes?: string[];
+  gateChecks?: GateCheck[];
 }): TradeDecision {
   const { profile, ind, price, balance, params, side, strategyRationale, filters, blocked } = args;
 
