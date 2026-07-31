@@ -76,10 +76,9 @@ export const useAccount = create<Store>()(
       startingBalance: STARTING,
       positions: [],
       history: [],
-      // Smart Trailing v2: USD step ladder — BE at +$1.5, then SL trails
-      // $1.5 behind each completed $1.5 profit step.
-      trailTriggerUsd: 1.5,
-      trailStepUsd: 1.5,
+      // PHASE 10: BE at +$1.00, step trailing from +$2.00 in $1.00 steps.
+      trailTriggerUsd: BREAK_EVEN_USD,
+      trailStepUsd: TRAIL_STEP_USD,
       useUsdTrail: true,
       setTrailTriggerUsd: (n) => set({ trailTriggerUsd: Math.max(0.1, n) }),
       setTrailStepUsd: (n) => set({ trailStepUsd: Math.max(0.1, n) }),
