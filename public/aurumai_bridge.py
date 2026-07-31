@@ -109,6 +109,76 @@ except Exception as _e:
 
 HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}", "X-Aurum-Bridge-Version": str(BRIDGE_VERSION)}
 
+# ============= PHASE 11: logging, state, watchdog config =============
+HEARTBEAT_SEC = 5.0                               # §1 heartbeat every 5 seconds
+HEARTBEAT_BACKOFF = [5, 10, 20, 30]               # §2 exponential retry ladder
+WATCHDOG_SEC = 10.0                               # §5 watchdog interval
+
+import os
+import logging
+import threading
+
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_FILE = os.path.join(LOG_DIR, "bridge.log")
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+    _LOGGER = logging.getLogger("aurumai.bridge")
+    _LOGGER.setLevel(logging.INFO)
+    if not _LOGGER.handlers:
+        _fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        _LOGGER.addHandler(_fh)
+except Exception as _e:  # logging must never break trading
+    _LOGGER = None
+    print(f"Log file unavailable ({_e}) — console logging only")
+
+_builtin_print = print
+
+
+def print(*args, **kwargs):  # noqa: A001 - console + logs/bridge.log with timestamps
+    msg = " ".join(str(a) for a in args)
+    try:
+        if _LOGGER is not None:
+            _LOGGER.info(msg)
+    except Exception:
+        pass
+    _builtin_print(*args, **kwargs)
+
+
+MT5_LOCK = threading.RLock()
+HEARTBEAT_NOW = threading.Event()
+CONN = {
+    "state": "RECOVERING",       # CONNECTED | RECONNECTING | OFFLINE | RECOVERING
+    "mt5": False,
+    "internet": True,
+    "server": False,
+    "last_heartbeat_ok": 0.0,
+    "last_heartbeat_try": 0.0,
+    "heartbeat_fail": 0,
+    "last_poll_ok": 0.0,
+}
+_LAST_SERVER_REASON = {"reason": "", "ts": 0.0}
+_LAST_HB_LOG = {"ts": 0.0}
+
+
+def set_state(state: str, why: str = "") -> None:
+    if CONN["state"] != state:
+        CONN["state"] = state
+        print(f"STATE → {state}" + (f" ({why})" if why else ""))
+
+
+def _hb_log(msg: str) -> None:
+    """Heartbeat success lines are frequent — log to file, console every 60s."""
+    try:
+        if _LOGGER is not None:
+            _LOGGER.info(msg)
+    except Exception:
+        pass
+    now = time.time()
+    if now - _LAST_HB_LOG["ts"] > 60:
+        _LAST_HB_LOG["ts"] = now
+        _builtin_print(f"{dt.datetime.now().strftime('%H:%M:%S')} {msg} — state {CONN['state']}")
+
 
 def _new_session() -> requests.Session:
     s = requests.Session()
