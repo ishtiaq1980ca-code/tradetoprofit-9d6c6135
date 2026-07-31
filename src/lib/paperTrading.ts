@@ -148,13 +148,11 @@ export const useAccount = create<Store>()(
           let updated: Position = { ...p };
 
           if (s.useUsdTrail) {
-            // Smart Trailing v2 step ladder: nothing moves until +$1.5, then
-            // +$1.5 → BE, +$3 → lock $1.5, +$4.5 → lock $3, and so on.
+            // PHASE 10 §3/§4 — Intelligent BE + elite step trailing:
+            //   < $1 → no move, $1 → BE, $2 → +$1, $3 → +$2, $4 → +$3 ...
             const profitUsd = pnlOf(p, price);
-            if (profitUsd >= s.trailTriggerUsd) {
-              const step = Math.max(0.01, s.trailStepUsd);
-              const stepsDone = Math.floor(profitUsd / step);
-              const lockUsd = Math.max(0, (stepsDone - 1) * step);
+            const lockUsd = lockedProfitUsd(profitUsd, s.trailStepUsd);
+            if (lockUsd !== null) {
               const vpu = valuePerUnit(p.symbol) * p.lot || 1;
               const priceMoveForLock = lockUsd / vpu;
               const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
