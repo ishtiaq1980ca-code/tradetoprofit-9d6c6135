@@ -26,6 +26,9 @@ import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./ri
 import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
 import { evaluateStructure } from "./marketStructure";
+import { strictEntryGate, type GateCheck } from "./entryGate";
+import { computeTradeScore, MIN_TRADE_SCORE, type ScoreComponents } from "./qualityScore";
+export { MIN_TRADE_SCORE } from "./qualityScore";
 
 // Confidence gates: gold requires 85%, FX currencies 80%.
 export const MIN_CONFIDENCE_GOLD = 85;
