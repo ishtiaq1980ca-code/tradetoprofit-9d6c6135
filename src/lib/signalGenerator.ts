@@ -565,5 +565,9 @@ function buildDecision(args: {
     },
     reason: reasonLines,
     generatedAt: Date.now(),
+    qualityScore: qualityTotal,
+    qualityBreakdown: args.quality,
+    gateChecks: args.gateChecks,
+  };
   };
 }
