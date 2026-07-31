@@ -87,3 +87,87 @@ export function evaluateStructure(
   }
   return { pass: true, reason: `HTF ${htfTrend}, structure ${swing} — SELL aligned`, htfTrend, swing };
 }
+
+// ---------------------------------------------------------------------------
+// PHASE 10 §2 / §6 — Confirmed reversal detection for EARLY EXITS only.
+//
+// A single candle never triggers an exit. ALL of the following must be true:
+//   1. Trend flip (EMA50 vs EMA200 on the entry timeframe)
+//   2. Break of Structure (BOS) against the position
+//   3. Close beyond the broken structure level
+//   4. At least 2 consecutive confirmed candles in the reversal direction
+//   5. RSI confirms the reversal
+//   6. MACD confirms the reversal
+//   7. ATR confirms real momentum (reversal leg >= 0.8 × ATR)
+// ---------------------------------------------------------------------------
+
+import { atr as atrSeries, macd as macdSeries, rsi as rsiSeries } from "./indicators";
+
+export type ReversalResult = {
+  confirmed: boolean;
+  reason: string;
+  checks: Array<{ name: string; pass: boolean; detail: string }>;
+};
+
+export function evaluateReversal(
+  side: "BUY" | "SELL",
+  candles: Candle[],
+): ReversalResult {
+  const checks: ReversalResult["checks"] = [];
+  const add = (name: string, pass: boolean, detail: string) => checks.push({ name, pass, detail });
+
+  if (candles.length < 80) {
+    return { confirmed: false, reason: "Not enough history for reversal confirmation", checks };
+  }
+  // Ignore the still-forming candle.
+  const c = candles.slice(0, -1);
+  const closes = c.map((x) => x.close);
+  const last = closes.length - 1;
+  const price = closes[last];
+  const buy = side === "BUY";
+
+  const e50 = ema(closes, 50)[last];
+  const e200 = ema(closes, Math.min(200, closes.length - 1))[last];
+  const flipped = buy ? e50 < e200 : e50 > e200;
+  add("Trend flip", flipped, `EMA50 ${e50?.toFixed(5)} vs EMA200 ${e200?.toFixed(5)}`);
+
+  // BOS: most recent swing broken against the position.
+  const { support, resistance } = detectLevels(c, 80, 3);
+  const level = buy ? support[support.length - 1] : resistance[resistance.length - 1];
+  const bos = level !== undefined && (buy ? price < level : price > level);
+  add("Break of structure", !!bos, level === undefined ? "no swing level" : `price ${price.toFixed(5)} vs level ${level.toFixed(5)}`);
+
+  // Close beyond structure (not just a wick).
+  const closeBeyond = level !== undefined && (buy ? c[last].close < level : c[last].close > level);
+  add("Close beyond structure", !!closeBeyond, closeBeyond ? "candle closed past the level" : "only wick beyond level");
+
+  // Two consecutive confirmed candles in the reversal direction.
+  const twoCandles = buy
+    ? c[last].close < c[last].open && c[last - 1].close < c[last - 1].open
+    : c[last].close > c[last].open && c[last - 1].close > c[last - 1].open;
+  add("2-candle confirmation", twoCandles, twoCandles ? "two consecutive reversal candles" : "single-candle move ignored");
+
+  const r = rsiSeries(closes, 14)[last] ?? 50;
+  const rsiOk = buy ? r < 45 : r > 55;
+  add("RSI reversal", rsiOk, `RSI ${r.toFixed(1)}`);
+
+  const m = macdSeries(closes);
+  const h = m.hist[last] ?? 0;
+  const hp = m.hist[last - 1] ?? 0;
+  const macdOk = buy ? h < 0 && h <= hp : h > 0 && h >= hp;
+  add("MACD reversal", macdOk, `hist ${h.toFixed(5)} (prev ${hp.toFixed(5)})`);
+
+  const a = atrSeries(c, 14)[last] ?? 0;
+  const leg = Math.abs(c[last].close - c[last - 2].close);
+  const atrOk = a > 0 && leg >= a * 0.8;
+  add("ATR momentum", atrOk, `3-bar move ${leg.toFixed(5)} vs ATR ${a.toFixed(5)}`);
+
+  const confirmed = checks.every((k) => k.pass);
+  return {
+    confirmed,
+    reason: confirmed
+      ? `Confirmed reversal against ${side}: ${checks.map((k) => k.name).join(" + ")}`
+      : `Not a confirmed reversal (${checks.filter((k) => !k.pass).map((k) => k.name).join(", ")} failed) — pullback ignored`,
+    checks,
+  };
+}
