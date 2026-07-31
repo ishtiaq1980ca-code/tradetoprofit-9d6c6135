@@ -786,6 +786,10 @@ async function runScan() {
     const decision = generateTradeDecision(sym, candles, acc.balance, {
       minConfidence: Math.max(bot.minConfidence, symbolFloor),
       risk: { ...DEFAULT_RISK, riskPct: bot.riskPct, maxDailyLossPct: bot.maxDailyLossPct },
+      context: {
+        duplicate: (perSymCount[sym] ?? 0) >= bot.maxTradesPerSymbol,
+        recentStopCooldown: stoppedRecently(sym),
+      },
     });
     if (!decision) continue;
 
