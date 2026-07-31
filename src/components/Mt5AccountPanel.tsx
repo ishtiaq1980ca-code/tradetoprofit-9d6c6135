@@ -33,7 +33,7 @@ export function Mt5AccountPanel() {
       setLoaded(true);
     }
     load();
-    const id = setInterval(load, 15_000);
+    const id = setInterval(load, 5_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
