@@ -1299,8 +1299,14 @@ def discover_all_symbols() -> None:
 
 
 def main():
-    if not connect_mt5():
-        sys.exit(1)
+    # PHASE 10 §10 — never halt on a bad/stale MT5 connection. Retry forever
+    # with a short backoff until the terminal is up and logged in.
+    attempt = 0
+    while not connect_mt5():
+        attempt += 1
+        wait = min(30, 3 * attempt)
+        print(f"MT5 not ready (attempt {attempt}) — retrying in {wait}s. Bridge stays running.")
+        time.sleep(wait)
     discover_all_symbols()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     last_acct = 0
