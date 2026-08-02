@@ -24,6 +24,8 @@ import { correlationGuard } from "./correlation";
 import {
   classBlock, computeOpenSlots, normalizeOrderPlan, useExecutionStats,
 } from "./execution";
+import { detectBreach, sendBreachWebhook, useCircuitBreaker } from "./circuitBreaker";
+
 
 
 type BotLogEntry = { t: number; level: "info" | "trade" | "warn" | "error"; msg: string };
@@ -561,6 +563,50 @@ function dailyPnlFor(): number {
   return closed + floating;
 }
 
+/** Closed P/L over the last `days` plus current floating P/L. Used by the
+ *  circuit breaker for the weekly / monthly windows. */
+function pnlSince(days: number): number {
+  const s = useAccount.getState();
+  const cutoff = Date.now() - days * 86_400_000;
+  const closed = s.history.filter((t) => t.closedAt >= cutoff).reduce((a, t) => a + t.profit, 0);
+  return closed + floatingPnl(s.positions, priceFeed.state.prices);
+}
+
+/** Evaluate the daily/weekly/monthly loss limits. Trips the breaker, logs a
+ *  critical event and fires the webhook once per breach. Never closes trades
+ *  unless the user explicitly opted in. Returns true when entries are blocked. */
+function evaluateCircuitBreaker(): boolean {
+  const cb = useCircuitBreaker.getState();
+  if (!cb.enabled) return false;
+  if (cb.breach) return true;
+
+  const baseline = liveBalanceForSizing();
+  const breach = detectBreach({
+    daily: dailyPnlFor(),
+    weekly: pnlSince(7),
+    monthly: pnlSince(30),
+    baseline,
+  });
+  if (!breach) return false;
+
+  useCircuitBreaker.getState().trip(breach);
+  useBot.getState().pushLog({ t: Date.now(), level: "error", msg: `CRITICAL — ${breach.message}` });
+  void sendBreachWebhook(breach);
+
+  if (useCircuitBreaker.getState().closePositionsOnTrip) {
+    const acc = useAccount.getState();
+    for (const p of acc.positions) {
+      const px = priceFeed.state.prices[p.symbol] ?? p.entry;
+      acc.close(p.id, px, "circuit breaker");
+    }
+
+    useBot.getState().pushLog({ t: Date.now(), level: "warn", msg: "Circuit breaker: open paper positions closed (opt-in enabled)" });
+  }
+  return true;
+}
+
+
+
 /** Auto-detect the account tier from balance. <500 disables the bot. */
 export function detectTier(balance: number): 500 | 1000 | 2000 | null {
   if (balance >= 2000) return 2000;
@@ -651,7 +697,16 @@ async function runScan() {
     bot.pushLog({ t: Date.now(), level: "info", msg: "Synced with MT5: cleared stale local paper positions (MT5 has 0 open trades)" });
   }
 
+  // Circuit breaker: daily / weekly / monthly loss limits. Blocks NEW entries
+  // only; open positions keep running under the bridge's own exit rules.
+  if (evaluateCircuitBreaker()) {
+    const b = useCircuitBreaker.getState().breach;
+    logThrottled("circuit-breaker", "error", `Circuit breaker active — ${b?.message ?? "loss limit breached"}`, 120_000);
+    return;
+  }
+
   // Daily-loss halt is DISABLED by user request. Any leftover halt flag from a
+
   // previous session is cleared so the bot never blocks itself.
   if (bot.haltedToday || bot.haltedDate) {
     useBot.setState({ haltedToday: false, haltedDate: null });

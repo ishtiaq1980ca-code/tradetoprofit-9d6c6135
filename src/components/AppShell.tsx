@@ -9,6 +9,8 @@ import { AuthGate } from "@/components/AuthGate";
 import { useAuth } from "@/hooks/useAuth";
 import { useLicense } from "@/hooks/useLicense";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { CircuitBreakerBanner } from "@/components/CircuitBreakerBanner";
+
 
 const baseNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -149,7 +151,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Sheet>
           </div>
 
+          <CircuitBreakerBanner />
+
           {children}
+
 
           {/* Mobile bottom tab bar */}
           <nav className={cn("md:hidden fixed bottom-0 inset-x-0 z-30 flex overflow-x-auto border-t border-border bg-background/95 backdrop-blur")}>
