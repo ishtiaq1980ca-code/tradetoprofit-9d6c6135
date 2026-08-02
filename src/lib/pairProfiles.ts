@@ -211,13 +211,59 @@ export const PAIR_PROFILES: Record<string, PairProfile> = {
   NZDJPY: fx("NZDJPY", 3, 26, 1.3, ["Tokyo", "Sydney"]),
 };
 
+// ------------------------- Symbol normalization ---------------------------
+// Brokers append suffixes to symbol names (e.g. "EURCHFm", "USDJPY.pro",
+// "XAUUSD-micro"). Every profile / risk / filter lookup MUST go through
+// normalizeSymbol() or the pair silently falls back to broken defaults
+// (observed: zero-distance stop losses on "m"-suffixed symbols).
+
+export const KNOWN_BASE_SYMBOLS: ReadonlySet<string> = new Set(Object.keys(PAIR_PROFILES));
+
+const BROKER_SUFFIX_RE = /(PRO|ECN|RAW|MICRO|MINI|CENT|STD|SB|FX|CFD|M|C|I|Z|R|X|E)$/;
+
+/** Strip broker suffixes and return the canonical pair symbol.
+ *  Unknown symbols are returned cleaned (upper-case, alphanumeric only). */
+export function normalizeSymbol(symbol: string): string {
+  if (!symbol) return "";
+  let t = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (t === "GOLD" || t.startsWith("XAUUSD")) return "XAUUSD";
+  if (KNOWN_BASE_SYMBOLS.has(t)) return t;
+  for (let i = 0; i < 3; i++) {
+    const next = t.replace(BROKER_SUFFIX_RE, "");
+    if (next === t) break;
+    t = next;
+    if (KNOWN_BASE_SYMBOLS.has(t)) return t;
+  }
+  const head = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  if (KNOWN_BASE_SYMBOLS.has(head)) return head;
+  return t;
+}
+
+/** True when the symbol resolves to a configured pair profile. */
+export function isKnownSymbol(symbol: string): boolean {
+  return KNOWN_BASE_SYMBOLS.has(normalizeSymbol(symbol));
+}
+
+/** Symbols from a list that do NOT resolve to any known pair profile. */
+export function unresolvedSymbols(symbols: readonly string[]): string[] {
+  const bad = new Set<string>();
+  for (const s of symbols) if (s && !isKnownSymbol(s)) bad.add(s);
+  return [...bad].sort();
+}
+
 export function getPairProfile(symbol: string): PairProfile | null {
-  return PAIR_PROFILES[symbol] ?? null;
+  return PAIR_PROFILES[normalizeSymbol(symbol)] ?? null;
+}
+
+/** True when the (normalized) pair is paused for new entries. */
+export function isPairDisabled(symbol: string): boolean {
+  return getPairProfile(symbol)?.disabled === true;
 }
 
 export function allProfiles(): PairProfile[] {
   return Object.values(PAIR_PROFILES);
 }
+
 
 /** Currency-cluster exposure caps (v3 §6). % of equity per currency leg. */
 export const CURRENCY_EXPOSURE_CAPS: Record<string, number> = {
