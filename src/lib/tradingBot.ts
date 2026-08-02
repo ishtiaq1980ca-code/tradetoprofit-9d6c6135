@@ -230,7 +230,7 @@ const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: 
 // Repeated status messages (license blocked, bridge offline, worker errors)
 // used to flood the audit log every scan tick. Throttle them per key.
 const lastLoggedAt = new Map<string, number>();
-function logThrottled(key: string, level: "info" | "warn" | "trade", msg: string, everyMs = 60_000) {
+function logThrottled(key: string, level: BotLogEntry["level"], msg: string, everyMs = 60_000) {
   const now = Date.now();
   if (now - (lastLoggedAt.get(key) ?? 0) < everyMs) return;
   lastLoggedAt.set(key, now);
@@ -768,12 +768,12 @@ async function runScan() {
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
     if (!getPairProfile(sym)) {
-      throttledLog(`unknown-sym-${sym}`, "error",
+      logThrottled(`unknown-sym-${sym}`, "error",
         `${sym}: no pair profile after symbol normalization (${normalizeSymbol(sym)}) — trade refused`);
       continue;
     }
     if (isPairDisabled(sym)) {
-      throttledLog(`disabled-sym-${sym}`, "info", `${sym}: pair paused for new entries`);
+      logThrottled(`disabled-sym-${sym}`, "info", `${sym}: pair paused for new entries`);
       continue;
     }
     if (!priceFeed.hasLiveAnchor(sym)) {
