@@ -16,7 +16,8 @@ import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
 import { supabase } from "@/integrations/supabase/client";
 import { generateTradeDecision, MIN_CONFIDENCE, minConfidenceFor } from "./signalGenerator";
-import { getPairProfile, allProfiles } from "./pairProfiles";
+import { auditRecentSymbolsOnce } from "./symbolAudit";
+import { getPairProfile, allProfiles, isPairDisabled, normalizeSymbol } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
@@ -658,6 +659,16 @@ async function runScan() {
 
 
 
+  // Diagnostic: warn about broker symbols that map to no pair profile.
+  auditRecentSymbolsOnce((r) => {
+    if (r.unresolved.length) {
+      bot.pushLog({
+        t: Date.now(), level: "error",
+        msg: `Unmapped broker symbols in recent data: ${r.unresolved.map((u) => u.raw).join(", ")} — these trades are refused`,
+      });
+    }
+  });
+
   // Weekend pause
   const sess = activeSessions();
   if (bot.pauseOnWeekend && sess.weekend) {
@@ -756,7 +767,15 @@ async function runScan() {
     if (remainingBudget <= 0) { waitingMsgs.push(`Max ${bot.maxOpenTrades} concurrent trades reached`); break; }
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
-    if (!getPairProfile(sym)) continue;
+    if (!getPairProfile(sym)) {
+      throttledLog(`unknown-sym-${sym}`, "error",
+        `${sym}: no pair profile after symbol normalization (${normalizeSymbol(sym)}) — trade refused`);
+      continue;
+    }
+    if (isPairDisabled(sym)) {
+      throttledLog(`disabled-sym-${sym}`, "info", `${sym}: pair paused for new entries`);
+      continue;
+    }
     if (!priceFeed.hasLiveAnchor(sym)) {
       waitingMsgs.push(`${sym}: waiting for live broker-aligned price`);
       continue;
