@@ -1,3 +1,4 @@
+import { isJpyQuoted, isGoldSymbol } from "./pairProfiles";
 // Risk engine: position sizing, ATR stops, RR targets, break-even and trailing
 // rules, and daily-loss circuit breaker math.
 //
@@ -94,8 +95,8 @@ export function positionSize(symbol: string, balance: number, riskPct: number, s
   if (slDistance <= 0 || !isFinite(slDistance)) return MIN_LOT;
   if (balance <= 0 || riskPct <= 0) return MIN_LOT;
   const riskAmount = (balance * riskPct) / 100;
-  const isJpy = symbol.endsWith("JPY");
-  const isGold = symbol === "XAUUSD" || symbol === "GOLD";
+  const isJpy = isJpyQuoted(symbol);
+  const isGold = isGoldSymbol(symbol);
   const valuePerUnit = isGold ? 100 : isJpy ? 1000 : 100_000;
   const raw = riskAmount / (slDistance * valuePerUnit);
   if (!isFinite(raw) || raw <= 0) return MIN_LOT;

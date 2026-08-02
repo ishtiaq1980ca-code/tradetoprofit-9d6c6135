@@ -16,7 +16,8 @@ import { activeSessions } from "./sessions";
 import { useStrategies, strategiesForSymbol } from "./strategies";
 import { supabase } from "@/integrations/supabase/client";
 import { generateTradeDecision, MIN_CONFIDENCE, minConfidenceFor } from "./signalGenerator";
-import { getPairProfile, allProfiles } from "./pairProfiles";
+import { auditRecentSymbolsOnce } from "./symbolAudit";
+import { getPairProfile, allProfiles, isPairDisabled, normalizeSymbol } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
@@ -25,7 +26,7 @@ import {
 } from "./execution";
 
 
-type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
+type BotLogEntry = { t: number; level: "info" | "trade" | "warn" | "error"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 let latestMt5OpenPositions: number | null = null;
@@ -229,7 +230,7 @@ const pendingSignalCalls = new Map<number, (r: { error: string | null; status?: 
 // Repeated status messages (license blocked, bridge offline, worker errors)
 // used to flood the audit log every scan tick. Throttle them per key.
 const lastLoggedAt = new Map<string, number>();
-function logThrottled(key: string, level: "info" | "warn" | "trade", msg: string, everyMs = 60_000) {
+function logThrottled(key: string, level: BotLogEntry["level"], msg: string, everyMs = 60_000) {
   const now = Date.now();
   if (now - (lastLoggedAt.get(key) ?? 0) < everyMs) return;
   lastLoggedAt.set(key, now);
@@ -658,6 +659,16 @@ async function runScan() {
 
 
 
+  // Diagnostic: warn about broker symbols that map to no pair profile.
+  auditRecentSymbolsOnce((r) => {
+    if (r.unresolved.length) {
+      bot.pushLog({
+        t: Date.now(), level: "error",
+        msg: `Unmapped broker symbols in recent data: ${r.unresolved.map((u) => u.raw).join(", ")} — these trades are refused`,
+      });
+    }
+  });
+
   // Weekend pause
   const sess = activeSessions();
   if (bot.pauseOnWeekend && sess.weekend) {
@@ -756,7 +767,15 @@ async function runScan() {
     if (remainingBudget <= 0) { waitingMsgs.push(`Max ${bot.maxOpenTrades} concurrent trades reached`); break; }
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
-    if (!getPairProfile(sym)) continue;
+    if (!getPairProfile(sym)) {
+      logThrottled(`unknown-sym-${sym}`, "error",
+        `${sym}: no pair profile after symbol normalization (${normalizeSymbol(sym)}) — trade refused`);
+      continue;
+    }
+    if (isPairDisabled(sym)) {
+      logThrottled(`disabled-sym-${sym}`, "info", `${sym}: pair paused for new entries`);
+      continue;
+    }
     if (!priceFeed.hasLiveAnchor(sym)) {
       waitingMsgs.push(`${sym}: waiting for live broker-aligned price`);
       continue;

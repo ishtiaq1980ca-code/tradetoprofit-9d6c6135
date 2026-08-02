@@ -16,7 +16,7 @@
 import {
   adx, atr, bollinger, detectLevels, ema, macd, rsi, stochastic, type Candle,
 } from "./indicators";
-import { getPairProfile, type PairProfile, type StrategyKind } from "./pairProfiles";
+import { getPairProfile, isGoldSymbol, normalizeSymbol, type PairProfile, type StrategyKind } from "./pairProfiles";
 import {
   estimatedSpread, newsFilter, sessionFilter, spreadFilter, volatilityFilter,
   atrSpikeFilter, adxCeilingFilter, extensionFilter,
@@ -35,7 +35,7 @@ export const MIN_CONFIDENCE_GOLD = 85;
 export const MIN_CONFIDENCE_FX = 80;
 export const MIN_CONFIDENCE = MIN_CONFIDENCE_FX; // back-compat: lowest floor
 export function minConfidenceFor(symbol: string): number {
-  return symbol === "XAUUSD" || symbol === "GOLD" ? MIN_CONFIDENCE_GOLD : MIN_CONFIDENCE_FX;
+  return isGoldSymbol(symbol) ? MIN_CONFIDENCE_GOLD : MIN_CONFIDENCE_FX;
 }
 
 export type ConfidenceBreakdown = {
@@ -290,7 +290,12 @@ export function generateTradeDecision(
   params: GeneratorParams = DEFAULT_GENERATOR_PARAMS,
 ): TradeDecision | null {
   const profile = getPairProfile(symbol);
-  if (!profile) return null;
+  if (!profile) {
+    // SAFETY: never trade a symbol we cannot map to a profile — the SL/TP math
+    // would fall back to defaults and can produce zero-distance stops.
+    reportUnknownSymbol(symbol);
+    return null;
+  }
   if (profile.disabled) return null; // v3 §2: USDCHF & GBPJPY paused
   if (candles.length < Math.max(profile.emaSlow, 60) + 5) return null;
 
@@ -430,6 +435,20 @@ export function generateHighConfidenceSignal(
   const d = generateTradeDecision(symbol, candles, balance, params);
   if (!d || !d.accepted) return null;
   return d;
+}
+
+/** Symbols rejected because they resolve to no pair profile (for diagnostics). */
+const unknownSeen = new Map<string, number>();
+export function reportUnknownSymbol(symbol: string) {
+  const key = `${symbol} → ${normalizeSymbol(symbol)}`;
+  const n = (unknownSeen.get(key) ?? 0) + 1;
+  unknownSeen.set(key, n);
+  if (n === 1) {
+    console.error(`[symbol-guard] Unknown symbol "${symbol}" (normalized "${normalizeSymbol(symbol)}") — no pair profile. Trade REFUSED.`);
+  }
+}
+export function unknownSymbolReport(): Array<{ symbol: string; count: number }> {
+  return [...unknownSeen.entries()].map(([symbol, count]) => ({ symbol, count }));
 }
 
 // --------------------------- Scoring & build ------------------------------

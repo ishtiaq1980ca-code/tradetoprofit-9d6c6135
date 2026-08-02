@@ -6,7 +6,7 @@
 // MT5 bridge / execution layer is NOT touched by this file. The guard is
 // consulted by the bot before queueing a new signal.
 
-import { FX_CURRENCY_PAIRS } from "./pairProfiles";
+import { FX_CURRENCY_PAIRS, normalizeSymbol } from "./pairProfiles";
 
 export type Side = "BUY" | "SELL";
 
@@ -57,17 +57,19 @@ export function correlationGuard(
   candidateSide: Side,
 ): CorrelationDecision {
   const fxSet = new Set<string>(FX_CURRENCY_PAIRS as readonly string[]);
+  candidateSymbol = normalizeSymbol(candidateSymbol);
   if (!fxSet.has(candidateSymbol)) {
     return { block: false, reason: "Not an FX currency pair — correlation guard skipped", conflicts: [] };
   }
 
   const conflicts: CorrelationDecision["conflicts"] = [];
   for (const ex of existing) {
-    if (!fxSet.has(ex.symbol)) continue;
-    if (ex.symbol === candidateSymbol) continue; // duplicate prevention handles same-symbol
-    const eff = effectiveCorrelation(candidateSymbol, candidateSide, ex.symbol, ex.side);
+    const exSymbol = normalizeSymbol(ex.symbol);
+    if (!fxSet.has(exSymbol)) continue;
+    if (exSymbol === candidateSymbol) continue; // duplicate prevention handles same-symbol
+    const eff = effectiveCorrelation(candidateSymbol, candidateSide, exSymbol, ex.side);
     if (Math.abs(eff) >= CORRELATION_BLOCK_THRESHOLD) {
-      conflicts.push({ symbol: ex.symbol, side: ex.side, effective: +eff.toFixed(2) });
+      conflicts.push({ symbol: exSymbol, side: ex.side, effective: +eff.toFixed(2) });
     }
   }
 

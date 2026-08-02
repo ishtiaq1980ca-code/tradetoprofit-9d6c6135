@@ -1,3 +1,4 @@
+import { isGoldSymbol, isJpyQuoted } from "./pairProfiles";
 // Virtual trading account. Persists to localStorage. Reacts to every tick
 // from priceFeed to check SL/TP, move stop to break-even, partial-close at
 // 1R, and trail the stop after break-even has triggered.
@@ -48,8 +49,8 @@ type Store = {
 };
 
 export function valuePerUnit(symbol: string) {
-  if (symbol === "XAUUSD") return 100; // $100 per $1 move per 1.0 lot (100 oz)
-  if (symbol.endsWith("JPY")) return 1000;
+  if (isGoldSymbol(symbol)) return 100; // $100 per $1 move per 1.0 lot (100 oz)
+  if (isJpyQuoted(symbol)) return 1000;
   return 100_000;
 }
 
