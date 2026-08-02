@@ -13,6 +13,9 @@ import { DEFAULT_PARAMS } from "@/lib/strategy";
 import { fmt, SYMBOLS } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Play } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { OptimizerPanel } from "@/components/OptimizerPanel";
+
 
 export const Route = createFileRoute("/backtest")({
   head: () => ({ meta: [{ title: "Backtest — AurumAI" }, { name: "description", content: "Backtest the strategy on synthetic OHLC. Wire historical MT5 data once the bridge is live." }] }),
@@ -44,7 +47,19 @@ function BacktestPage() {
           </p>
         </header>
 
+        <Tabs defaultValue="single">
+          <TabsList>
+            <TabsTrigger value="single">Single run</TabsTrigger>
+            <TabsTrigger value="optimizer">Optimizer</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="optimizer" className="mt-6">
+            <OptimizerPanel />
+          </TabsContent>
+
+          <TabsContent value="single" className="mt-6">
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+
           <Card className="border-border/60 bg-card/70 h-fit">
             <CardHeader>
               <CardTitle className="text-base">Parameters</CardTitle>
@@ -152,7 +167,10 @@ function BacktestPage() {
             )}
           </div>
         </div>
+          </TabsContent>
+        </Tabs>
       </div>
+
     </AppShell>
   );
 }

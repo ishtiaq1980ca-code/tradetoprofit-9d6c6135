@@ -5,6 +5,8 @@
 
 import { activeSessions, type MarketSession } from "./sessions";
 import { isGoldSymbol, isJpyQuoted } from "./pairProfiles";
+import { newsBlockFor } from "./economicCalendar";
+
 
 export type FilterResult = { pass: boolean; reason: string };
 
@@ -76,14 +78,19 @@ export function listNewsWindows(): NewsWindow[] {
 
 export function newsFilter(symbol: string, now: Date = new Date()): FilterResult {
   const t = now.getTime();
+  // 1. Legacy manual blackout windows (kept for backwards compatibility).
   for (const w of listNewsWindows()) {
     if (w.symbol && w.symbol !== symbol) continue;
     if (t >= w.startsAt && t <= w.endsAt) {
       return { pass: false, reason: `High-impact news: ${w.label} blackout active` };
     }
   }
+  // 2. Economic calendar (currency-aware, buffered window).
+  const block = newsBlockFor(symbol, t);
+  if (block.blocked) return { pass: false, reason: block.reason };
   return { pass: true, reason: "No high-impact news window" };
 }
+
 
 /** Estimated spread (price units) for a symbol — used when broker spread
  *  is unavailable (paper/demo signal generation). Bridge supplies the real

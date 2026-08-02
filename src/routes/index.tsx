@@ -7,6 +7,9 @@ import { LicenseAndTierPanel } from "@/components/LicenseAndTierPanel";
 import { SessionBadge } from "@/components/SessionBadge";
 import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
 import { LiveAccountsPerformance } from "@/components/AccountPerformance";
+import { NewsFilterPanel } from "@/components/NewsFilterPanel";
+import { RiskGuardPanel } from "@/components/RiskGuardPanel";
+
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +154,13 @@ function Dashboard() {
         <Mt5AccountPanel />
 
         <LicenseAndTierPanel />
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <NewsFilterPanel editable />
+          <RiskGuardPanel />
+        </section>
+
+
 
 
 
