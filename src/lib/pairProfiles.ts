@@ -109,11 +109,20 @@ export function tierExitParams(tier: PairTier): TierExitParams | null {
 export function minStopDistance(symbol: string, tier: PairTier): number {
   if (tier === "gold") return 0; // gold unchanged
   const t = TIER_EXITS[tier];
-  const isJpy = symbol.endsWith("JPY");
+  const isJpy = isJpyQuoted(symbol);
   const pipSize = isJpy ? 0.01 : 0.0001;
   const pips = isJpy && t.minStopPipsJpy ? t.minStopPipsJpy : t.minStopPips;
   return pips * pipSize;
 }
+
+/** Suffix-safe instrument-class helpers. */
+export function isJpyQuoted(symbol: string): boolean {
+  return normalizeSymbol(symbol).endsWith("JPY");
+}
+export function isGoldSymbol(symbol: string): boolean {
+  return normalizeSymbol(symbol) === "XAUUSD";
+}
+
 
 // Build a per-pair FX profile using tier defaults + per-pair overrides.
 function fx(
