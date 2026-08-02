@@ -27,9 +27,10 @@ export const FX_CURRENCY_PAIRS = [
   "NZDCAD","NZDCHF","NZDJPY",
 ] as const;
 export type FxCurrencyPair = (typeof FX_CURRENCY_PAIRS)[number];
-export function isFxCurrencyPair(symbol: string): symbol is FxCurrencyPair {
-  return (FX_CURRENCY_PAIRS as readonly string[]).includes(symbol);
+export function isFxCurrencyPair(symbol: string): boolean {
+  return (FX_CURRENCY_PAIRS as readonly string[]).includes(normalizeSymbol(symbol));
 }
+
 
 type Session = "Sydney" | "Tokyo" | "London" | "New York";
 
