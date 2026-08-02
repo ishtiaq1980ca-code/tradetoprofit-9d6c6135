@@ -88,8 +88,8 @@ export function newsFilter(symbol: string, now: Date = new Date()): FilterResult
  *  is unavailable (paper/demo signal generation). Bridge supplies the real
  *  spread before execution; this is for the dashboard's pre-trade filter. */
 export function estimatedSpread(symbol: string, price: number): number {
-  if (symbol === "XAUUSD") return 0.3;
-  if (symbol.endsWith("JPY")) return 0.015;
+  if (isGoldSymbol(symbol)) return 0.3;
+  if (isJpyQuoted(symbol)) return 0.015;
   return Math.max(0.00008, price * 0.00008);
 }
 

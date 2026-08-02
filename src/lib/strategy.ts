@@ -1,3 +1,4 @@
+import { isJpyQuoted, isGoldSymbol } from "./pairProfiles";
 // Multi-filter strategy engine. Returns a trade signal only when trend,
 // momentum, structure, and risk/reward all agree above the confidence floor.
 
@@ -113,8 +114,8 @@ export function analyze(symbol: string, candles: Candle[], params: StrategyParam
 /** Risk-based position sizing in lots. */
 export function calculateLot(symbol: string, balance: number, riskPct: number, slDistance: number): number {
   const riskAmount = (balance * riskPct) / 100;
-  const isJpy = symbol.endsWith("JPY");
-  const isGold = symbol === "XAUUSD";
+  const isJpy = isJpyQuoted(symbol);
+  const isGold = isGoldSymbol(symbol);
   const valuePerUnit = isGold ? 100 : isJpy ? 1000 : 100000;
   const lot = riskAmount / (slDistance * valuePerUnit);
   return Math.max(0.02, Math.round(lot * 100) / 100);
