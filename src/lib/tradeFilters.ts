@@ -4,6 +4,7 @@
 // MT5 bridge / execution untouched.
 
 import { activeSessions, type MarketSession } from "./sessions";
+import { isGoldSymbol, isJpyQuoted } from "./pairProfiles";
 
 export type FilterResult = { pass: boolean; reason: string };
 

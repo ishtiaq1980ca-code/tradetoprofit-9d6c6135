@@ -11,7 +11,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { isFxCurrencyPair } from "./pairProfiles";
+import { isFxCurrencyPair, isGoldSymbol, isJpyQuoted, normalizeSymbol } from "./pairProfiles";
 import { estimatedSpread } from "./tradeFilters";
 
 // --------------------------- Symbol specs ---------------------------------
@@ -40,7 +40,8 @@ const SPECS: Record<string, SymbolSpec> = {
 export const MIN_EXECUTION_RR = 1.25;
 
 export function getSymbolSpec(symbol: string): SymbolSpec {
-  return SPECS[symbol] ?? FX5;
+  const base = normalizeSymbol(symbol);
+  return SPECS[base] ?? (isGoldSymbol(base) ? XAU : isJpyQuoted(base) ? JPY : FX5);
 }
 
 function roundTo(price: number, digits: number): number {
@@ -208,10 +209,10 @@ export type OpenTradeSlots = {
   totalMax: number;
 };
 
-function isXau(sym: string) { return sym === "XAUUSD" || sym === "GOLD"; }
+function isXau(sym: string) { return isGoldSymbol(sym); }
 
 export function computeOpenSlots(positions: Array<{ symbol: string }>): OpenTradeSlots {
-  const fxOpen = positions.filter((p) => isFxCurrencyPair(p.symbol) || /JPY$/.test(p.symbol)).length;
+  const fxOpen = positions.filter((p) => isFxCurrencyPair(p.symbol) || isJpyQuoted(p.symbol)).length;
   const xauOpen = positions.filter((p) => isXau(p.symbol)).length;
   return {
     fxOpen,
