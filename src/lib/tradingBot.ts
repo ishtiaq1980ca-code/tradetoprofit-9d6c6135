@@ -26,7 +26,7 @@ import {
 } from "./execution";
 
 
-type BotLogEntry = { t: number; level: "info" | "trade" | "warn"; msg: string };
+type BotLogEntry = { t: number; level: "info" | "trade" | "warn" | "error"; msg: string };
 
 let latestMt5HeartbeatAt = 0;
 let latestMt5OpenPositions: number | null = null;
