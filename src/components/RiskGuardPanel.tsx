@@ -39,10 +39,39 @@ export function RiskGuardPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2 rounded-md border border-border/60 px-3 py-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs font-medium">
+                Daily Loss Limit — {cb.dailyLimitEnabled ? "Enabled" : "Disabled"}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {cb.dailyLimitEnabled
+                  ? "Blocks new entries and shows the red banner when the daily loss is hit."
+                  : "Daily loss is ignored — weekly and monthly limits still apply."}
+              </div>
+            </div>
+            <Switch
+              checked={cb.dailyLimitEnabled}
+              onCheckedChange={(v) => {
+                if (!v) setConfirmOff(true);
+                else cb.setDailyLimitEnabled(true);
+              }}
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Daily loss %</Label>
-            <Input type="number" step="0.5" value={cb.maxDailyLossPct} onChange={(e) => cb.setLimit("daily", +e.target.value || 3)} />
+            <Input
+              type="number"
+              step="0.5"
+              disabled={!cb.dailyLimitEnabled}
+              className={cb.dailyLimitEnabled ? "" : "opacity-50"}
+              value={cb.maxDailyLossPct}
+              onChange={(e) => cb.setLimit("daily", +e.target.value || 3)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Weekly loss %</Label>
@@ -53,6 +82,7 @@ export function RiskGuardPanel() {
             <Input type="number" step="0.5" value={cb.maxMonthlyLossPct} onChange={(e) => cb.setLimit("monthly", +e.target.value || 12)} />
           </div>
         </div>
+
 
         <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
           <div>
