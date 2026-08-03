@@ -4,6 +4,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { StructureRead } from "./marketStructure";
 
 export type DecisionStatus = "queued" | "executed" | "rejected" | "blocked" | "duplicate";
 
@@ -28,6 +29,12 @@ export type DecisionRecord = {
   qualityScore?: number;
   /** PHASE 10 §11 — per-check entry-gate audit trail. */
   gateChecks?: Array<{ name: string; pass: boolean; reason: string }>;
+  /** Full market-structure read the bot reasoned from before entering. */
+  structure?: StructureRead;
+  /** Learning pattern tags attached to this setup. */
+  patternKeys?: string[];
+  /** Score points added/removed by the learning engine for this setup. */
+  learningDelta?: number;
 };
 
 type Store = {
