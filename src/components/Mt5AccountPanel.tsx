@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { REQUIRED_BRIDGE_VERSION } from "@/lib/bridgeVersion";
 
 type Snapshot = {
   balance: number;
@@ -14,6 +15,7 @@ type Snapshot = {
   daily_pnl: number;
   mode: string;
   created_at: string;
+  bridge_version: number | null;
 };
 
 export function Mt5AccountPanel() {
@@ -25,7 +27,7 @@ export function Mt5AccountPanel() {
     async function load() {
       const { data } = await supabase
         .from("account_snapshots")
-        .select("balance,equity,margin,free_margin,open_positions,daily_pnl,mode,created_at")
+        .select("balance,equity,margin,free_margin,open_positions,daily_pnl,mode,created_at,bridge_version")
         .order("created_at", { ascending: false })
         .limit(1);
       if (!alive) return;
@@ -48,6 +50,7 @@ export function Mt5AccountPanel() {
         : ageMs < 90_000
           ? { label: "🟡 Reconnecting", tone: "muted" as const }
           : { label: "🔴 Offline", tone: "bear" as const };
+  const outdatedBridge = !!snap && (snap.bridge_version ?? 0) < REQUIRED_BRIDGE_VERSION;
   const ageLabel = !snap ? "—" : ageMs < 60_000 ? `${Math.max(0, Math.round(ageMs / 1000))} sec ago` : `${Math.round(ageMs / 60_000)} min ago`;
 
   return (
