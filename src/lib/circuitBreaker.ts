@@ -183,8 +183,25 @@ export async function sendBreachWebhook(b: Breach): Promise<void> {
   }
 }
 
+/** Drop a latched breach once its calendar window has rolled over, or when its
+ *  window switch has since been turned off. Returns true when a breach is still
+ *  active after pruning. */
+export function pruneStaleBreach(): boolean {
+  const st = useCircuitBreaker.getState();
+  const b = st.breach;
+  if (!b) return false;
+  const stale =
+    (b.type === "daily" && !st.dailyLimitEnabled) ||
+    (b.windowKey ?? windowKeyFor(b.type, new Date(b.at))) !== windowKeyFor(b.type);
+  if (stale) {
+    useCircuitBreaker.setState({ breach: null });
+    return false;
+  }
+  return true;
+}
+
 /** True when new entries must be blocked. */
 export function circuitOpen(): boolean {
   const st = useCircuitBreaker.getState();
-  return st.enabled && st.breach != null;
+  return st.enabled && pruneStaleBreach();
 }
