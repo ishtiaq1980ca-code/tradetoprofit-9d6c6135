@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026073102                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080301                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -56,9 +56,10 @@ PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker g
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
-USD_TRAIL_TRIGGER = 1.0                           # PHASE 10 §3: SL moves to break-even at +$1.00 profit (nothing before)
-USD_TRAIL_START   = 2.0                           # PHASE 10 §4: step trailing only begins at +$2.00 profit
-USD_TRAIL_STEP = 1.0                              # ladder: +$2 → +$1, +$3 → +$2, +$4 → +$3, ...
+USD_TRAIL_TRIGGER = 1.5                           # first SL move happens at +$1.50 profit (was $1.00)
+USD_BE_LOCK = 0.40                                # NEVER park SL exactly on entry — always lock at least +$0.40
+USD_TRAIL_START   = 2.5                           # step trailing begins at +$2.50 profit
+USD_TRAIL_STEP = 1.0                              # ladder: +$2.5 → lock $1.5, +$3.5 → lock $2.5, ...
 WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
@@ -89,7 +90,7 @@ try:
     _OVERRIDABLE = (
         "BASE_URL", "BRIDGE_TOKEN", "MT5_LOGIN", "MT5_PASS", "MT5_SERVER",
         "POLL_SEC", "SLIPPAGE", "MAGIC",
-        "USD_TRAIL_TRIGGER", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
+        "USD_TRAIL_TRIGGER", "USD_BE_LOCK", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -659,6 +660,17 @@ def _close_position(position, reason: str) -> bool:
 
 
 def _modify_position_stops(position, sl: float, tp: float) -> bool:
+    # HARD GUARD: never write a stop-loss that sits on (or within a hair of)
+    # the entry price — that turns any retrace into a 0.00 round-trip close.
+    try:
+        _entry = float(position.price_open)
+        _info = mt5.symbol_info(position.symbol)
+        _pt = float(_info.point) if _info else 0.00001
+        if sl and _entry > 0 and abs(float(sl) - _entry) < _pt * 3:
+            print(f"!! BLOCKED zero-distance SL ticket={position.ticket} sl={sl} entry={_entry} — modify refused")
+            return False
+    except Exception:
+        pass
     # Preserve existing TP when caller passes 0 — many brokers interpret tp=0
     # in TRADE_ACTION_SLTP as "remove TP", which cancels the RR target.
     if tp is None or tp <= 0:
@@ -776,7 +788,9 @@ def _apply_usd_trailing_stop(position) -> bool:
     if entry <= 0 or vpu <= 0:
         return False
 
-    be_required_usd = min_dist * vpu + 0.05
+    # Profit must cover the broker min-stop distance AND the mandatory
+    # break-even buffer, otherwise the move would land on/behind entry.
+    be_required_usd = min_dist * vpu + float(USD_BE_LOCK) + 0.05
     effective_trigger = max(USD_TRAIL_TRIGGER, be_required_usd)
     if profit < effective_trigger:
         return False
@@ -800,23 +814,29 @@ def _apply_usd_trailing_stop(position) -> bool:
     if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
         step = step * 2.0          # §8 dynamic trailing speed: let strong trends breathe
     if profit < float(USD_TRAIL_START):
-        lock_usd = 0.0             # §3: break-even only, nothing else
+        # NEVER lock exactly break-even: an SL parked on the entry price turns
+        # every small retrace into a 0.00 round-trip close. Lock a real buffer.
+        lock_usd = float(USD_BE_LOCK)
     else:
         steps_done = int(profit // step)
-        lock_usd = max(0.0, (steps_done - 1) * step)
+        lock_usd = max(float(USD_BE_LOCK), (steps_done - 1) * step)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
+    # Hard guard: the trailing SL must stay strictly in profit. If the broker's
+    # min-stop clamp would push it onto (or behind) the entry price, skip the
+    # move entirely rather than parking a zero-distance stop on entry.
+    min_lock_move = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
     if is_buy:
         max_allowed_sl = float(tick.bid) - min_dist
         new_sl = min(raw_sl, max_allowed_sl)
-        if new_sl < entry:
+        if new_sl <= entry + min_lock_move:
             return False
         better = old_sl <= 0 or new_sl > old_sl + point
     else:
         min_allowed_sl = float(tick.ask) + min_dist
         new_sl = max(raw_sl, min_allowed_sl)
-        if new_sl > entry:
+        if new_sl >= entry - min_lock_move:
             return False
         better = old_sl <= 0 or new_sl < old_sl - point
     if not better:
