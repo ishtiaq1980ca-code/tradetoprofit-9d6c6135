@@ -8,13 +8,22 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  newsBlockFor, refreshCalendarFeed, useEconomicCalendar, type NewsImpact,
+  DEFAULT_FEED_URL, newsBlockFor, refreshCalendarFeed, startCalendarAutoRefresh,
+  useEconomicCalendar, type NewsImpact,
 } from "@/lib/economicCalendar";
 import { useBot } from "@/lib/tradingBot";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "XAU"];
+
+function ago(ts: number) {
+  const m = Math.round((Date.now() - ts) / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
 
 export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
   const cal = useEconomicCalendar();
@@ -26,7 +35,8 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => { void refreshCalendarFeed(); }, [cal.feedUrl]);
+  useEffect(() => { startCalendarAutoRefresh(); }, []);
+  useEffect(() => { void refreshCalendarFeed(true); }, [cal.feedUrl]);
 
   const paused = useMemo(
     () =>
@@ -36,10 +46,18 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
     [symbols, now, cal.events, cal.enabled, cal.bufferBeforeMin, cal.bufferAfterMin, cal.includeMedium],
   );
 
+  const feedEvents = useMemo(() => cal.events.filter((e) => e.source === "feed"), [cal.events]);
+  const upcomingHigh = useMemo(
+    () => cal.events.filter((e) => e.impact === "high" && e.at >= now).length,
+    [cal.events, now],
+  );
+  const feedOk = cal.lastFeedOk > 0 && feedEvents.length > 0;
+
   const upcoming = useMemo(
     () => cal.events.filter((e) => e.at + cal.bufferAfterMin * 60_000 >= now).slice(0, 12),
     [cal.events, cal.bufferAfterMin, now],
   );
+
 
   return (
     <Card className="border-border/60 bg-card/70">
