@@ -22,7 +22,22 @@ export type Breach = {
   baseline: number;
   at: number;
   message: string;
+  /** Calendar window the breach belongs to. Once the window rolls over the
+   *  breach auto-expires — without this the trip latched forever and silently
+   *  blocked every future scan (root cause of the multi-day signal outage). */
+  windowKey?: string;
 };
+
+/** Identifier of the current day / week / month window. */
+export function windowKeyFor(type: BreachType, d: Date = new Date()): string {
+  const y = d.getUTCFullYear();
+  if (type === "monthly") return `M${y}-${d.getUTCMonth() + 1}`;
+  if (type === "weekly") {
+    const t = Date.UTC(y, d.getUTCMonth(), d.getUTCDate());
+    return `W${Math.floor(t / (7 * 86_400_000))}`;
+  }
+  return `D${y}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+}
 
 type Store = {
   /** Master switch for the circuit breaker. */
@@ -81,7 +96,7 @@ export const useCircuitBreaker = create<Store>()(
       setClosePositionsOnTrip: (v) => set({ closePositionsOnTrip: v }),
       setWebhookEnabled: (v) => set({ webhookEnabled: v }),
       setWebhookUrl: (u) => set({ webhookUrl: u.trim() }),
-      trip: (b) => { if (!get().breach) set({ breach: b }); },
+      trip: (b) => { if (!get().breach) set({ breach: { ...b, windowKey: b.windowKey ?? windowKeyFor(b.type) } }); },
       reset: () => set({ breach: null }),
     }),
     {
@@ -168,8 +183,25 @@ export async function sendBreachWebhook(b: Breach): Promise<void> {
   }
 }
 
+/** Drop a latched breach once its calendar window has rolled over, or when its
+ *  window switch has since been turned off. Returns true when a breach is still
+ *  active after pruning. */
+export function pruneStaleBreach(): boolean {
+  const st = useCircuitBreaker.getState();
+  const b = st.breach;
+  if (!b) return false;
+  const stale =
+    (b.type === "daily" && !st.dailyLimitEnabled) ||
+    (b.windowKey ?? windowKeyFor(b.type, new Date(b.at))) !== windowKeyFor(b.type);
+  if (stale) {
+    useCircuitBreaker.setState({ breach: null });
+    return false;
+  }
+  return true;
+}
+
 /** True when new entries must be blocked. */
 export function circuitOpen(): boolean {
   const st = useCircuitBreaker.getState();
-  return st.enabled && st.breach != null;
+  return st.enabled && pruneStaleBreach();
 }

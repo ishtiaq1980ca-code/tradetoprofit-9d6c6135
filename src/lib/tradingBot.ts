@@ -24,7 +24,7 @@ import { correlationGuard } from "./correlation";
 import {
   classBlock, computeOpenSlots, normalizeOrderPlan, useExecutionStats,
 } from "./execution";
-import { detectBreach, sendBreachWebhook, useCircuitBreaker } from "./circuitBreaker";
+import { detectBreach, pruneStaleBreach, sendBreachWebhook, useCircuitBreaker } from "./circuitBreaker";
 
 
 
@@ -578,7 +578,9 @@ function pnlSince(days: number): number {
 function evaluateCircuitBreaker(): boolean {
   const cb = useCircuitBreaker.getState();
   if (!cb.enabled) return false;
-  if (cb.breach) return true;
+  // Auto-expire latched trips from a previous day/week/month. Without this a
+  // single bad day blocked every future scan forever.
+  if (pruneStaleBreach()) return true;
 
   const baseline = liveBalanceForSizing();
   const breach = detectBreach({

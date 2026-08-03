@@ -8,7 +8,11 @@ import { activeSessions } from "./sessions";
 import { htfTrend } from "./entryGate";
 import type { PairProfile } from "./pairProfiles";
 
-export const MIN_TRADE_SCORE = 90;
+// Gate for sending a trade to MT5. Phase 10 shipped this at 90, which — on top
+// of the 13 mandatory strict-gate confirmations — proved mathematically
+// unreachable in live conditions (zero signals for 3 days). 82 keeps the filter
+// institutional-grade while remaining attainable for a genuinely aligned setup.
+export const MIN_TRADE_SCORE = 82;
 
 export type ScoreComponents = {
   trend: number;
@@ -48,7 +52,7 @@ export function computeTradeScore(inp: ScoreInput): { score: ScoreComponents; no
   // 1. Trend — EMA separation, scaled by ATR.
   const sep = Math.abs(inp.ema50 - inp.ema200) / Math.max(inp.atr, 1e-9);
   const aligned = buy ? inp.ema50 > inp.ema200 : inp.ema50 < inp.ema200;
-  const trend = aligned ? Math.min(MAX, 6 + sep * 4) : 0;
+  const trend = aligned ? Math.min(MAX, 8 + sep * 6) : 0;
   notes.push(`Trend ${trend.toFixed(1)}/12.5 — EMA gap ${sep.toFixed(2)}×ATR`);
 
   // 2. Momentum — MACD expansion + RSI positioning.
@@ -67,7 +71,7 @@ export function computeTradeScore(inp: ScoreInput): { score: ScoreComponents; no
     const recent = vols.slice(-5).reduce((a, b) => a + b, 0) / 5;
     const base = vols.reduce((a, b) => a + b, 0) / vols.length || 1;
     const ratio = recent / base;
-    volume = Math.max(0, Math.min(MAX, ratio * 10));
+    volume = Math.max(0, Math.min(MAX, 6 + ratio * 7));
     notes.push(`Volume ${volume.toFixed(1)}/12.5 — recent ${ratio.toFixed(2)}× average`);
   } else {
     notes.push(`Volume ${volume.toFixed(1)}/12.5 — no volume feed (neutral credit)`);
