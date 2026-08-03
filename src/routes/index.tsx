@@ -142,6 +142,8 @@ function Dashboard() {
           </div>
         </header>
 
+        <SignalHealthBanner />
+
         <TradingFilters />
 
         <LiveAccountsPerformance />
