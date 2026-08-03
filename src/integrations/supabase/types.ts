@@ -472,6 +472,170 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_adjustments: {
+        Row: {
+          adjustment: number
+          avg_r: number | null
+          created_at: string
+          dimension: string
+          id: string
+          note: string | null
+          pattern_key: string
+          previous_adjustment: number
+          sample_size: number
+          user_id: string
+          win_rate: number | null
+        }
+        Insert: {
+          adjustment: number
+          avg_r?: number | null
+          created_at?: string
+          dimension: string
+          id?: string
+          note?: string | null
+          pattern_key: string
+          previous_adjustment?: number
+          sample_size?: number
+          user_id: string
+          win_rate?: number | null
+        }
+        Update: {
+          adjustment?: number
+          avg_r?: number | null
+          created_at?: string
+          dimension?: string
+          id?: string
+          note?: string | null
+          pattern_key?: string
+          previous_adjustment?: number
+          sample_size?: number
+          user_id?: string
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
+      trade_reviews: {
+        Row: {
+          adx: number | null
+          atr: number | null
+          atr_pct: number | null
+          behavior: string
+          closed_at: string | null
+          confidence: number | null
+          created_at: string
+          duration_sec: number | null
+          entry: number | null
+          exit: number | null
+          htf_trend: string | null
+          id: string
+          key_level: number | null
+          lessons: string | null
+          lot: number | null
+          mt5_ticket: number | null
+          opened_at: string | null
+          outcome: string
+          pattern_keys: string[]
+          pips: number | null
+          profit: number | null
+          quality_score: number | null
+          r_multiple: number | null
+          rsi: number | null
+          session: string | null
+          side: string
+          stop_loss: number | null
+          strategy: string | null
+          structure_note: string | null
+          swing: string | null
+          symbol: string
+          take_profit: number | null
+          trade_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          adx?: number | null
+          atr?: number | null
+          atr_pct?: number | null
+          behavior?: string
+          closed_at?: string | null
+          confidence?: number | null
+          created_at?: string
+          duration_sec?: number | null
+          entry?: number | null
+          exit?: number | null
+          htf_trend?: string | null
+          id?: string
+          key_level?: number | null
+          lessons?: string | null
+          lot?: number | null
+          mt5_ticket?: number | null
+          opened_at?: string | null
+          outcome?: string
+          pattern_keys?: string[]
+          pips?: number | null
+          profit?: number | null
+          quality_score?: number | null
+          r_multiple?: number | null
+          rsi?: number | null
+          session?: string | null
+          side: string
+          stop_loss?: number | null
+          strategy?: string | null
+          structure_note?: string | null
+          swing?: string | null
+          symbol: string
+          take_profit?: number | null
+          trade_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          adx?: number | null
+          atr?: number | null
+          atr_pct?: number | null
+          behavior?: string
+          closed_at?: string | null
+          confidence?: number | null
+          created_at?: string
+          duration_sec?: number | null
+          entry?: number | null
+          exit?: number | null
+          htf_trend?: string | null
+          id?: string
+          key_level?: number | null
+          lessons?: string | null
+          lot?: number | null
+          mt5_ticket?: number | null
+          opened_at?: string | null
+          outcome?: string
+          pattern_keys?: string[]
+          pips?: number | null
+          profit?: number | null
+          quality_score?: number | null
+          r_multiple?: number | null
+          rsi?: number | null
+          session?: string | null
+          side?: string
+          stop_loss?: number | null
+          strategy?: string | null
+          structure_note?: string | null
+          swing?: string | null
+          symbol?: string
+          take_profit?: number | null
+          trade_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_reviews_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trades: {
         Row: {
           closed_at: string | null
