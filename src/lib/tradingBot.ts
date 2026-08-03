@@ -19,6 +19,9 @@ import { generateTradeDecision, MIN_CONFIDENCE, minConfidenceFor } from "./signa
 import { auditRecentSymbolsOnce } from "./symbolAudit";
 import { getPairProfile, allProfiles, isPairDisabled, normalizeSymbol } from "./pairProfiles";
 import { useDecisionLog } from "./decisionLog";
+import { classifyRejection, clearCooldown, cooldownFor, humanRemaining, symbolFullyCooling, useRejectionCooldown } from "./rejectionCooldown";
+import { startReviewLoop } from "./tradeReviewer";
+import { startLearningLoop } from "./strategyLearning";
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
 import {
@@ -829,6 +832,13 @@ async function runScan() {
         `${sym}: no pair profile after symbol normalization (${normalizeSymbol(sym)}) — trade refused`);
       continue;
     }
+    // Rejection cooldown — do not re-evaluate a setup we just parked.
+    if (symbolFullyCooling(sym)) {
+      const cd = cooldownFor(sym, "BUY")!;
+      logThrottled(`cooldown-${sym}`, "info",
+        `${sym}: both directions on rejection cooldown (${cd.cls}) — skipping until ${humanRemaining(cd.until)}`, 120_000);
+      continue;
+    }
     if (isPairDisabled(sym)) {
       logThrottled(`disabled-sym-${sym}`, "info", `${sym}: pair paused for new entries`);
       continue;
@@ -869,6 +879,18 @@ async function runScan() {
     });
     if (!decision) continue;
 
+    // Same symbol+direction was rejected moments ago and nothing has changed —
+    // do not re-propose it, do not spam the decision log.
+    if (decision.side !== "FLAT") {
+      const cd = cooldownFor(sym, decision.side);
+      if (cd) {
+        logThrottled(`cooldown-${sym}-${decision.side}`, "info",
+          `${sym} ${decision.side}: on rejection cooldown (${cd.cls} ×${cd.streak}) — ${humanRemaining(cd.until)} left. Last reason: ${cd.reason}`,
+          120_000);
+        continue;
+      }
+    }
+
     // Always log the decision (accepted or rejected) so the user can audit.
     const baseLog = {
       symbol: sym,
@@ -898,6 +920,9 @@ async function runScan() {
       riskReward: decision.riskReward,
       qualityScore: decision.qualityScore,
       gateChecks: decision.gateChecks,
+      structure: decision.structure,
+      patternKeys: decision.patternKeys,
+      learningDelta: decision.qualityBreakdown?.learning ?? 0,
     } as const;
 
     if (!decision.accepted || decision.side === "FLAT") {
@@ -905,6 +930,17 @@ async function runScan() {
         ...baseLog,
         status: decision.rejectionReason?.startsWith("Confidence") ? "rejected" : "blocked",
       });
+      // FLAT means "the strategy simply did not trigger" — that legitimately
+      // changes tick to tick, so it never earns a cooldown. A real rejection of
+      // a proposed direction does.
+      if (decision.side !== "FLAT") {
+        const cls = classifyRejection(decision.rejectionReason);
+        const cd = useRejectionCooldown.getState().note(sym, decision.side, cls, decision.rejectionReason ?? "rejected");
+        bot.pushLog({
+          t: Date.now(), level: "info",
+          msg: `${sym} ${decision.side} REJECTED [${cls}] ${decision.rejectionReason ?? "not aligned"} — parked for ${humanRemaining(cd.until)} (streak ${cd.streak})`,
+        });
+      }
       waitingMsgs.push(`${sym}: ${decision.rejectionReason ?? "not aligned"}`);
       continue;
     }
@@ -915,6 +951,8 @@ async function runScan() {
     const dupCount = sameDirectionTotal(sym, decision.side);
     if (dupCount >= bot.maxSameDirectionTrades) {
       useDecisionLog.getState().record({ ...baseLog, status: "duplicate" });
+      useRejectionCooldown.getState().note(sym, decision.side, "duplicate",
+        `Duplicate cap ${dupCount}/${bot.maxSameDirectionTrades} for ${decision.side}`);
       waitingMsgs.push(`${sym}: ${decision.side} duplicate cap (${dupCount}/${bot.maxSameDirectionTrades}) reached`);
       continue;
     }
@@ -932,6 +970,7 @@ async function runScan() {
         status: "blocked",
         reason: `${baseLog.reason}\n  CORRELATION ${corr.reason}`,
       });
+      useRejectionCooldown.getState().note(sym, decision.side, "correlation", corr.reason);
       waitingMsgs.push(`${sym}: ${corr.reason}`);
       continue;
     }
@@ -947,6 +986,7 @@ async function runScan() {
         : decision.lot;
     if (bot.useTierLimits && usedLot + lot > lotCap + 1e-9) {
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  TIER CAP would be exceeded` });
+      useRejectionCooldown.getState().note(sym, decision.side, "tier_cap", "Tier lot cap would be exceeded");
       waitingMsgs.push(`${sym}: would exceed tier cap`);
       continue;
     }
@@ -974,6 +1014,7 @@ async function runScan() {
     if (!norm.ok) {
       useExecutionStats.getState().recordFailure({ at: Date.now(), symbol: sym, side: decision.side as "BUY" | "SELL", code: norm.code, reason: norm.reason });
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  EXEC-REJECT [${norm.code}] ${norm.reason}` });
+      useRejectionCooldown.getState().note(sym, decision.side, "exec_reject", `[${norm.code}] ${norm.reason}`);
       waitingMsgs.push(`${sym}: ${norm.code} (${norm.reason})`);
       continue;
     }
@@ -1005,6 +1046,7 @@ async function runScan() {
         at: tAck, symbol: sym, side: decision.side as "BUY" | "SELL", code: "queue_failed", reason: error.message,
       });
       useDecisionLog.getState().record({ ...baseLog, status: "blocked", reason: `${baseLog.reason}\n  MT5-QUEUE-FAILED ${error.message}` });
+      useRejectionCooldown.getState().note(sym, decision.side, "queue_failed", error.message);
       bot.pushLog({ t: tAck, level: "warn", msg: `MT5 queue failed: ${error.message}` });
       waitingMsgs.push(`${sym}: queue failed`);
       continue;
@@ -1016,6 +1058,7 @@ async function runScan() {
     // first; otherwise rejected signals create fake local positions and block
     // future scans. The decision log remains the duplicate/cooldown guard.
     perSymCount[sym] = (perSymCount[sym] ?? 0) + 1;
+    clearCooldown(sym, decision.side);
     openSymbols.add(sym);
     const isXauQueued = sym === "XAUUSD";
     slotInfo = {
@@ -1271,6 +1314,11 @@ export function BotEngine() {
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
     window.addEventListener("online", onVisibility);
+
+    // Post-trade learning loop — reviews every closed trade and feeds the
+    // resulting pattern statistics back into the entry scoring, forever.
+    startReviewLoop();
+    startLearningLoop();
 
     const tokenPushId = setInterval(pushTokenToWorker, 60_000);
 

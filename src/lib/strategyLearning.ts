@@ -1,0 +1,322 @@
+// Strategy learning engine.
+//
+// This is the feedback loop: closed trades are turned into structured reviews
+// (see tradeReviewer.ts), the reviews are aggregated into *patterns*, and each
+// pattern earns a score adjustment that is fed straight back into the trade
+// quality score at entry time.
+//
+// A pattern is a single auditable dimension of a setup — the pair, the session,
+// the higher-timeframe trend vs the direction taken, the swing structure, the
+// volatility regime, the ADX band, the strategy playbook. Patterns that keep
+// losing lose points; patterns that keep winning gain points. Everything is
+// recomputed automatically on a timer and after every batch of new reviews, so
+// nothing has to be re-triggered by hand.
+
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { supabase } from "@/integrations/supabase/client";
+
+// --------------------------- Pattern vocabulary ----------------------------
+
+export type PatternContext = {
+  symbol: string;
+  side: "BUY" | "SELL";
+  strategy: string;
+  session: string;
+  htfTrend: "up" | "down" | "flat";
+  swing: "HH+HL" | "LH+LL" | "mixed";
+  zone: "buy" | "sell" | "neutral";
+  volatility: "low" | "normal" | "high";
+  adx: number;
+  atKeyLevel: boolean;
+};
+
+export function adxBand(adx: number): "weak" | "firm" | "strong" | "extreme" {
+  if (adx < 25) return "weak";
+  if (adx < 32) return "firm";
+  if (adx < 45) return "strong";
+  return "extreme";
+}
+
+/** Every learnable dimension of one setup. Must be identical at entry time and
+ *  at review time or the loop learns nothing. */
+export function patternKeys(ctx: PatternContext): string[] {
+  const aligned =
+    (ctx.side === "BUY" && ctx.htfTrend === "up") || (ctx.side === "SELL" && ctx.htfTrend === "down")
+      ? "with-trend"
+      : ctx.htfTrend === "flat"
+        ? "no-trend"
+        : "counter-trend";
+  const zoneMatch =
+    (ctx.side === "BUY" && ctx.zone === "buy") || (ctx.side === "SELL" && ctx.zone === "sell")
+      ? "in-zone"
+      : "out-of-zone";
+  return [
+    `pair:${ctx.symbol}`,
+    `pair-side:${ctx.symbol}:${ctx.side}`,
+    `strategy:${ctx.strategy}`,
+    `session:${ctx.session}`,
+    `session-side:${ctx.session}:${ctx.side}`,
+    `htf:${aligned}`,
+    `swing:${ctx.swing}:${ctx.side}`,
+    `zone:${zoneMatch}`,
+    `volatility:${ctx.volatility}`,
+    `adx:${adxBand(ctx.adx)}`,
+    `level:${ctx.atKeyLevel ? "at-key-level" : "mid-range"}`,
+  ];
+}
+
+export function dimensionOf(key: string): string {
+  return key.split(":")[0] ?? "other";
+}
+
+/** Human explanation of what a pattern key means. */
+export function describePattern(key: string): string {
+  const [dim, ...rest] = key.split(":");
+  const v = rest.join(":");
+  switch (dim) {
+    case "pair": return `Trades on ${v}`;
+    case "pair-side": return `${v.split(":")[1]} trades on ${v.split(":")[0]}`;
+    case "strategy": return `Setups produced by the "${v}" playbook`;
+    case "session": return `Entries taken during the ${v} session`;
+    case "session-side": return `${v.split(":")[1]} entries during ${v.split(":")[0]}`;
+    case "htf": return v === "with-trend"
+      ? "Entries aligned with the higher-timeframe trend"
+      : v === "counter-trend"
+        ? "Entries taken against the higher-timeframe trend"
+        : "Entries taken while the higher timeframe had no trend";
+    case "swing": return `${v.split(":")[1]} entries while swing structure read ${v.split(":")[0]}`;
+    case "zone": return v === "in-zone"
+      ? "Entries where the structural read agreed with the direction"
+      : "Entries where the structural read did NOT agree with the direction";
+    case "volatility": return `Entries in ${v} volatility (ATR regime)`;
+    case "adx": return `Entries with ${v} trend strength (ADX band)`;
+    case "level": return v === "at-key-level"
+      ? "Entries taken within 1×ATR of a key support/resistance level"
+      : "Entries taken in the middle of the range, away from key levels";
+    default: return key;
+  }
+}
+
+// --------------------------- Aggregation -----------------------------------
+
+export type PatternStat = {
+  key: string;
+  dimension: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgR: number;
+  totalR: number;
+  pnl: number;
+  /** Points added to (or removed from) the trade quality score. */
+  adjustment: number;
+  note: string;
+};
+
+export type AdjustmentEvent = {
+  at: number;
+  key: string;
+  from: number;
+  to: number;
+  trades: number;
+  winRate: number;
+  avgR: number;
+  note: string;
+};
+
+/** Minimum closed trades before a pattern is allowed to influence scoring. */
+export const MIN_PATTERN_SAMPLES = 6;
+/** Maximum points a single pattern may add or remove. */
+export const MAX_PATTERN_ADJ = 5;
+/** Maximum combined adjustment applied to any one trade score. */
+export const MAX_TOTAL_ADJ = 10;
+
+export type ReviewRow = {
+  outcome: string;
+  r_multiple: number | null;
+  profit: number | null;
+  pattern_keys: string[] | null;
+};
+
+export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
+  const map = new Map<string, PatternStat>();
+  for (const r of reviews) {
+    const rm = Number(r.r_multiple ?? 0);
+    const pnl = Number(r.profit ?? 0);
+    const win = r.outcome === "win";
+    for (const key of r.pattern_keys ?? []) {
+      const s = map.get(key) ?? {
+        key, dimension: dimensionOf(key), trades: 0, wins: 0, losses: 0,
+        winRate: 0, avgR: 0, totalR: 0, pnl: 0, adjustment: 0, note: "",
+      };
+      s.trades += 1;
+      if (win) s.wins += 1;
+      else if (r.outcome === "loss") s.losses += 1;
+      s.totalR += rm;
+      s.pnl += pnl;
+      map.set(key, s);
+    }
+  }
+
+  const out: PatternStat[] = [];
+  for (const s of map.values()) {
+    s.winRate = s.trades ? (s.wins / s.trades) * 100 : 0;
+    s.avgR = s.trades ? s.totalR / s.trades : 0;
+    if (s.trades < MIN_PATTERN_SAMPLES) {
+      s.adjustment = 0;
+      s.note = `Only ${s.trades}/${MIN_PATTERN_SAMPLES} closed trades — still gathering evidence, no scoring change yet.`;
+    } else {
+      // Expectancy-driven. avgR of +0.2 is roughly break-even after costs, so
+      // that is the pivot. Confidence in the estimate scales with sample size.
+      const confidence = Math.min(1, s.trades / 15);
+      const raw = (s.avgR - 0.2) * 5 * confidence;
+      s.adjustment = +Math.max(-MAX_PATTERN_ADJ, Math.min(MAX_PATTERN_ADJ, raw)).toFixed(2);
+      s.note = s.adjustment < -0.25
+        ? `Losing pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score penalty ${s.adjustment.toFixed(2)}.`
+        : s.adjustment > 0.25
+          ? `Winning pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score bonus +${s.adjustment.toFixed(2)}.`
+          : `Neutral: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R — no meaningful edge either way.`;
+    }
+    out.push(s);
+  }
+  return out.sort((a, b) => a.adjustment - b.adjustment);
+}
+
+// --------------------------- Store -----------------------------------------
+
+type LearningStore = {
+  patterns: PatternStat[];
+  adjustments: Record<string, number>;
+  history: AdjustmentEvent[];
+  reviewCount: number;
+  lastRunAt: number | null;
+  running: boolean;
+  enabled: boolean;
+  setEnabled: (v: boolean) => void;
+  apply: (patterns: PatternStat[], reviewCount: number, events: AdjustmentEvent[]) => void;
+  setRunning: (v: boolean) => void;
+};
+
+export const useLearning = create<LearningStore>()(
+  persist(
+    (set, get) => ({
+      patterns: [],
+      adjustments: {},
+      history: [],
+      reviewCount: 0,
+      lastRunAt: null,
+      running: false,
+      enabled: true,
+      setEnabled: (v) => set({ enabled: v }),
+      setRunning: (v) => set({ running: v }),
+      apply: (patterns, reviewCount, events) => {
+        const adjustments: Record<string, number> = {};
+        for (const p of patterns) if (p.adjustment !== 0) adjustments[p.key] = p.adjustment;
+        set({
+          patterns,
+          adjustments,
+          reviewCount,
+          lastRunAt: Date.now(),
+          history: [...events, ...get().history].slice(0, 300),
+        });
+      },
+    }),
+    {
+      name: "aurum-strategy-learning-v1",
+      storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
+      partialize: (s) => ({
+        patterns: s.patterns, adjustments: s.adjustments, history: s.history,
+        reviewCount: s.reviewCount, lastRunAt: s.lastRunAt, enabled: s.enabled,
+      }) as any,
+    },
+  ),
+);
+
+/**
+ * Total score adjustment for a candidate setup. Called synchronously from the
+ * quality scorer — never does IO.
+ */
+export function learningAdjustment(ctx: PatternContext): { delta: number; notes: string[] } {
+  const st = useLearning.getState();
+  if (!st.enabled) return { delta: 0, notes: [] };
+  const keys = patternKeys(ctx);
+  let delta = 0;
+  const notes: string[] = [];
+  for (const k of keys) {
+    const a = st.adjustments[k];
+    if (!a) continue;
+    delta += a;
+    notes.push(`${k} ${a > 0 ? "+" : ""}${a.toFixed(2)}`);
+  }
+  const clamped = Math.max(-MAX_TOTAL_ADJ, Math.min(MAX_TOTAL_ADJ, delta));
+  return { delta: +clamped.toFixed(2), notes };
+}
+
+// --------------------------- Refresh cycle ---------------------------------
+
+const CHANGE_EPSILON = 0.25;
+
+/** Recompute every pattern from the stored trade reviews and persist the diff. */
+export async function refreshLearning(): Promise<{ ok: boolean; reviews: number; changed: number; error?: string }> {
+  if (useLearning.getState().running) return { ok: false, reviews: 0, changed: 0, error: "already running" };
+  useLearning.getState().setRunning(true);
+  try {
+    const { data, error } = await supabase
+      .from("trade_reviews")
+      .select("outcome,r_multiple,profit,pattern_keys")
+      .order("closed_at", { ascending: false })
+      .limit(1000);
+    if (error) return { ok: false, reviews: 0, changed: 0, error: error.message };
+
+    const reviews = (data ?? []) as ReviewRow[];
+    const patterns = aggregatePatterns(reviews);
+    const prev = useLearning.getState().adjustments;
+
+    const events: AdjustmentEvent[] = [];
+    for (const p of patterns) {
+      const before = prev[p.key] ?? 0;
+      if (Math.abs(p.adjustment - before) < CHANGE_EPSILON) continue;
+      events.push({
+        at: Date.now(), key: p.key, from: before, to: p.adjustment,
+        trades: p.trades, winRate: +p.winRate.toFixed(1), avgR: +p.avgR.toFixed(3), note: p.note,
+      });
+    }
+
+    useLearning.getState().apply(patterns, reviews.length, events);
+
+    if (events.length) {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (uid) {
+        await supabase.from("strategy_adjustments").insert(
+          events.map((e) => ({
+            user_id: uid,
+            pattern_key: e.key,
+            dimension: dimensionOf(e.key),
+            adjustment: e.to,
+            previous_adjustment: e.from,
+            sample_size: e.trades,
+            win_rate: e.winRate,
+            avg_r: e.avgR,
+            note: e.note,
+          })),
+        );
+      }
+    }
+    return { ok: true, reviews: reviews.length, changed: events.length };
+  } catch (e: any) {
+    return { ok: false, reviews: 0, changed: 0, error: e?.message ?? String(e) };
+  } finally {
+    useLearning.getState().setRunning(false);
+  }
+}
+
+let learningTimer: ReturnType<typeof setInterval> | null = null;
+/** Ongoing, automatic re-learning. Safe to call repeatedly. */
+export function startLearningLoop(intervalMs = 15 * 60_000) {
+  if (typeof window === "undefined" || learningTimer) return;
+  void refreshLearning();
+  learningTimer = setInterval(() => { void refreshLearning(); }, intervalMs);
+}
