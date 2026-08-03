@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { resolveBridgeAuth } from "@/lib/bridge-auth.server";
+import { isDegenerateStop } from "@/lib/bridgeVersion";
+
 
 const Schema = z.object({
   signal_id: z.string().uuid().nullable().optional(),
