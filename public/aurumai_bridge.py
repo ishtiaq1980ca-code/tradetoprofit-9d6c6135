@@ -812,16 +812,20 @@ def _apply_usd_trailing_stop(position) -> bool:
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
+    # Hard guard: the trailing SL must stay strictly in profit. If the broker's
+    # min-stop clamp would push it onto (or behind) the entry price, skip the
+    # move entirely rather than parking a zero-distance stop on entry.
+    min_lock_move = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
     if is_buy:
         max_allowed_sl = float(tick.bid) - min_dist
         new_sl = min(raw_sl, max_allowed_sl)
-        if new_sl < entry:
+        if new_sl <= entry + min_lock_move:
             return False
         better = old_sl <= 0 or new_sl > old_sl + point
     else:
         min_allowed_sl = float(tick.ask) + min_dist
         new_sl = max(raw_sl, min_allowed_sl)
-        if new_sl > entry:
+        if new_sl >= entry - min_lock_move:
             return False
         better = old_sl <= 0 or new_sl < old_sl - point
     if not better:
