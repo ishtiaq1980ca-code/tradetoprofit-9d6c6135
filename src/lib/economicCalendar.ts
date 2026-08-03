@@ -151,6 +151,12 @@ function relevant(e: CalendarEvent, includeMedium: boolean) {
   return e.impact === "high" || (includeMedium && e.impact === "medium");
 }
 
+/** Feed uses "ALL" for global events (OPEC, G20) — those affect every symbol. */
+function affects(e: CalendarEvent, ccys: string[]) {
+  const c = e.currency.toUpperCase();
+  return c === "ALL" || ccys.includes(c);
+}
+
 /** Is this symbol inside a news blackout window right now? */
 export function newsBlockFor(symbol: string, now = Date.now()): NewsBlock {
   const st = useEconomicCalendar.getState();
@@ -161,7 +167,7 @@ export function newsBlockFor(symbol: string, now = Date.now()): NewsBlock {
 
   for (const e of st.events) {
     if (!relevant(e, st.includeMedium)) continue;
-    if (!ccys.includes(e.currency.toUpperCase())) continue;
+    if (!affects(e, ccys)) continue;
     if (now >= e.at - before && now <= e.at + after) {
       const minutesUntil = Math.round((e.at - now) / 60_000);
       const phrase = minutesUntil >= 0 ? `in ${minutesUntil} min` : `${Math.abs(minutesUntil)} min ago`;
@@ -182,29 +188,39 @@ export function nextEventFor(symbol: string, now = Date.now()): CalendarEvent | 
   const ccys = currenciesOf(symbol);
   return (
     st.events
-      .filter((e) => relevant(e, st.includeMedium) && ccys.includes(e.currency.toUpperCase()) && e.at + st.bufferAfterMin * 60_000 >= now)
+      .filter((e) => relevant(e, st.includeMedium) && affects(e, ccys) && e.at + st.bufferAfterMin * 60_000 >= now)
       .sort((a, b) => a.at - b.at)[0] ?? null
   );
 }
 
-// --------------------------- optional remote feed ---------------------------
-// Expected JSON shape (array): [{ title, currency, impact, date|at }]
-// `date` may be an ISO string; `impact` is matched case-insensitively.
+/** Count of upcoming high-impact events currently known (feed + manual). */
+export function upcomingHighImpactCount(now = Date.now()): number {
+  return useEconomicCalendar.getState().events.filter((e) => e.impact === "high" && e.at >= now).length;
+}
+
+// ------------------------------ automatic feed ------------------------------
+// Default source: /api/public/calendar — a server-side proxy of the free
+// Forex Factory weekly JSON (nfs.faireconomy.media), which has no CORS headers
+// and therefore cannot be fetched from the browser directly.
+//
+// Accepted shapes:
+//   { events: [{ title, currency|country, impact, at|date }] }  (our proxy)
+//   [{ title, currency|country, impact, at|date }]              (raw feed)
 
 function parseFeed(raw: unknown): CalendarEvent[] {
-  if (!Array.isArray(raw)) return [];
+  const arr = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.events) ? (raw as any).events : [];
   const out: CalendarEvent[] = [];
-  for (const r of raw as any[]) {
+  for (const r of arr as any[]) {
     const impactRaw = String(r?.impact ?? r?.importance ?? "").toLowerCase();
     const impact: NewsImpact | null = impactRaw.includes("high") || impactRaw === "3"
       ? "high"
       : impactRaw.includes("medium") || impactRaw.includes("moderate") || impactRaw === "2"
         ? "medium"
         : null;
-    if (!impact) continue;
+    if (!impact) continue; // ignores Low / Holiday rows
     const when = r?.at ?? r?.date ?? r?.time ?? r?.timestamp;
     const at = typeof when === "number" ? (when < 1e12 ? when * 1000 : when) : Date.parse(String(when));
-    const currency = String(r?.currency ?? r?.country ?? "").toUpperCase().slice(0, 3);
+    const currency = String(r?.currency ?? r?.country ?? "").toUpperCase().trim().slice(0, 3);
     const title = String(r?.title ?? r?.event ?? "Economic release");
     if (!isFinite(at) || !currency) continue;
     out.push({ id: uid(), title, currency, impact, at, source: "feed" });
@@ -214,20 +230,36 @@ function parseFeed(raw: unknown): CalendarEvent[] {
 
 let feedInFlight = false;
 
-/** Refresh the optional remote feed (no-op when no URL is configured). */
+/** Refresh the calendar feed (defaults to the built-in automatic source). */
 export async function refreshCalendarFeed(force = false): Promise<void> {
   const st = useEconomicCalendar.getState();
-  if (!st.feedUrl || feedInFlight) return;
+  const url = st.feedUrl || DEFAULT_FEED_URL;
+  if (feedInFlight) return;
   if (!force && Date.now() - st.lastFeedFetch < 3600_000) return;
   feedInFlight = true;
+  useEconomicCalendar.setState({ feedLoading: true });
   try {
-    const res = await fetch(st.feedUrl, { headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`feed HTTP ${res.status}`);
-    const json = await res.json();
-    useEconomicCalendar.getState().mergeFeed(parseFeed(json));
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((json as any)?.error ?? `feed HTTP ${res.status}`);
+    const parsed = parseFeed(json);
+    if (parsed.length === 0) throw new Error("feed returned no usable events");
+    useEconomicCalendar.getState().mergeFeed(parsed);
   } catch (e: any) {
     useEconomicCalendar.setState({ lastFeedError: e?.message ?? "feed fetch failed", lastFeedFetch: Date.now() });
   } finally {
     feedInFlight = false;
+    useEconomicCalendar.setState({ feedLoading: false });
   }
 }
+
+let autoTimer: number | null = null;
+
+/** Start the automatic hourly refresh (browser only, idempotent). */
+export function startCalendarAutoRefresh(): void {
+  if (typeof window === "undefined" || autoTimer !== null) return;
+  void refreshCalendarFeed(true);
+  autoTimer = window.setInterval(() => void refreshCalendarFeed(), 15 * 60_000);
+  window.addEventListener("online", () => void refreshCalendarFeed(true));
+}
+
