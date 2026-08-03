@@ -6,10 +6,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { sendBreachWebhook, useCircuitBreaker } from "@/lib/circuitBreaker";
 import { toast } from "sonner";
+import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 /** Loss limits + outbound alert configuration for the circuit breaker. */
 export function RiskGuardPanel() {
   const cb = useCircuitBreaker();
+  const [confirmOff, setConfirmOff] = useState(false);
 
   const test = async () => {
     if (!cb.webhookUrl) return toast.error("Enter a webhook URL first");
@@ -114,6 +120,29 @@ export function RiskGuardPanel() {
           </div>
         )}
       </CardContent>
+
+      <AlertDialog open={confirmOff} onOpenChange={setConfirmOff}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable the daily loss limit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Turning this off means the bot will keep trading even during large losses.
+              Weekly and monthly limits stay active. Are you sure?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it on</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                cb.setDailyLimitEnabled(false);
+                toast.warning("Daily loss limit disabled — the bot will keep trading through drawdowns");
+              }}
+            >
+              Turn it off
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
