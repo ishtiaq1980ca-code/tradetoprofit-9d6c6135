@@ -777,7 +777,9 @@ def _apply_usd_trailing_stop(position) -> bool:
     if entry <= 0 or vpu <= 0:
         return False
 
-    be_required_usd = min_dist * vpu + 0.05
+    # Profit must cover the broker min-stop distance AND the mandatory
+    # break-even buffer, otherwise the move would land on/behind entry.
+    be_required_usd = min_dist * vpu + float(USD_BE_LOCK) + 0.05
     effective_trigger = max(USD_TRAIL_TRIGGER, be_required_usd)
     if profit < effective_trigger:
         return False
