@@ -660,6 +660,17 @@ def _close_position(position, reason: str) -> bool:
 
 
 def _modify_position_stops(position, sl: float, tp: float) -> bool:
+    # HARD GUARD: never write a stop-loss that sits on (or within a hair of)
+    # the entry price — that turns any retrace into a 0.00 round-trip close.
+    try:
+        _entry = float(position.price_open)
+        _info = mt5.symbol_info(position.symbol)
+        _pt = float(_info.point) if _info else 0.00001
+        if sl and _entry > 0 and abs(float(sl) - _entry) < _pt * 3:
+            print(f"!! BLOCKED zero-distance SL ticket={position.ticket} sl={sl} entry={_entry} — modify refused")
+            return False
+    except Exception:
+        pass
     # Preserve existing TP when caller passes 0 — many brokers interpret tp=0
     # in TRADE_ACTION_SLTP as "remove TP", which cancels the RR target.
     if tp is None or tp <= 0:
