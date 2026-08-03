@@ -8,13 +8,22 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  newsBlockFor, refreshCalendarFeed, useEconomicCalendar, type NewsImpact,
+  DEFAULT_FEED_URL, newsBlockFor, refreshCalendarFeed, startCalendarAutoRefresh,
+  useEconomicCalendar, type NewsImpact,
 } from "@/lib/economicCalendar";
 import { useBot } from "@/lib/tradingBot";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "XAU"];
+
+function ago(ts: number) {
+  const m = Math.round((Date.now() - ts) / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
 
 export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
   const cal = useEconomicCalendar();
@@ -26,7 +35,8 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => { void refreshCalendarFeed(); }, [cal.feedUrl]);
+  useEffect(() => { startCalendarAutoRefresh(); }, []);
+  useEffect(() => { void refreshCalendarFeed(true); }, [cal.feedUrl]);
 
   const paused = useMemo(
     () =>
@@ -36,10 +46,18 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
     [symbols, now, cal.events, cal.enabled, cal.bufferBeforeMin, cal.bufferAfterMin, cal.includeMedium],
   );
 
+  const feedEvents = useMemo(() => cal.events.filter((e) => e.source === "feed"), [cal.events]);
+  const upcomingHigh = useMemo(
+    () => cal.events.filter((e) => e.impact === "high" && e.at >= now).length,
+    [cal.events, now],
+  );
+  const feedOk = cal.lastFeedOk > 0 && feedEvents.length > 0;
+
   const upcoming = useMemo(
     () => cal.events.filter((e) => e.at + cal.bufferAfterMin * 60_000 >= now).slice(0, 12),
     [cal.events, cal.bufferAfterMin, now],
   );
+
 
   return (
     <Card className="border-border/60 bg-card/70">
@@ -53,6 +71,31 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-md border px-3 py-2 text-xs",
+            feedOk ? "border-bull/40 bg-bull/10" : cal.lastFeedError ? "border-bear/50 bg-bear/10" : "border-border/60 bg-muted/20",
+          )}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", cal.feedLoading && "animate-spin")} />
+          <div className="min-w-0 flex-1">
+            {feedOk ? (
+              <span>
+                Auto feed live — {feedEvents.length} events synced, <b>{upcomingHigh}</b> upcoming high-impact.
+                <span className="text-muted-foreground"> Updated {ago(cal.lastFeedOk)}.</span>
+              </span>
+            ) : cal.lastFeedError ? (
+              <span className="text-bear">Auto feed unavailable: {cal.lastFeedError} — manual events only.</span>
+            ) : (
+              <span className="text-muted-foreground">Fetching economic calendar…</span>
+            )}
+          </div>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => void refreshCalendarFeed(true)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+
         {paused.length > 0 ? (
           <div className="space-y-1.5 rounded-md border border-bear/50 bg-bear/10 p-3">
             {paused.map(({ symbol, block }) => (
@@ -120,10 +163,10 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
 
         {editable && (
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Optional calendar feed URL (JSON)</Label>
+            <Label className="text-xs text-muted-foreground">Calendar feed URL (JSON)</Label>
             <div className="flex gap-2">
               <Input
-                placeholder="https://…/calendar.json"
+                placeholder={DEFAULT_FEED_URL}
                 value={cal.feedUrl}
                 onChange={(e) => cal.setFeedUrl(e.target.value)}
               />
@@ -131,14 +174,21 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
+            {cal.feedUrl !== DEFAULT_FEED_URL && (
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => cal.setFeedUrl(DEFAULT_FEED_URL)}>
+                Reset to built-in automatic feed
+              </Button>
+            )}
             {cal.lastFeedError && <p className="text-[11px] text-bear">Feed error: {cal.lastFeedError}</p>}
           </div>
         )}
 
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Limitation: no free public economic-calendar API is reliably available from the browser, so this filter runs
-          on the manual event list above by default. Point it at your own JSON feed to automate it.
+          Automatic: high/medium-impact releases are pulled hourly from the free Forex Factory weekly calendar through
+          the app's own server proxy (the upstream feed blocks direct browser access). Manual events below are merged in
+          as an extra layer and are never overwritten by the feed.
         </p>
+
       </CardContent>
     </Card>
   );

@@ -22,6 +22,8 @@ import { useDecisionLog } from "./decisionLog";
 import { classifyRejection, clearCooldown, cooldownFor, humanRemaining, symbolFullyCooling, useRejectionCooldown } from "./rejectionCooldown";
 import { startReviewLoop } from "./tradeReviewer";
 import { startLearningLoop } from "./strategyLearning";
+import { startCalendarAutoRefresh } from "./economicCalendar";
+
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
 import {
@@ -1319,6 +1321,10 @@ export function BotEngine() {
     // resulting pattern statistics back into the entry scoring, forever.
     startReviewLoop();
     startLearningLoop();
+
+    // Automatic economic-calendar feed (no manual events required).
+    startCalendarAutoRefresh();
+
 
     const tokenPushId = setInterval(pushTokenToWorker, 60_000);
 

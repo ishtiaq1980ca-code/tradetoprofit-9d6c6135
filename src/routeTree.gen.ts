@@ -24,6 +24,7 @@ import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsPairsRouteImport } from './routes/settings.pairs'
+import { Route as ApiPublicCalendarRouteImport } from './routes/api/public/calendar'
 import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/bridge/trades'
 import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
 import { Route as ApiPublicBridgeExecution_logRouteImport } from './routes/api/public/bridge/execution_log'
@@ -104,6 +105,11 @@ const SettingsPairsRoute = SettingsPairsRouteImport.update({
   path: '/pairs',
   getParentRoute: () => SettingsRoute,
 } as any)
+const ApiPublicCalendarRoute = ApiPublicCalendarRouteImport.update({
+  id: '/api/public/calendar',
+  path: '/api/public/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicBridgeTradesRoute = ApiPublicBridgeTradesRouteImport.update({
   id: '/api/public/bridge/trades',
   path: '/api/public/bridge/trades',
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/settings/pairs': typeof SettingsPairsRoute
+  '/api/public/calendar': typeof ApiPublicCalendarRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/settings/pairs': typeof SettingsPairsRoute
+  '/api/public/calendar': typeof ApiPublicCalendarRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/signals': typeof SignalsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/settings/pairs': typeof SettingsPairsRoute
+  '/api/public/calendar': typeof ApiPublicCalendarRoute
   '/api/public/bridge/account': typeof ApiPublicBridgeAccountRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/signals'
     | '/sitemap.xml'
     | '/settings/pairs'
+    | '/api/public/calendar'
     | '/api/public/bridge/account'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/signals'
     | '/sitemap.xml'
     | '/settings/pairs'
+    | '/api/public/calendar'
     | '/api/public/bridge/account'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/signals'
     | '/sitemap.xml'
     | '/settings/pairs'
+    | '/api/public/calendar'
     | '/api/public/bridge/account'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
@@ -271,6 +283,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   SignalsRoute: typeof SignalsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  ApiPublicCalendarRoute: typeof ApiPublicCalendarRoute
   ApiPublicBridgeAccountRoute: typeof ApiPublicBridgeAccountRoute
   ApiPublicBridgeExecution_logRoute: typeof ApiPublicBridgeExecution_logRoute
   ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
@@ -384,6 +397,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsPairsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/api/public/calendar': {
+      id: '/api/public/calendar'
+      path: '/api/public/calendar'
+      fullPath: '/api/public/calendar'
+      preLoaderRoute: typeof ApiPublicCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/bridge/trades': {
       id: '/api/public/bridge/trades'
       path: '/api/public/bridge/trades'
@@ -442,6 +462,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   SignalsRoute: SignalsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  ApiPublicCalendarRoute: ApiPublicCalendarRoute,
   ApiPublicBridgeAccountRoute: ApiPublicBridgeAccountRoute,
   ApiPublicBridgeExecution_logRoute: ApiPublicBridgeExecution_logRoute,
   ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
