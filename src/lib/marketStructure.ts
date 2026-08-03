@@ -171,3 +171,114 @@ export function evaluateReversal(
     checks,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Structure READ — a full, human-auditable description of what the bot thinks
+// the market is doing before it enters. This is deliberately richer than the
+// pass/fail guard above: it names the trend, the swing pattern, the key level
+// being tested and why the current price is a buy zone or a sell zone, so the
+// decision log can be audited in hindsight against what price actually did.
+// ---------------------------------------------------------------------------
+
+import { activeSessions } from "./sessions";
+
+export type StructureRead = {
+  htfTrend: "up" | "down" | "flat";
+  swing: "HH+HL" | "LH+LL" | "mixed";
+  /** Nearest swing low below price. */
+  support: number | null;
+  /** Nearest swing high above price. */
+  resistance: number | null;
+  /** The level price is currently interacting with (within 1×ATR), if any. */
+  keyLevel: number | null;
+  keyLevelKind: "support" | "resistance" | null;
+  /** Distance from that key level in ATR multiples. */
+  keyLevelDistanceAtr: number | null;
+  /** Where price sits inside the recent range, 0 = range low, 1 = range high. */
+  rangePosition: number;
+  zone: "buy" | "sell" | "neutral";
+  session: string;
+  atrPct: number;
+  volatility: "low" | "normal" | "high";
+  /** One-paragraph plain-English read. */
+  narrative: string;
+};
+
+export function describeStructure(candles: Candle[], atrValue: number): StructureRead {
+  const closes = candles.map((c) => c.close);
+  const price = closes[closes.length - 1] ?? 0;
+  const atrSafe = Math.max(atrValue, 1e-9);
+  const atrPct = price > 0 ? (atrValue / price) * 100 : 0;
+
+  const htf = aggregate(candles, 4);
+  const hCloses = htf.map((c) => c.close);
+  const hl = hCloses.length - 1;
+  const he50 = ema(hCloses, 50)[hl] ?? price;
+  const he200 = ema(hCloses, Math.min(200, Math.max(2, hCloses.length - 1)))[hl] ?? price;
+  const hPrice = hCloses[hl] ?? price;
+  const he200Prev = ema(hCloses, Math.min(200, Math.max(2, hCloses.length - 1)))[Math.max(0, hl - 5)] ?? he200;
+  const slope = he200 - he200Prev;
+  let htfTrend: StructureRead["htfTrend"] = "flat";
+  if (he50 > he200 && slope >= 0 && hPrice > he200) htfTrend = "up";
+  else if (he50 < he200 && slope <= 0 && hPrice < he200) htfTrend = "down";
+
+  const { support, resistance } = detectLevels(candles, 80, 3);
+  const highs = resistance.slice(-2);
+  const lows = support.slice(-2);
+  const HH = highs.length === 2 && highs[1] > highs[0];
+  const LH = highs.length === 2 && highs[1] < highs[0];
+  const HL = lows.length === 2 && lows[1] > lows[0];
+  const LL = lows.length === 2 && lows[1] < lows[0];
+  const swing: StructureRead["swing"] = HH || HL ? "HH+HL" : LH || LL ? "LH+LL" : "mixed";
+
+  const nearestSup = support.filter((l) => l < price).sort((a, b) => b - a)[0] ?? null;
+  const nearestRes = resistance.filter((l) => l > price).sort((a, b) => a - b)[0] ?? null;
+  const dSup = nearestSup != null ? (price - nearestSup) / atrSafe : Infinity;
+  const dRes = nearestRes != null ? (nearestRes - price) / atrSafe : Infinity;
+  let keyLevel: number | null = null;
+  let keyLevelKind: StructureRead["keyLevelKind"] = null;
+  let keyLevelDistanceAtr: number | null = null;
+  if (Math.min(dSup, dRes) <= 1.0) {
+    if (dSup <= dRes) { keyLevel = nearestSup; keyLevelKind = "support"; keyLevelDistanceAtr = dSup; }
+    else { keyLevel = nearestRes; keyLevelKind = "resistance"; keyLevelDistanceAtr = dRes; }
+  }
+
+  const window = candles.slice(-80);
+  const rHi = Math.max(...window.map((c) => c.high));
+  const rLo = Math.min(...window.map((c) => c.low));
+  const rangePosition = rHi > rLo ? (price - rLo) / (rHi - rLo) : 0.5;
+
+  let zone: StructureRead["zone"] = "neutral";
+  if (htfTrend === "up" && swing !== "LH+LL") zone = "buy";
+  else if (htfTrend === "down" && swing !== "HH+HL") zone = "sell";
+  else if (swing === "HH+HL" && rangePosition < 0.6) zone = "buy";
+  else if (swing === "LH+LL" && rangePosition > 0.4) zone = "sell";
+
+  const volatility: StructureRead["volatility"] = atrPct < 0.05 ? "low" : atrPct > 0.35 ? "high" : "normal";
+  const sess = activeSessions();
+  const session = sess.weekend ? "Closed" : (sess.primary ?? "Off-session");
+
+  const levelText = keyLevel != null
+    ? `testing ${keyLevelKind} at ${keyLevel.toFixed(5)} (${keyLevelDistanceAtr!.toFixed(2)}×ATR away)`
+    : `no key level within 1×ATR (nearest support ${nearestSup?.toFixed(5) ?? "—"}, resistance ${nearestRes?.toFixed(5) ?? "—"})`;
+  const zoneText = zone === "buy"
+    ? "This is a BUY zone: higher-timeframe trend and swing structure both favour longs, and price is not extended into the top of the range."
+    : zone === "sell"
+      ? "This is a SELL zone: higher-timeframe trend and swing structure both favour shorts, and price is not extended into the bottom of the range."
+      : "Neutral zone: trend and swing structure disagree, so neither direction has a structural edge here.";
+
+  const narrative =
+    `H1 trend is ${htfTrend.toUpperCase()} (EMA50 ${he50.toFixed(5)} vs EMA200 ${he200.toFixed(5)}, slope ${slope >= 0 ? "rising" : "falling"}). ` +
+    `Swing structure on the entry timeframe reads ${swing} (${HH ? "higher high " : ""}${HL ? "higher low " : ""}${LH ? "lower high " : ""}${LL ? "lower low " : ""}`.trim() +
+    `). Price ${price.toFixed(5)} sits at ${(rangePosition * 100).toFixed(0)}% of the 80-bar range and is ${levelText}. ` +
+    `Volatility is ${volatility} (ATR ${atrPct.toFixed(3)}% of price) during the ${session} session. ${zoneText}`;
+
+  return {
+    htfTrend, swing,
+    support: nearestSup, resistance: nearestRes,
+    keyLevel, keyLevelKind, keyLevelDistanceAtr,
+    rangePosition: +rangePosition.toFixed(3),
+    zone, session, atrPct: +atrPct.toFixed(4), volatility,
+    narrative,
+  };
+}
