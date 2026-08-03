@@ -33,8 +33,11 @@ export const Route = createFileRoute("/api/public/bridge/account")({
         if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });
         const { terminal_connected, timestamp, bridge_version, ...row } = parsed.data;
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { error } = await supabaseAdmin.from("account_snapshots").insert({ ...row, user_id: auth.userId });
+        const { error } = await supabaseAdmin
+          .from("account_snapshots")
+          .insert({ ...row, bridge_version: bridge_version ?? null, user_id: auth.userId });
         if (error) return Response.json({ error: error.message }, { status: 500 });
+
         return Response.json({ ok: true, terminal_connected, bridge_version, received_at: timestamp ?? new Date().toISOString() });
 
       },
