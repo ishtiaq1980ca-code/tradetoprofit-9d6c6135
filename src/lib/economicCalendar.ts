@@ -1,14 +1,16 @@
 // Economic news filter.
 //
-// LIMITATION (read before relying on this): there is no free, reliably
-// CORS-enabled, high-impact economic calendar API. The engine therefore runs
-// on a MANUAL, admin-editable event list by default. An optional remote JSON
-// feed URL can be configured; if it responds with a compatible payload the
-// events are merged in (marked source = "feed") and refreshed hourly.
+// AUTOMATIC BY DEFAULT: the app ships with a server-side proxy
+// (/api/public/calendar) that mirrors the free, no-API-key Forex Factory
+// weekly calendar feed (nfs.faireconomy.media). The upstream feed sends no
+// CORS headers, so it is fetched server-side and normalized there. The store
+// refreshes it on load and hourly afterwards — no manual entry required.
+// The manual event list remains as a supplementary/admin fallback.
 //
 // Trading impact: when a high-impact event for either currency of a pair falls
 // inside [event - bufferBeforeMin, event + bufferAfterMin], NEW entries for
 // that pair are blocked. Existing positions are never touched.
+
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
