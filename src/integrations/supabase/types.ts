@@ -17,6 +17,7 @@ export type Database = {
       account_snapshots: {
         Row: {
           balance: number
+          bridge_version: number | null
           company: string | null
           created_at: string
           currency: string | null
@@ -35,6 +36,7 @@ export type Database = {
         }
         Insert: {
           balance: number
+          bridge_version?: number | null
           company?: string | null
           created_at?: string
           currency?: string | null
@@ -53,6 +55,7 @@ export type Database = {
         }
         Update: {
           balance?: number
+          bridge_version?: number | null
           company?: string | null
           created_at?: string
           currency?: string | null
