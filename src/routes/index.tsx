@@ -9,6 +9,7 @@ import { Mt5AccountPanel } from "@/components/Mt5AccountPanel";
 import { LiveAccountsPerformance } from "@/components/AccountPerformance";
 import { NewsFilterPanel } from "@/components/NewsFilterPanel";
 import { RiskGuardPanel } from "@/components/RiskGuardPanel";
+import { SignalHealthBanner } from "@/components/SignalHealthBanner";
 
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
