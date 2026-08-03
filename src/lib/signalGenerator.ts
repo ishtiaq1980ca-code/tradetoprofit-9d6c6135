@@ -25,7 +25,8 @@ import {
 import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./riskEngine";
 import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
-import { evaluateStructure } from "./marketStructure";
+import { describeStructure, evaluateStructure, type StructureRead } from "./marketStructure";
+import { patternKeys, type PatternContext } from "./strategyLearning";
 import { strictEntryGate, type GateCheck } from "./entryGate";
 import { computeTradeScore, MIN_TRADE_SCORE, type ScoreComponents } from "./qualityScore";
 export { MIN_TRADE_SCORE } from "./qualityScore";
@@ -101,6 +102,11 @@ export type TradeDecision = {
   qualityScore: number;
   qualityBreakdown?: ScoreComponents;
   gateChecks?: GateCheck[];
+  /** Full market-structure reasoning behind this decision (auditable). */
+  structure?: StructureRead;
+  /** Learning fingerprint of this setup. */
+  patternContext?: PatternContext;
+  patternKeys?: string[];
 };
 
 // Back-compat alias for the older Signals UI.
@@ -332,6 +338,11 @@ export function generateTradeDecision(
   if (!isFinite(ind.atr) || ind.atr <= 0) return null;
 
   // --- Strategy playbook ---
+  // Market-structure READ — computed for every evaluation, not only accepted
+  // ones, so the decision log always shows what the bot believed the market
+  // was doing and whether that read was correct in hindsight.
+  const structure = describeStructure(candles, ind.atr);
+
   const pb = playbook({ profile, candles, price, ind });
   if (pb.side === "FLAT") {
     return buildDecision({
@@ -340,8 +351,22 @@ export function generateTradeDecision(
       strategyRationale: pb.rationale,
       filters: [],
       blocked: pb.rationale,
+      structure,
     });
   }
+
+  const patternContext: PatternContext = {
+    symbol: profile.symbol,
+    side: pb.side,
+    strategy: profile.strategy,
+    session: structure.session,
+    htfTrend: structure.htfTrend,
+    swing: structure.swing,
+    zone: structure.zone,
+    volatility: structure.volatility,
+    adx: ind.adx,
+    atKeyLevel: structure.keyLevel != null,
+  };
 
   // --- Pre-trade filters ---
   const filters: FilterResult[] = [];
@@ -392,6 +417,7 @@ export function generateTradeDecision(
     spreadPct: (spread / price) * 100,
     structurePass: fStruct.pass,
     newsClear: fNews.pass,
+    patternContext,
   });
 
   const allFilters = [
@@ -422,6 +448,8 @@ export function generateTradeDecision(
     quality: scored.score,
     qualityNotes: scored.notes,
     gateChecks: gate.checks,
+    structure,
+    patternContext,
   });
 }
 
@@ -466,6 +494,8 @@ function buildDecision(args: {
   quality?: ScoreComponents;
   qualityNotes?: string[];
   gateChecks?: GateCheck[];
+  structure?: StructureRead;
+  patternContext?: PatternContext;
 }): TradeDecision {
   const { profile, ind, price, balance, params, side, strategyRationale, filters, blocked } = args;
 
@@ -544,6 +574,13 @@ function buildDecision(args: {
   const reasonLines = [
     `${profile.symbol} ${side} | ${profile.label} | Confidence ${breakdown.total}% | Trade Score ${qualityTotal}/100`,
     `  Strategy   ${strategyRationale}`,
+    args.structure ? `  STRUCTURE  ${args.structure.narrative}` : "",
+    args.structure
+      ? `  Zone       Read=${args.structure.zone.toUpperCase()} | H1 ${args.structure.htfTrend} | swing ${args.structure.swing} | ${args.structure.keyLevel != null ? `key ${args.structure.keyLevelKind} ${args.structure.keyLevel.toFixed(5)} (${args.structure.keyLevelDistanceAtr?.toFixed(2)}×ATR)` : "no key level in range"} | range pos ${(args.structure.rangePosition * 100).toFixed(0)}%`
+      : "",
+    args.quality?.learning !== undefined && args.quality.learning !== 0
+      ? `  Learning   ${args.quality.learning > 0 ? "+" : ""}${args.quality.learning.toFixed(2)} pts from past trade reviews for this pattern`
+      : "",
     `  Trend      [${breakdown.trend}/25]  ${trendReason}`,
     `  Momentum   [${breakdown.momentum}/25]  ${momentumReason}`,
     `  Volatility [${breakdown.volatility}/15]  ${volReason}`,
@@ -588,5 +625,8 @@ function buildDecision(args: {
     qualityScore: qualityTotal,
     qualityBreakdown: args.quality,
     gateChecks: args.gateChecks,
+    structure: args.structure,
+    patternContext: args.patternContext,
+    patternKeys: args.patternContext ? patternKeys(args.patternContext) : undefined,
   };
 }
