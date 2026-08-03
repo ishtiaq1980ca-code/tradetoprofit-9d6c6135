@@ -163,10 +163,10 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
 
         {editable && (
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Optional calendar feed URL (JSON)</Label>
+            <Label className="text-xs text-muted-foreground">Calendar feed URL (JSON)</Label>
             <div className="flex gap-2">
               <Input
-                placeholder="https://…/calendar.json"
+                placeholder={DEFAULT_FEED_URL}
                 value={cal.feedUrl}
                 onChange={(e) => cal.setFeedUrl(e.target.value)}
               />
@@ -174,14 +174,21 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
+            {cal.feedUrl !== DEFAULT_FEED_URL && (
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => cal.setFeedUrl(DEFAULT_FEED_URL)}>
+                Reset to built-in automatic feed
+              </Button>
+            )}
             {cal.lastFeedError && <p className="text-[11px] text-bear">Feed error: {cal.lastFeedError}</p>}
           </div>
         )}
 
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Limitation: no free public economic-calendar API is reliably available from the browser, so this filter runs
-          on the manual event list above by default. Point it at your own JSON feed to automate it.
+          Automatic: high/medium-impact releases are pulled hourly from the free Forex Factory weekly calendar through
+          the app's own server proxy (the upstream feed blocks direct browser access). Manual events below are merged in
+          as an extra layer and are never overwritten by the feed.
         </p>
+
       </CardContent>
     </Card>
   );
