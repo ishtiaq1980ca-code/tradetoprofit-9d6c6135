@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080302                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080401                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -1472,32 +1472,65 @@ def execute_signal(sig: dict) -> bool:
     return True
 
 
+_CLOSED_REPORTED: set[int] = set()
+
+
 def sync_closed_trades():
-    """Report any closed positions opened by AurumAI in the last 24h."""
+    """Report every AurumAI position that closed on the broker.
+
+    Looks 7 days back (not 1) so a bridge restart or an outage cannot leave
+    closes permanently unreported. Each exit deal is posted once per process
+    and, unlike before, failures are printed instead of silently swallowed —
+    the previous version dropped every error, which is why closes never
+    reached the dashboard at all.
+    """
     now = dt.datetime.now(dt.UTC)
-    since = now - dt.timedelta(days=1)
+    since = now - dt.timedelta(days=7)
     deals = mt5.history_deals_get(since, now) or []
-    seen = set()
+    # Aggregate exit deals per position: partial closes produce several.
+    exits: dict[int, dict] = {}
     for d in deals:
         if d.magic != MAGIC or d.entry != mt5.DEAL_ENTRY_OUT:
             continue
-        if d.position_id in seen:
+        pid = int(d.position_id)
+        agg = exits.setdefault(pid, {
+            "symbol": d.symbol, "volume": 0.0, "profit": 0.0,
+            "price": float(d.price), "time": int(d.time),
+            "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",
+        })
+        agg["volume"] += float(d.volume)
+        agg["profit"] += float(d.profit) + float(getattr(d, "swap", 0.0) or 0.0) + float(getattr(d, "commission", 0.0) or 0.0)
+        if int(d.time) >= agg["time"]:
+            agg["time"] = int(d.time)
+            agg["price"] = float(d.price)
+
+    open_tickets = {int(p.ticket) for p in (mt5.positions_get() or [])}
+    sent = 0
+    for pid, agg in exits.items():
+        if pid in _CLOSED_REPORTED or pid in open_tickets:
             continue
-        seen.add(d.position_id)
-        try:
-            SESSION.post(f"{BASE_URL}/api/public/bridge/trades", timeout=10, json={
-                "mt5_ticket": int(d.position_id),
-                "symbol": d.symbol,
-                "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",  # OUT is opposite
-                "entry": float(d.price),
-                "exit": float(d.price),
-                "lot": float(d.volume),
-                "profit": float(d.profit),
-                "status": "closed",
-                "closed_at": dt.datetime.fromtimestamp(d.time, dt.UTC).isoformat(),
-            })
-        except Exception:
-            pass
+        closed_at = dt.datetime.fromtimestamp(agg["time"], dt.UTC).replace(microsecond=0)
+        ok = _post_json("/api/public/bridge/trades", {
+            "mt5_ticket": pid,
+            "symbol": agg["symbol"],
+            "side": agg["side"],
+            # `entry` is required by the schema but the server ignores it for
+            # close reports and keeps the original fill price on the row.
+            "entry": agg["price"],
+            "exit": agg["price"],
+            "lot": max(0.01, round(agg["volume"], 2)),
+            "profit": round(agg["profit"], 2),
+            "status": "closed",
+            "closed_at": closed_at.isoformat().replace("+00:00", "Z"),
+        })
+        if ok:
+            _CLOSED_REPORTED.add(pid)
+            sent += 1
+        else:
+            print(f"close report FAILED ticket={pid} {agg['symbol']} profit={agg['profit']:.2f}")
+    if sent:
+        print(f"reported {sent} closed trade(s) to dashboard")
+
 
 
 # Every symbol AurumAI signals across. Kept in sync with src/lib/format.ts.

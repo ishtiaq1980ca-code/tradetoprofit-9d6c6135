@@ -17,7 +17,18 @@ const Schema = z.object({
   profit: z.number().nullable().optional(),
   pips: z.number().nullable().optional(),
   status: z.enum(["open", "closed", "cancelled"]).default("open"),
-  closed_at: z.string().datetime().nullable().optional(),
+  // Bridges report Python `datetime.isoformat()`, which carries a "+00:00"
+  // offset (and microseconds) rather than a "Z" suffix. Zod's strict
+  // `.datetime()` rejected exactly that, so EVERY close report was 400'd and
+  // silently dropped — no trade ever reached status='closed'. Accept any
+  // parseable timestamp and normalise it here instead.
+  closed_at: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((v) => v == null || !Number.isNaN(Date.parse(v)), "invalid timestamp")
+    .transform((v) => (v == null ? v : new Date(v).toISOString())),
+
   failure_reason: z.string().max(500).nullable().optional(),
 });
 
@@ -68,10 +79,35 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
           return rejectedSignalUpdate();
         };
         if (d.mt5_ticket) {
-          const { data: existing } = await supabaseAdmin.from("trades").select("id").eq("mt5_ticket", d.mt5_ticket).maybeSingle();
+          const { data: existing } = await supabaseAdmin
+            .from("trades")
+            .select("id,entry,stop_loss,take_profit,symbol,side,status")
+            .eq("mt5_ticket", d.mt5_ticket)
+            .maybeSingle();
           if (existing) {
-            const { error } = await supabaseAdmin.from("trades").update(tradeRow).eq("id", existing.id);
+            // A close report describes the EXIT deal: its price is the exit,
+            // not the entry, and it carries no stops. Never let it overwrite
+            // the original entry/SL/TP — the learning loop computes R-multiples
+            // from those and would otherwise always read 0R.
+            const patch =
+              d.status === "closed"
+                ? {
+                    status: "closed" as const,
+                    exit: d.exit ?? d.entry,
+                    profit: d.profit ?? null,
+                    ...(d.pips != null ? { pips: d.pips } : {}),
+                    closed_at: d.closed_at ?? new Date().toISOString(),
+                    ...(d.signal_id ? { signal_id: d.signal_id } : {}),
+                  }
+                : tradeRow;
+            const { error } = await supabaseAdmin.from("trades").update(patch).eq("id", existing.id);
             if (error) return Response.json({ error: error.message }, { status: 500 });
+            if (d.status === "closed" && existing.status !== "closed") {
+              console.log(
+                `[BRIDGE-CLOSE] ticket=${d.mt5_ticket} ${existing.symbol} ${existing.side} ` +
+                  `entry=${existing.entry} exit=${d.exit ?? d.entry} profit=${d.profit ?? 0}`,
+              );
+            }
             if (d.signal_id) {
               await supabaseAdmin
                 .from("signals")
@@ -81,6 +117,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
             return Response.json({ ok: true, updated: true });
           }
         }
+
         const { data: ins, error } = await supabaseAdmin.from("trades").insert(tradeRow).select("id").single();
         if (error) return Response.json({ error: error.message }, { status: 500 });
         if (d.signal_id) {
