@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { REQUIRED_BRIDGE_VERSION } from "@/lib/bridgeVersion";
 
 type Snapshot = {
   balance: number;
@@ -14,6 +15,7 @@ type Snapshot = {
   daily_pnl: number;
   mode: string;
   created_at: string;
+  bridge_version: number | null;
 };
 
 export function Mt5AccountPanel() {
@@ -25,7 +27,7 @@ export function Mt5AccountPanel() {
     async function load() {
       const { data } = await supabase
         .from("account_snapshots")
-        .select("balance,equity,margin,free_margin,open_positions,daily_pnl,mode,created_at")
+        .select("balance,equity,margin,free_margin,open_positions,daily_pnl,mode,created_at,bridge_version")
         .order("created_at", { ascending: false })
         .limit(1);
       if (!alive) return;
@@ -48,6 +50,7 @@ export function Mt5AccountPanel() {
         : ageMs < 90_000
           ? { label: "🟡 Reconnecting", tone: "muted" as const }
           : { label: "🔴 Offline", tone: "bear" as const };
+  const outdatedBridge = !!snap && (snap.bridge_version ?? 0) < REQUIRED_BRIDGE_VERSION;
   const ageLabel = !snap ? "—" : ageMs < 60_000 ? `${Math.max(0, Math.round(ageMs / 1000))} sec ago` : `${Math.round(ageMs / 60_000)} min ago`;
 
   return (
@@ -71,13 +74,20 @@ export function Mt5AccountPanel() {
               <span>Heartbeat: <span className="text-foreground">{ageLabel}</span></span>
               <span>MT5: <span className={fresh ? "text-bull" : "text-bear"}>{fresh ? "Connected" : "Waiting"}</span></span>
               <span>Server: <span className="text-bull">Connected</span></span>
-              <span>Bridge: <span className="text-foreground">v2026073102</span></span>
+              <span>Bridge: <span className={outdatedBridge ? "text-bear" : "text-foreground"}>{snap.bridge_version ? `v${snap.bridge_version}` : "unknown"}</span></span>
             </div>
+            {outdatedBridge && (
+              <p className="rounded-md border border-bear/30 bg-bear/10 px-3 py-2 text-sm text-bear">
+                Outdated bridge running (v{snap.bridge_version ?? "?"} — required v{REQUIRED_BRIDGE_VERSION}). The old break-even rule parks the stop-loss exactly on the entry price, so winners close at 0.00.
+                Close every <code>aurumai_bridge.py</code> window on your PC, re-download the bridge and start it again.
+              </p>
+            )}
             {!fresh && (
               <p className="rounded-md border border-bear/30 bg-bear/10 px-3 py-2 text-sm text-bear">
                 No MT5 heartbeat for over 90 seconds. The bridge self-heals automatically — keep <code>aurumai_bridge.py</code> running; it reconnects MT5, resends the heartbeat and resumes polling on its own.
               </p>
             )}
+
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Balance" value={fmt.money(snap.balance)} />

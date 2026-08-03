@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { resolveBridgeAuth } from "@/lib/bridge-auth.server";
+import { isDegenerateStop } from "@/lib/bridgeVersion";
+
 
 const Schema = z.object({
   signal_id: z.string().uuid().nullable().optional(),
@@ -32,9 +34,29 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
 
         const d = parsed.data;
         const { failure_reason: failureReason, ...tradeBase } = d;
+
+        // HARD SERVER-SIDE GUARD — a stop-loss parked on the entry price turns
+        // every retrace into a 0.00 round-trip close. An older bridge process
+        // (pre-2026080301 break-even rule) reports exactly that. Never persist
+        // it: for updates we keep whatever stop-loss is already on record, for
+        // fresh rows we store nothing rather than a fake "SL = entry".
+        const degenerateStop = d.status === "open" && isDegenerateStop(d.entry, d.stop_loss ?? null, d.symbol);
+        if (degenerateStop) {
+          console.error(
+            `[BRIDGE-GUARD] Refused stop_loss=entry report symbol=${d.symbol} ticket=${d.mt5_ticket ?? "?"} ` +
+              `entry=${d.entry} stop_loss=${d.stop_loss} — outdated bridge break-even rule suspected.`,
+          );
+        }
+
         // Attach the owning user_id derived from the license token used by the
         // bridge so SELECT RLS can scope trades to their owner.
-        const tradeRow = { ...tradeBase, user_id: auth.userId };
+        const tradeRow = {
+          ...tradeBase,
+          ...(degenerateStop ? { stop_loss: undefined } : {}),
+          user_id: auth.userId,
+        };
+
+
         const rejectedSignalUpdate = async () => {
           if (!failureReason || !d.signal_id) return { status: "rejected", mt5_ticket: d.mt5_ticket ?? null };
           const { data: sig } = await supabaseAdmin.from("signals").select("reason").eq("id", d.signal_id).maybeSingle();

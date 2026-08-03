@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080301                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080302                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -730,7 +730,23 @@ def _value_per_price_unit(symbol: str, volume: float) -> float:
     return 100000.0 * volume
 
 
+def _stop_is_on_entry(symbol: str, entry: float, sl: float) -> bool:
+    """True when SL sits on (or within a hair of) the entry price."""
+    if not sl or entry <= 0:
+        return False
+    info = mt5.symbol_info(symbol)
+    point = float(info.point) if info else 0.00001
+    return abs(float(sl) - float(entry)) < point * 3
+
+
 def _report_trailing_update(position) -> None:
+    _entry = float(position.price_open)
+    _sl = float(position.sl or 0)
+    if _stop_is_on_entry(position.symbol, _entry, _sl):
+        # Never publish a break-even-on-entry stop to the dashboard; the server
+        # rejects it anyway and it hides the real risk on the position.
+        print(f"!! SL sits on entry ticket={position.ticket} entry={_entry} sl={_sl} — not reporting; fix requires this bridge version")
+        return
     _post_json("/api/public/bridge/trades", {
         "mt5_ticket": int(position.ticket),
         "symbol": position.symbol,
@@ -1437,6 +1453,9 @@ def execute_signal(sig: dict) -> bool:
         live_sl = float(sl)
         live_tp = float(tp)
         print(f"Filled {sig['side']} {symbol} deal/order={ticket}, position not visible yet; reporting fill")
+    if _stop_is_on_entry(symbol, float(filled_price), float(live_sl)):
+        print(f"!! REFUSING to report trade with stop_loss == entry ticket={ticket} entry={filled_price} sl={live_sl}")
+        live_sl = 0.0
     ok = _post_json("/api/public/bridge/trades", {
         "signal_id": sig["id"],
         "mt5_ticket": ticket or None,
