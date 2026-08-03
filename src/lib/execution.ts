@@ -182,6 +182,20 @@ export function normalizeOrderPlan(args: {
     return { ok: false, code: "stops_too_close", reason: `TP/SL ratio ${finalRR.toFixed(2)} below minimum ${MIN_EXECUTION_RR.toFixed(1)}` };
   }
 
+  // ---- HARD ZERO-DISTANCE GUARD (never send a stop at/near entry) --------
+  // Absolute floor independent of broker specs: 5 pips (0.0005 / 0.05 JPY /
+  // 0.50 gold). If anything upstream ever collapses SL onto entry, refuse.
+  const pipSize = isJpyQuoted(symbol) ? 0.01 : isGoldSymbol(symbol) ? 0.1 : 0.0001;
+  const absoluteMinSL = pipSize * 5;
+  const slFinalDist = Math.abs(entry - sl);
+  if (!isFinite(slFinalDist) || slFinalDist < absoluteMinSL) {
+    console.error(
+      `[EXEC-BLOCK] ZERO-DISTANCE STOP REFUSED for ${symbol} ${side}: entry=${entry} sl=${sl} ` +
+      `distance=${slFinalDist} < absolute floor ${absoluteMinSL}. Order NOT sent to MT5.`,
+    );
+    return { ok: false, code: "invalid_sl", reason: `Zero/near-zero stop distance (${slFinalDist.toFixed(spec.digits)} < ${absoluteMinSL}) — order refused` };
+  }
+
   // Volume
   const normLot = roundVolume(lot, spec.volumeStep, spec.minVolume);
   if (normLot < spec.minVolume) {
