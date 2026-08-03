@@ -1320,6 +1320,10 @@ export function BotEngine() {
     startReviewLoop();
     startLearningLoop();
 
+    // Automatic economic-calendar feed (no manual events required).
+    startCalendarAutoRefresh();
+
+
     const tokenPushId = setInterval(pushTokenToWorker, 60_000);
 
     // Keep the scanner self-healing without blocking on auth locks.
