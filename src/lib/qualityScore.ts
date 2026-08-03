@@ -7,6 +7,7 @@ import { type Candle } from "./indicators";
 import { activeSessions } from "./sessions";
 import { htfTrend } from "./entryGate";
 import type { PairProfile } from "./pairProfiles";
+import { learningAdjustment, type PatternContext } from "./strategyLearning";
 
 // Gate for sending a trade to MT5. Phase 10 shipped this at 90, which — on top
 // of the 13 mandatory strict-gate confirmations — proved mathematically
@@ -23,6 +24,8 @@ export type ScoreComponents = {
   session: number;
   news: number;
   liquidity: number;
+  /** Points added/removed by the learning engine from past trade reviews. */
+  learning: number;
   total: number;
 };
 
@@ -41,6 +44,8 @@ export type ScoreInput = {
   spreadPct: number;
   structurePass: boolean;
   newsClear: boolean;
+  /** Setup fingerprint used to look up what history says about this pattern. */
+  patternContext?: PatternContext;
 };
 
 const MAX = 12.5;
@@ -106,7 +111,17 @@ export function computeTradeScore(inp: ScoreInput): { score: ScoreComponents; no
   const liquidity = Math.max(0, Math.min(MAX, MAX * (1 - inp.spreadPct / cap)));
   notes.push(`Liquidity ${liquidity.toFixed(1)}/12.5 — spread ${inp.spreadPct.toFixed(3)}% of ${cap}% cap`);
 
-  const total = trend + momentum + volume + structure + volatility + session + news + liquidity;
+  // 9. Learning — feedback from closed-trade reviews. Patterns with a poor
+  //    track record lose points here; proven patterns gain them.
+  const learn = inp.patternContext ? learningAdjustment(inp.patternContext) : { delta: 0, notes: [] };
+  if (learn.delta !== 0) {
+    notes.push(`Learning ${learn.delta > 0 ? "+" : ""}${learn.delta.toFixed(2)} — ${learn.notes.join(", ")}`);
+  } else {
+    notes.push("Learning 0.00 — no established pattern edge yet");
+  }
+
+  const base = trend + momentum + volume + structure + volatility + session + news + liquidity;
+  const total = Math.max(0, Math.min(100, base + learn.delta));
   return {
     score: {
       trend: +trend.toFixed(1),
@@ -117,6 +132,7 @@ export function computeTradeScore(inp: ScoreInput): { score: ScoreComponents; no
       session: +session.toFixed(1),
       news: +news.toFixed(1),
       liquidity: +liquidity.toFixed(1),
+      learning: +learn.delta.toFixed(2),
       total: Math.round(total),
     },
     notes,
