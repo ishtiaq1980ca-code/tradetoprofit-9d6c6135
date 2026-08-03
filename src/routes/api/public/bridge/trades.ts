@@ -17,7 +17,18 @@ const Schema = z.object({
   profit: z.number().nullable().optional(),
   pips: z.number().nullable().optional(),
   status: z.enum(["open", "closed", "cancelled"]).default("open"),
-  closed_at: z.string().datetime().nullable().optional(),
+  // Bridges report Python `datetime.isoformat()`, which carries a "+00:00"
+  // offset (and microseconds) rather than a "Z" suffix. Zod's strict
+  // `.datetime()` rejected exactly that, so EVERY close report was 400'd and
+  // silently dropped — no trade ever reached status='closed'. Accept any
+  // parseable timestamp and normalise it here instead.
+  closed_at: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((v) => v == null || !Number.isNaN(Date.parse(v)), "invalid timestamp")
+    .transform((v) => (v == null ? v : new Date(v).toISOString())),
+
   failure_reason: z.string().max(500).nullable().optional(),
 });
 
