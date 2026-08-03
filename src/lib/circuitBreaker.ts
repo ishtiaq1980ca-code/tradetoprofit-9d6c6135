@@ -27,6 +27,9 @@ export type Breach = {
 type Store = {
   /** Master switch for the circuit breaker. */
   enabled: boolean;
+  /** Daily loss limit sub-switch. When false the daily window is ignored
+   *  entirely (weekly/monthly keep working). */
+  dailyLimitEnabled: boolean;
   maxDailyLossPct: number;
   maxWeeklyLossPct: number;
   maxMonthlyLossPct: number;
@@ -38,6 +41,7 @@ type Store = {
   breach: Breach | null;
 
   setEnabled: (v: boolean) => void;
+  setDailyLimitEnabled: (v: boolean) => void;
   setLimit: (k: BreachType, n: number) => void;
   setClosePositionsOnTrip: (v: boolean) => void;
   setWebhookEnabled: (v: boolean) => void;
@@ -50,6 +54,7 @@ export const useCircuitBreaker = create<Store>()(
   persist(
     (set, get) => ({
       enabled: true,
+      dailyLimitEnabled: true,
       maxDailyLossPct: 3,
       maxWeeklyLossPct: 8,
       maxMonthlyLossPct: 12,
@@ -60,6 +65,13 @@ export const useCircuitBreaker = create<Store>()(
       breach: null,
 
       setEnabled: (v) => set({ enabled: v }),
+      setDailyLimitEnabled: (v) =>
+        set((s) => ({
+          dailyLimitEnabled: v,
+          // Turning the daily limit off clears any active daily trip so the
+          // bot resumes immediately. Weekly/monthly trips stay untouched.
+          breach: !v && s.breach?.type === "daily" ? null : s.breach,
+        })),
       setLimit: (k, n) => {
         const v = Math.max(0.1, Math.min(100, n));
         if (k === "daily") set({ maxDailyLossPct: v });
@@ -77,6 +89,7 @@ export const useCircuitBreaker = create<Store>()(
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
       partialize: (s) => ({
         enabled: s.enabled,
+        dailyLimitEnabled: s.dailyLimitEnabled,
         maxDailyLossPct: s.maxDailyLossPct,
         maxWeeklyLossPct: s.maxWeeklyLossPct,
         maxMonthlyLossPct: s.maxMonthlyLossPct,
@@ -112,6 +125,7 @@ export function detectBreach(p: PnlWindows): Breach | null {
   ];
 
   for (const c of checks) {
+    if (c.type === "daily" && !st.dailyLimitEnabled) continue;
     if (!isFinite(c.pnl) || c.pnl >= 0) continue;
     const lossPct = (Math.abs(c.pnl) / p.baseline) * 100;
     if (lossPct >= c.limit) {
