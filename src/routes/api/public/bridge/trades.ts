@@ -36,11 +36,30 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const bridgeVersion = request.headers.get("x-aurum-bridge-version") ?? "unknown";
         const auth = await resolveBridgeAuth(request);
-        if ("response" in auth) return auth.response;
-        const body = await request.json();
+        if ("response" in auth) {
+          console.warn(`[BRIDGE-TRADE-AUTH-FAILED] bridge_version=${bridgeVersion} status=${auth.response.status}`);
+          return auth.response;
+        }
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          console.warn(`[BRIDGE-TRADE-INVALID-JSON] bridge_version=${bridgeVersion}`);
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+        const raw = body && typeof body === "object" ? body as Record<string, unknown> : null;
+        const closeAttempt = raw?.status === "closed";
+        const diagnostic = `bridge_version=${bridgeVersion} ticket=${String(raw?.mt5_ticket ?? "?")} symbol=${String(raw?.symbol ?? "?")}`;
+        if (closeAttempt) console.log(`[BRIDGE-CLOSE-ATTEMPT] ${diagnostic}`);
         const parsed = Schema.safeParse(body);
-        if (!parsed.success) return Response.json({ error: parsed.error.flatten() }, { status: 400 });
+        if (!parsed.success) {
+          console.warn(
+            `[BRIDGE-TRADE-VALIDATION-FAILED] status=${String(raw?.status ?? "unknown")} ${diagnostic} fields=${parsed.error.issues.map((issue) => issue.path.join(".") || "body").join(",")}`,
+          );
+          return Response.json({ error: parsed.error.flatten() }, { status: 400 });
+        }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const d = parsed.data;
@@ -101,12 +120,17 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
                   }
                 : tradeRow;
             const { error } = await supabaseAdmin.from("trades").update(patch).eq("id", existing.id);
-            if (error) return Response.json({ error: error.message }, { status: 500 });
+            if (error) {
+              if (d.status === "closed") console.error(`[BRIDGE-CLOSE-FAILED] phase=update ${diagnostic} error=${error.message}`);
+              return Response.json({ error: error.message }, { status: 500 });
+            }
             if (d.status === "closed" && existing.status !== "closed") {
               console.log(
-                `[BRIDGE-CLOSE] ticket=${d.mt5_ticket} ${existing.symbol} ${existing.side} ` +
+                `[BRIDGE-CLOSE-SUCCESS] action=updated ${diagnostic} ${existing.symbol} ${existing.side} ` +
                   `entry=${existing.entry} exit=${d.exit ?? d.entry} profit=${d.profit ?? 0}`,
               );
+            } else if (d.status === "closed") {
+              console.log(`[BRIDGE-CLOSE-SUCCESS] action=already_closed ${diagnostic}`);
             }
             if (d.signal_id) {
               await supabaseAdmin
@@ -119,7 +143,11 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         }
 
         const { data: ins, error } = await supabaseAdmin.from("trades").insert(tradeRow).select("id").single();
-        if (error) return Response.json({ error: error.message }, { status: 500 });
+        if (error) {
+          if (d.status === "closed") console.error(`[BRIDGE-CLOSE-FAILED] phase=insert ${diagnostic} error=${error.message}`);
+          return Response.json({ error: error.message }, { status: 500 });
+        }
+        if (d.status === "closed") console.log(`[BRIDGE-CLOSE-SUCCESS] action=inserted_missing_open ${diagnostic} row=${ins.id}`);
         if (d.signal_id) {
           await supabaseAdmin
             .from("signals")
