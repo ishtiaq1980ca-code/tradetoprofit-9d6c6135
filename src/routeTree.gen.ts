@@ -14,6 +14,7 @@ import { Route as SignalsRouteImport } from './routes/signals'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as PositionsRouteImport } from './routes/positions'
+import { Route as LearningRouteImport } from './routes/learning'
 import { Route as DecisionsRouteImport } from './routes/decisions'
 import { Route as CurrencyReportRouteImport } from './routes/currency-report'
 import { Route as BridgeRouteImport } from './routes/bridge'
@@ -51,6 +52,11 @@ const ReportRoute = ReportRouteImport.update({
 const PositionsRoute = PositionsRouteImport.update({
   id: '/positions',
   path: '/positions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LearningRoute = LearningRouteImport.update({
+  id: '/learning',
+  path: '/learning',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DecisionsRoute = DecisionsRouteImport.update({
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/bridge': typeof BridgeRoute
   '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
+  '/learning': typeof LearningRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -149,6 +156,7 @@ export interface FileRoutesByTo {
   '/bridge': typeof BridgeRoute
   '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
+  '/learning': typeof LearningRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/bridge': typeof BridgeRoute
   '/currency-report': typeof CurrencyReportRoute
   '/decisions': typeof DecisionsRoute
+  '/learning': typeof LearningRoute
   '/positions': typeof PositionsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -192,6 +201,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/currency-report'
     | '/decisions'
+    | '/learning'
     | '/positions'
     | '/report'
     | '/settings'
@@ -212,6 +222,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/currency-report'
     | '/decisions'
+    | '/learning'
     | '/positions'
     | '/report'
     | '/settings'
@@ -232,6 +243,7 @@ export interface FileRouteTypes {
     | '/bridge'
     | '/currency-report'
     | '/decisions'
+    | '/learning'
     | '/positions'
     | '/report'
     | '/settings'
@@ -253,6 +265,7 @@ export interface RootRouteChildren {
   BridgeRoute: typeof BridgeRoute
   CurrencyReportRoute: typeof CurrencyReportRoute
   DecisionsRoute: typeof DecisionsRoute
+  LearningRoute: typeof LearningRoute
   PositionsRoute: typeof PositionsRoute
   ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -299,6 +312,13 @@ declare module '@tanstack/react-router' {
       path: '/positions'
       fullPath: '/positions'
       preLoaderRoute: typeof PositionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/learning': {
+      id: '/learning'
+      path: '/learning'
+      fullPath: '/learning'
+      preLoaderRoute: typeof LearningRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/decisions': {
@@ -416,6 +436,7 @@ const rootRouteChildren: RootRouteChildren = {
   BridgeRoute: BridgeRoute,
   CurrencyReportRoute: CurrencyReportRoute,
   DecisionsRoute: DecisionsRoute,
+  LearningRoute: LearningRoute,
   PositionsRoute: PositionsRoute,
   ReportRoute: ReportRoute,
   SettingsRoute: SettingsRouteWithChildren,

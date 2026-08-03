@@ -105,6 +105,35 @@ function DecisionsPage() {
                       </div>
                     )}
 
+                    {r.structure && (
+                      <div className="rounded border border-gold/25 bg-gold/5 px-3 py-2 text-[11px] space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-gold uppercase tracking-wider text-[10px]">Structure read</span>
+                          <Badge variant="outline" className={cn(
+                            r.structure.zone === "buy" && "text-bull border-bull/40",
+                            r.structure.zone === "sell" && "text-bear border-bear/40",
+                          )}>
+                            {r.structure.zone === "neutral" ? "Neutral zone" : `${r.structure.zone.toUpperCase()} zone`}
+                          </Badge>
+                          <span className="text-muted-foreground">H1 {r.structure.htfTrend}</span>
+                          <span className="text-muted-foreground">swing {r.structure.swing}</span>
+                          <span className="text-muted-foreground">
+                            {r.structure.keyLevel != null
+                              ? `key ${r.structure.keyLevelKind} ${fmt.price(r.structure.keyLevel, r.symbol)} (${r.structure.keyLevelDistanceAtr?.toFixed(2)}×ATR)`
+                              : "no key level within 1×ATR"}
+                          </span>
+                          <span className="text-muted-foreground">range {(r.structure.rangePosition * 100).toFixed(0)}%</span>
+                          <span className="text-muted-foreground">{r.structure.volatility} vol · {r.structure.session}</span>
+                          {!!r.learningDelta && (
+                            <Badge variant="outline" className={r.learningDelta < 0 ? "text-bear border-bear/40" : "text-bull border-bull/40"}>
+                              learning {r.learningDelta > 0 ? "+" : ""}{r.learningDelta.toFixed(2)} pts
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground leading-snug">{r.structure.narrative}</p>
+                      </div>
+                    )}
+
                     <details className="text-[11px]">
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                         Indicators ({Object.keys(r.indicators).length})
