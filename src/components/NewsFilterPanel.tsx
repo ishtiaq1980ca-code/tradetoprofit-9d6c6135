@@ -71,6 +71,31 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-md border px-3 py-2 text-xs",
+            feedOk ? "border-bull/40 bg-bull/10" : cal.lastFeedError ? "border-bear/50 bg-bear/10" : "border-border/60 bg-muted/20",
+          )}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", cal.feedLoading && "animate-spin")} />
+          <div className="min-w-0 flex-1">
+            {feedOk ? (
+              <span>
+                Auto feed live — {feedEvents.length} events synced, <b>{upcomingHigh}</b> upcoming high-impact.
+                <span className="text-muted-foreground"> Updated {ago(cal.lastFeedOk)}.</span>
+              </span>
+            ) : cal.lastFeedError ? (
+              <span className="text-bear">Auto feed unavailable: {cal.lastFeedError} — manual events only.</span>
+            ) : (
+              <span className="text-muted-foreground">Fetching economic calendar…</span>
+            )}
+          </div>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => void refreshCalendarFeed(true)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+
         {paused.length > 0 ? (
           <div className="space-y-1.5 rounded-md border border-bear/50 bg-bear/10 p-3">
             {paused.map(({ symbol, block }) => (
