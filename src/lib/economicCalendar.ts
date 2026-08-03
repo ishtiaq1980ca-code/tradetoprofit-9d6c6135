@@ -42,6 +42,8 @@ export function currenciesOf(symbol: string): string[] {
   return [s.slice(0, 3), s.slice(3, 6)];
 }
 
+export const DEFAULT_FEED_URL = "/api/public/calendar";
+
 type Store = {
   enabled: boolean;
   bufferBeforeMin: number;
@@ -51,7 +53,10 @@ type Store = {
   feedUrl: string;
   events: CalendarEvent[];
   lastFeedFetch: number;
+  /** Last fetch that actually succeeded (0 = never). */
+  lastFeedOk: number;
   lastFeedError: string | null;
+  feedLoading: boolean;
 
   setEnabled: (v: boolean) => void;
   setBufferBefore: (n: number) => void;
@@ -67,6 +72,8 @@ type Store = {
 const uid = () =>
   typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
+const feedKey = (e: CalendarEvent) => `${e.at}|${e.currency}|${e.title}`;
+
 export const useEconomicCalendar = create<Store>()(
   persist(
     (set, get) => ({
@@ -74,16 +81,18 @@ export const useEconomicCalendar = create<Store>()(
       bufferBeforeMin: 30,
       bufferAfterMin: 15,
       includeMedium: false,
-      feedUrl: "",
+      feedUrl: DEFAULT_FEED_URL,
       events: [],
       lastFeedFetch: 0,
+      lastFeedOk: 0,
       lastFeedError: null,
+      feedLoading: false,
 
       setEnabled: (v) => set({ enabled: v }),
       setBufferBefore: (n) => set({ bufferBeforeMin: Math.max(0, Math.min(240, n)) }),
       setBufferAfter: (n) => set({ bufferAfterMin: Math.max(0, Math.min(240, n)) }),
       setIncludeMedium: (v) => set({ includeMedium: v }),
-      setFeedUrl: (u) => set({ feedUrl: u.trim() }),
+      setFeedUrl: (u) => set({ feedUrl: u.trim() || DEFAULT_FEED_URL }),
       addEvent: (e) =>
         set({
           events: [
@@ -97,14 +106,25 @@ export const useEconomicCalendar = create<Store>()(
         set({ events: get().events.filter((e) => e.at >= cutoff) });
       },
       mergeFeed: (incoming) => {
-        const manual = get().events.filter((e) => e.source === "manual");
         const cutoff = Date.now() - 6 * 3600_000;
-        const feed = incoming.filter((e) => e.at >= cutoff);
-        set({ events: [...manual, ...feed].sort((a, b) => a.at - b.at), lastFeedFetch: Date.now(), lastFeedError: null });
+        const manual = get().events.filter((e) => e.source === "manual");
+        // Keep previously-known future feed events so the filter doesn't go
+        // blind when the weekly file rolls over.
+        const known = new Map<string, CalendarEvent>();
+        for (const e of get().events) if (e.source === "feed" && e.at >= cutoff) known.set(feedKey(e), e);
+        for (const e of incoming) if (e.at >= cutoff) known.set(feedKey(e), e);
+        set({
+          events: [...manual, ...known.values()].sort((a, b) => a.at - b.at),
+          lastFeedFetch: Date.now(),
+          lastFeedOk: Date.now(),
+          lastFeedError: null,
+        });
       },
     }),
     {
-      name: "aurum-econ-calendar-v1",
+      name: "aurum-econ-calendar-v2",
+      version: 2,
+      migrate: (state: any) => ({ ...state, feedUrl: state?.feedUrl?.trim() || DEFAULT_FEED_URL }),
       partialize: (s) => ({
         enabled: s.enabled,
         bufferBeforeMin: s.bufferBeforeMin,
@@ -117,6 +137,7 @@ export const useEconomicCalendar = create<Store>()(
     },
   ),
 );
+
 
 /** Upcoming (not yet expired) events, soonest first. */
 export function upcomingEvents(now = Date.now()): CalendarEvent[] {
