@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026073102                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080301                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -56,9 +56,10 @@ PRICE_SOURCE_MISMATCH_BYPASS_PCT = 0.0030         # >0.30% dashboard-vs-broker g
 MIN_TP_SPREAD_MULT = 3.0                          # TP must be at least 3× live spread from entry
 MIN_SL_SPREAD_MULT = 2.0                          # SL must be at least 2× live spread from entry
 MIN_RISK_REWARD = 1.25                            # built-in strategy: ATR SL 2.2 / ATR TP 2.8 (RR ≈ 1.27)
-USD_TRAIL_TRIGGER = 1.0                           # PHASE 10 §3: SL moves to break-even at +$1.00 profit (nothing before)
-USD_TRAIL_START   = 2.0                           # PHASE 10 §4: step trailing only begins at +$2.00 profit
-USD_TRAIL_STEP = 1.0                              # ladder: +$2 → +$1, +$3 → +$2, +$4 → +$3, ...
+USD_TRAIL_TRIGGER = 1.5                           # first SL move happens at +$1.50 profit (was $1.00)
+USD_BE_LOCK = 0.40                                # NEVER park SL exactly on entry — always lock at least +$0.40
+USD_TRAIL_START   = 2.5                           # step trailing begins at +$2.50 profit
+USD_TRAIL_STEP = 1.0                              # ladder: +$2.5 → lock $1.5, +$3.5 → lock $2.5, ...
 WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
