@@ -39,7 +39,9 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         const bridgeVersion = request.headers.get("x-aurum-bridge-version") ?? "unknown";
         const auth = await resolveBridgeAuth(request);
         if ("response" in auth) {
-          console.warn(`[BRIDGE-TRADE-AUTH-FAILED] bridge_version=${bridgeVersion} status=${auth.response.status}`);
+          console.warn(
+            `[BRIDGE-TRADE-AUTH-FAILED] bridge_version=${bridgeVersion} status=${auth.response.status}`,
+          );
           return auth.response;
         }
         let body: unknown;
@@ -49,7 +51,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
           console.warn(`[BRIDGE-TRADE-INVALID-JSON] bridge_version=${bridgeVersion}`);
           return Response.json({ error: "Invalid JSON body" }, { status: 400 });
         }
-        const raw = body && typeof body === "object" ? body as Record<string, unknown> : null;
+        const raw = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
         const closeAttempt = raw?.status === "closed";
         const diagnostic = `bridge_version=${bridgeVersion} ticket=${String(raw?.mt5_ticket ?? "?")} symbol=${String(raw?.symbol ?? "?")}`;
         if (closeAttempt) console.log(`[BRIDGE-CLOSE-ATTEMPT] ${diagnostic}`);
@@ -121,7 +123,9 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
                 : tradeRow;
             const { error } = await supabaseAdmin.from("trades").update(patch).eq("id", existing.id);
             if (error) {
-              if (d.status === "closed") console.error(`[BRIDGE-CLOSE-FAILED] phase=update ${diagnostic} error=${error.message}`);
+              if (d.status === "closed") {
+                console.error(`[BRIDGE-CLOSE-FAILED] phase=update ${diagnostic} error=${error.message}`);
+              }
               return Response.json({ error: error.message }, { status: 500 });
             }
             if (d.status === "closed" && existing.status !== "closed") {
@@ -144,10 +148,14 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
 
         const { data: ins, error } = await supabaseAdmin.from("trades").insert(tradeRow).select("id").single();
         if (error) {
-          if (d.status === "closed") console.error(`[BRIDGE-CLOSE-FAILED] phase=insert ${diagnostic} error=${error.message}`);
+          if (d.status === "closed") {
+            console.error(`[BRIDGE-CLOSE-FAILED] phase=insert ${diagnostic} error=${error.message}`);
+          }
           return Response.json({ error: error.message }, { status: 500 });
         }
-        if (d.status === "closed") console.log(`[BRIDGE-CLOSE-SUCCESS] action=inserted_missing_open ${diagnostic} row=${ins.id}`);
+        if (d.status === "closed") {
+          console.log(`[BRIDGE-CLOSE-SUCCESS] action=inserted_missing_open ${diagnostic} row=${ins.id}`);
+        }
         if (d.signal_id) {
           await supabaseAdmin
             .from("signals")
