@@ -22,6 +22,8 @@ import { useDecisionLog } from "./decisionLog";
 import { classifyRejection, clearCooldown, cooldownFor, humanRemaining, symbolFullyCooling, useRejectionCooldown } from "./rejectionCooldown";
 import { startReviewLoop } from "./tradeReviewer";
 import { startLearningLoop } from "./strategyLearning";
+import { startCalendarAutoRefresh } from "./economicCalendar";
+
 import { DEFAULT_RISK } from "./riskEngine";
 import { correlationGuard } from "./correlation";
 import {
