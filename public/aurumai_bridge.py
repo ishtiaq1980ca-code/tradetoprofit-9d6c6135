@@ -90,7 +90,7 @@ try:
     _OVERRIDABLE = (
         "BASE_URL", "BRIDGE_TOKEN", "MT5_LOGIN", "MT5_PASS", "MT5_SERVER",
         "POLL_SEC", "SLIPPAGE", "MAGIC",
-        "USD_TRAIL_TRIGGER", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
+        "USD_TRAIL_TRIGGER", "USD_BE_LOCK", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -801,10 +801,12 @@ def _apply_usd_trailing_stop(position) -> bool:
     if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
         step = step * 2.0          # §8 dynamic trailing speed: let strong trends breathe
     if profit < float(USD_TRAIL_START):
-        lock_usd = 0.0             # §3: break-even only, nothing else
+        # NEVER lock exactly break-even: an SL parked on the entry price turns
+        # every small retrace into a 0.00 round-trip close. Lock a real buffer.
+        lock_usd = float(USD_BE_LOCK)
     else:
         steps_done = int(profit // step)
-        lock_usd = max(0.0, (steps_done - 1) * step)
+        lock_usd = max(float(USD_BE_LOCK), (steps_done - 1) * step)
     lock_price_move = lock_usd / vpu
     raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
