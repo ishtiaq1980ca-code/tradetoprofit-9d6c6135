@@ -10,10 +10,12 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import {
   describePattern, refreshLearning, useLearning, MIN_PATTERN_SAMPLES,
+  BLOCK_MIN_SAMPLES, BLOCK_MAX_WIN_RATE, BLOCK_MAX_AVG_R,
+  UNBLOCK_MIN_RECENT, UNBLOCK_MIN_WIN_RATE, type BlockedPattern,
 } from "@/lib/strategyLearning";
 import { reviewClosedTrades, BEHAVIOR_LABEL, type TradeBehavior } from "@/lib/tradeReviewer";
 import { activeCooldowns, humanRemaining, useRejectionCooldown } from "@/lib/rejectionCooldown";
-import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer } from "lucide-react";
+import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer, Ban } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/learning")({
