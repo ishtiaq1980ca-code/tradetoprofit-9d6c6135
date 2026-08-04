@@ -113,6 +113,13 @@ export type PatternStat = {
   /** Points added to (or removed from) the trade quality score. */
   adjustment: number;
   note: string;
+  /** Most recent trades on this pattern (newest-first slice) — used to unblock. */
+  recentTrades: number;
+  recentWins: number;
+  recentWinRate: number;
+  /** Hard block: no new entries on this pattern at all, regardless of score. */
+  blocked: boolean;
+  blockReason: string;
 };
 
 export type AdjustmentEvent = {
@@ -128,10 +135,30 @@ export type AdjustmentEvent = {
 
 /** Minimum closed trades before a pattern is allowed to influence scoring. */
 export const MIN_PATTERN_SAMPLES = 6;
-/** Maximum points a single pattern may add or remove. */
-export const MAX_PATTERN_ADJ = 5;
-/** Maximum combined adjustment applied to any one trade score. */
-export const MAX_TOTAL_ADJ = 10;
+/** Sample size required before a pattern may earn a meaningful bonus. */
+export const MIN_BONUS_SAMPLES = 15;
+/** Maximum points a single pattern may add. Bonuses stay deliberately small so a
+ *  lucky streak cannot inflate a weak setup past the gate. */
+export const MAX_PATTERN_BONUS = 4;
+/** Maximum points a single pattern may remove. Penalties are allowed to be
+ *  score-breaking: a proven losing pattern must be able to fail the gate alone. */
+export const MAX_PATTERN_PENALTY = 20;
+/** Maximum combined bonus / penalty applied to any one trade score. */
+export const MAX_TOTAL_BONUS = 8;
+export const MAX_TOTAL_PENALTY = 35;
+
+/** Evidence bar at which a pattern stops being merely penalised and is blocked. */
+export const BLOCK_MIN_SAMPLES = 10;
+export const BLOCK_MAX_WIN_RATE = 30;
+export const BLOCK_MAX_AVG_R = -0.25;
+/** Recent-form escape hatch: this many recent trades at this win rate unblocks. */
+export const UNBLOCK_MIN_RECENT = 6;
+export const UNBLOCK_MIN_WIN_RATE = 45;
+const RECENT_WINDOW = 12;
+
+/** Only these dimensions may hard-block. Blocking a whole session or volatility
+ *  regime would stop the bot dead; blocking a symbol+direction will not. */
+export const BLOCKABLE_DIMENSIONS = ["pair-side", "session-side", "swing", "zone"];
 
 export type ReviewRow = {
   outcome: string;
@@ -140,6 +167,7 @@ export type ReviewRow = {
   pattern_keys: string[] | null;
 };
 
+/** Reviews MUST be passed newest-first so the recent-form window is correct. */
 export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
   const map = new Map<string, PatternStat>();
   for (const r of reviews) {
@@ -150,10 +178,15 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       const s = map.get(key) ?? {
         key, dimension: dimensionOf(key), trades: 0, wins: 0, losses: 0,
         winRate: 0, avgR: 0, totalR: 0, pnl: 0, adjustment: 0, note: "",
+        recentTrades: 0, recentWins: 0, recentWinRate: 0, blocked: false, blockReason: "",
       };
       s.trades += 1;
       if (win) s.wins += 1;
       else if (r.outcome === "loss") s.losses += 1;
+      if (s.recentTrades < RECENT_WINDOW) {
+        s.recentTrades += 1;
+        if (win) s.recentWins += 1;
+      }
       s.totalR += rm;
       s.pnl += pnl;
       map.set(key, s);
@@ -164,21 +197,65 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
   for (const s of map.values()) {
     s.winRate = s.trades ? (s.wins / s.trades) * 100 : 0;
     s.avgR = s.trades ? s.totalR / s.trades : 0;
+    s.recentWinRate = s.recentTrades ? (s.recentWins / s.recentTrades) * 100 : 0;
+
+    const recovering =
+      s.recentTrades >= UNBLOCK_MIN_RECENT && s.recentWinRate >= UNBLOCK_MIN_WIN_RATE;
+
     if (s.trades < MIN_PATTERN_SAMPLES) {
       s.adjustment = 0;
       s.note = `Only ${s.trades}/${MIN_PATTERN_SAMPLES} closed trades — still gathering evidence, no scoring change yet.`;
-    } else {
-      // Expectancy-driven. avgR of +0.2 is roughly break-even after costs, so
-      // that is the pivot. Confidence in the estimate scales with sample size.
-      const confidence = Math.min(1, s.trades / 15);
-      const raw = (s.avgR - 0.2) * 5 * confidence;
-      s.adjustment = +Math.max(-MAX_PATTERN_ADJ, Math.min(MAX_PATTERN_ADJ, raw)).toFixed(2);
-      s.note = s.adjustment < -0.25
-        ? `Losing pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score penalty ${s.adjustment.toFixed(2)}.`
-        : s.adjustment > 0.25
-          ? `Winning pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score bonus +${s.adjustment.toFixed(2)}.`
-          : `Neutral: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R — no meaningful edge either way.`;
+      out.push(s);
+      continue;
     }
+
+    const badEnough =
+      s.trades >= BLOCK_MIN_SAMPLES &&
+      (s.winRate < BLOCK_MAX_WIN_RATE || s.avgR <= BLOCK_MAX_AVG_R);
+
+    if (badEnough) {
+      // Aggressive penalty — scaled by how bad the pattern actually is, big
+      // enough on its own to push a typical 85–90 score below the gate.
+      const winShort = Math.max(0, (45 - s.winRate) / 45);       // 0 .. 1
+      const rShort = Math.max(0, Math.min(1, -s.avgR / 1.0));     // 0 .. 1
+      const severity = Math.max(winShort, rShort);
+      const size = Math.min(1, s.trades / 20);
+      const raw = -(6 + 14 * severity) * (0.6 + 0.4 * size);
+      s.adjustment = +Math.max(-MAX_PATTERN_PENALTY, raw).toFixed(2);
+
+      if (recovering) {
+        s.blocked = false;
+        s.blockReason = "";
+        s.note = `Losing pattern under watch: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → penalty ${s.adjustment.toFixed(2)}. Block lifted — last ${s.recentTrades} trades improved to ${s.recentWinRate.toFixed(0)}% win.`;
+      } else if (BLOCKABLE_DIMENSIONS.includes(s.dimension)) {
+        s.blocked = true;
+        s.blockReason = `${s.trades} closed trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R — pattern blocked from new entries until recent form recovers (${UNBLOCK_MIN_RECENT}+ trades at ${UNBLOCK_MIN_WIN_RATE}%+ win).`;
+        s.note = `BLOCKED. ${s.blockReason} Score penalty ${s.adjustment.toFixed(2)} also applies.`;
+      } else {
+        s.note = `Losing pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → heavy score penalty ${s.adjustment.toFixed(2)}.`;
+      }
+      out.push(s);
+      continue;
+    }
+
+    // Ordinary expectancy-driven adjustment. avgR of +0.2 is roughly
+    // break-even after costs, so that is the pivot.
+    const confidence = Math.min(1, s.trades / 15);
+    const raw = (s.avgR - 0.2) * 5 * confidence;
+    if (raw > 0) {
+      // Bonus side is deliberately conservative and gated on sample size, so a
+      // short lucky streak cannot inflate a weak setup through the gate.
+      const bonusScale = s.trades >= MIN_BONUS_SAMPLES ? 1 : 0.35;
+      s.adjustment = +Math.min(MAX_PATTERN_BONUS, raw * bonusScale).toFixed(2);
+    } else {
+      s.adjustment = +Math.max(-MAX_PATTERN_PENALTY, raw * 2).toFixed(2);
+    }
+
+    s.note = s.adjustment < -0.25
+      ? `Losing pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score penalty ${s.adjustment.toFixed(2)}.`
+      : s.adjustment > 0.25
+        ? `Winning pattern: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → score bonus +${s.adjustment.toFixed(2)}${s.trades < MIN_BONUS_SAMPLES ? " (damped — under " + MIN_BONUS_SAMPLES + " trades)" : ""}.`
+        : `Neutral: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R — no meaningful edge either way.`;
     out.push(s);
   }
   return out.sort((a, b) => a.adjustment - b.adjustment);
