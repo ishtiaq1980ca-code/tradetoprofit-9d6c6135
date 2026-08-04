@@ -23,8 +23,8 @@ export type RiskParams = {
 export const DEFAULT_RISK: RiskParams = {
   riskPct: 1,
   breakEvenAtR: 0.5,
-  trailStartAtR: 1.0,
-  trailStepR: 1.0,
+  trailStartAtR: 1.3,   // chandelier trailing engages at +1.3R
+  trailStepR: 3.0,      // trail distance = ATR × 3.0 (chandelier)
   maxDailyLossPct: 3,
   maxWeeklyLossPct: 8,
   maxMonthlyLossPct: 12,
@@ -113,8 +113,33 @@ export function dailyLossBreached(dailyPnl: number, startingBalance: number, max
   return (dailyPnl / startingBalance) * 100 <= -maxDailyLossPct;
 }
 
-/** Compute trail stop given current price & params. Returns the new SL only
- *  if it improves on the existing SL; otherwise returns null. */
+// ---------------------------------------------------------------------------
+// Chandelier Exit trailing (replaces the fixed-dollar ladder).
+//   BUY  → stop = highest price since entry − ATR × CHANDELIER_ATR_MULT
+//   SELL → stop = lowest  price since entry + ATR × CHANDELIER_ATR_MULT
+// Only engages once the trade is at least CHANDELIER_TRIGGER_R in profit;
+// before that the break-even lock (USD_BE_LOCK on the bridge / lockedProfitUsd
+// here) is the only protection so normal pullback noise cannot stop us out.
+// ---------------------------------------------------------------------------
+export const CHANDELIER_ATR_MULT = 3.0;
+export const CHANDELIER_TRIGGER_R = 1.3;
+
+/** Raw chandelier stop level from the running extreme. */
+export function chandelierLevel(
+  side: "BUY" | "SELL",
+  extreme: number,
+  atrVal: number,
+  mult = CHANDELIER_ATR_MULT,
+): number {
+  const dist = Math.max(0, atrVal) * mult;
+  return side === "BUY" ? extreme - dist : extreme + dist;
+}
+
+/**
+ * ATR chandelier trailing stop. Returns the new SL only when the trade has
+ * cleared CHANDELIER_TRIGGER_R, the stop improves in the favourable direction,
+ * and it stays a safe distance away from entry (never on/behind entry).
+ */
 export function computeTrailStop(
   side: "BUY" | "SELL",
   entry: number,
@@ -122,25 +147,35 @@ export function computeTrailStop(
   currentStop: number,
   rDistance: number,
   params: RiskParams,
+  opts?: { atr?: number; extreme?: number; atrMult?: number; minEntryBuffer?: number },
 ): { newStop: number; reason: string } | null {
   if (rDistance <= 0) return null;
   const dir = side === "BUY" ? 1 : -1;
   const moveInR = ((currentPrice - entry) * dir) / rDistance;
 
-  // 1. Break-even at +1R
-  if (moveInR >= params.breakEvenAtR && moveInR < params.trailStartAtR) {
+  // 1. Break-even lock before the chandelier engages.
+  if (moveInR >= params.breakEvenAtR && moveInR < CHANDELIER_TRIGGER_R) {
     const better = dir === 1 ? entry > currentStop : entry < currentStop;
     if (better) return { newStop: entry, reason: `Break-even at +${params.breakEvenAtR}R` };
+    return null;
   }
 
-  // 2. Trail after +1.5R: keep SL trailStepR behind price
-  if (moveInR >= params.trailStartAtR) {
-    const candidate = dir === 1
-      ? currentPrice - rDistance * params.trailStepR
-      : currentPrice + rDistance * params.trailStepR;
-    const better = dir === 1 ? candidate > currentStop : candidate < currentStop;
-    if (better) return { newStop: candidate, reason: `Trailing stop at +${moveInR.toFixed(2)}R` };
-  }
+  if (moveInR < CHANDELIER_TRIGGER_R) return null;
 
-  return null;
+  const atrVal = opts?.atr && opts.atr > 0 ? opts.atr : rDistance / 2.2; // fallback: SL was ATR×2.2
+  const mult = opts?.atrMult ?? CHANDELIER_ATR_MULT;
+  const extreme = opts?.extreme ?? currentPrice;
+  const candidate = chandelierLevel(side, extreme, atrVal, mult);
+
+  // Safety guard: never park the stop on (or within a hair of) entry.
+  const buffer = opts?.minEntryBuffer ?? Math.max(atrVal * 0.05, Math.abs(entry) * 1e-5);
+  if (dir === 1 ? candidate <= entry + buffer : candidate >= entry - buffer) return null;
+
+  const better = dir === 1 ? candidate > currentStop : candidate < currentStop;
+  if (!better) return null;
+  return {
+    newStop: candidate,
+    reason: `Chandelier trail at +${moveInR.toFixed(2)}R (extreme ∓ ${mult}×ATR)`,
+  };
 }
+
