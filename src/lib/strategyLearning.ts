@@ -263,9 +263,22 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
 
 // --------------------------- Store -----------------------------------------
 
+export type BlockedPattern = {
+  key: string;
+  dimension: string;
+  trades: number;
+  winRate: number;
+  avgR: number;
+  pnl: number;
+  adjustment: number;
+  reason: string;
+  since: number;
+};
+
 type LearningStore = {
   patterns: PatternStat[];
   adjustments: Record<string, number>;
+  blocked: Record<string, BlockedPattern>;
   history: AdjustmentEvent[];
   reviewCount: number;
   lastRunAt: number | null;
@@ -281,6 +294,7 @@ export const useLearning = create<LearningStore>()(
     (set, get) => ({
       patterns: [],
       adjustments: {},
+      blocked: {},
       history: [],
       reviewCount: 0,
       lastRunAt: null,
@@ -290,10 +304,28 @@ export const useLearning = create<LearningStore>()(
       setRunning: (v) => set({ running: v }),
       apply: (patterns, reviewCount, events) => {
         const adjustments: Record<string, number> = {};
-        for (const p of patterns) if (p.adjustment !== 0) adjustments[p.key] = p.adjustment;
+        const prevBlocked = get().blocked;
+        const blocked: Record<string, BlockedPattern> = {};
+        for (const p of patterns) {
+          if (p.adjustment !== 0) adjustments[p.key] = p.adjustment;
+          if (p.blocked) {
+            blocked[p.key] = {
+              key: p.key,
+              dimension: p.dimension,
+              trades: p.trades,
+              winRate: +p.winRate.toFixed(1),
+              avgR: +p.avgR.toFixed(3),
+              pnl: +p.pnl.toFixed(2),
+              adjustment: p.adjustment,
+              reason: p.blockReason,
+              since: prevBlocked[p.key]?.since ?? Date.now(),
+            };
+          }
+        }
         set({
           patterns,
           adjustments,
+          blocked,
           reviewCount,
           lastRunAt: Date.now(),
           history: [...events, ...get().history].slice(0, 300),
@@ -304,7 +336,7 @@ export const useLearning = create<LearningStore>()(
       name: "aurum-strategy-learning-v1",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
       partialize: (s) => ({
-        patterns: s.patterns, adjustments: s.adjustments, history: s.history,
+        patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, history: s.history,
         reviewCount: s.reviewCount, lastRunAt: s.lastRunAt, enabled: s.enabled,
       }) as any,
     },
@@ -327,8 +359,31 @@ export function learningAdjustment(ctx: PatternContext): { delta: number; notes:
     delta += a;
     notes.push(`${k} ${a > 0 ? "+" : ""}${a.toFixed(2)}`);
   }
-  const clamped = Math.max(-MAX_TOTAL_ADJ, Math.min(MAX_TOTAL_ADJ, delta));
+  const clamped = Math.max(-MAX_TOTAL_PENALTY, Math.min(MAX_TOTAL_BONUS, delta));
   return { delta: +clamped.toFixed(2), notes };
+}
+
+/**
+ * Hard block check. A pattern that has proved itself a losing setup is refused
+ * outright, regardless of how good the rest of the score looks.
+ */
+export function learningBlock(ctx: PatternContext): { blocked: boolean; reason: string; keys: string[] } {
+  const st = useLearning.getState();
+  if (!st.enabled) return { blocked: false, reason: "Learning blocks disabled", keys: [] };
+  const hits = patternKeys(ctx)
+    .map((k) => st.blocked[k])
+    .filter(Boolean) as BlockedPattern[];
+  if (!hits.length) return { blocked: false, reason: "No blocked pattern matched", keys: [] };
+  return {
+    blocked: true,
+    reason: hits.map((h) => `${describePattern(h.key)} — ${h.reason}`).join(" | "),
+    keys: hits.map((h) => h.key),
+  };
+}
+
+/** All currently blocked patterns, worst first. */
+export function blockedPatterns(): BlockedPattern[] {
+  return Object.values(useLearning.getState().blocked).sort((a, b) => a.winRate - b.winRate);
 }
 
 // --------------------------- Refresh cycle ---------------------------------
