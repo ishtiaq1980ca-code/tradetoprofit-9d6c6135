@@ -56,6 +56,7 @@ function SignalsPage() {
       takeProfit: s.takeProfit,
       confidence: s.confidence,
       reason: s.reason,
+      atr: s.indicators?.atr,
     });
     if (pos) toast.success(`Paper trade opened: ${s.side} ${s.lot} ${s.symbol} @ ${s.confidence}% confidence`);
   };
