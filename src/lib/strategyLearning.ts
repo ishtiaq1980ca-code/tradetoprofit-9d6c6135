@@ -221,7 +221,7 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
     // penalty. The block bar is stricter and refuses the setup outright.
     const penaltyBar =
       s.trades >= BLOCK_MIN_SAMPLES &&
-      (s.winRate < PENALTY_MAX_WIN_RATE || s.avgR < 0);
+      (s.winRate < PENALTY_MAX_WIN_RATE || s.avgR < PENALTY_MAX_AVG_R);
     const blockBar =
       s.trades >= BLOCK_MIN_SAMPLES &&
       (s.winRate < BLOCK_MAX_WIN_RATE || s.avgR <= BLOCK_MAX_AVG_R);
@@ -230,7 +230,7 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       // Aggressive penalty — scaled by how bad the pattern actually is, big
       // enough on its own to push a typical 85–90 score below the gate.
       const winShort = Math.max(0, (45 - s.winRate) / 45);       // 0 .. 1
-      const rShort = Math.max(0, Math.min(1, -s.avgR / 1.0));     // 0 .. 1
+      const rShort = Math.max(0, Math.min(1, (PENALTY_MAX_AVG_R - s.avgR) / 1.0)); // 0 .. 1
       const severity = Math.max(winShort, rShort);
       const size = Math.min(1, s.trades / 20);
       const raw = -(6 + 14 * severity) * (0.6 + 0.4 * size);
