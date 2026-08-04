@@ -385,8 +385,15 @@ export function generateTradeDecision(
   // Market structure guard — no counter-trend trades. Applied to BUY/SELL only.
   const struct = evaluateStructure(pb.side as "BUY" | "SELL", candles);
   const fStruct: FilterResult = { pass: struct.pass, reason: `Structure — ${struct.reason}` };
-  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews, fStruct);
-  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News", "Structure"];
+  // Learning hard-block — a pattern proven to lose is refused outright, no
+  // matter how strong the rest of the setup scores.
+  const lb = learningBlock(patternContext);
+  const fLearn: FilterResult = {
+    pass: !lb.blocked,
+    reason: lb.blocked ? `Learning block — ${lb.reason}` : "Learning: no blocked pattern matched",
+  };
+  filters.push(fSpread, fVol, fAtrSpike, fAdxCeil, fExt, fSess, fNews, fStruct, fLearn);
+  const filterNames = ["Spread", "Volatility", "ATR-Spike", "ADX-Ceiling", "Extension", "Session", "News", "Structure", "Learning"];
 
   // PHASE 10 §1 — Ultra-strict entry gate. EVERY confirmation must be TRUE.
   const gate = strictEntryGate({
