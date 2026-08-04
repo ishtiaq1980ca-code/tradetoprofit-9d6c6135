@@ -171,7 +171,10 @@ export type ReviewRow = {
 export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
   const map = new Map<string, PatternStat>();
   for (const r of reviews) {
-    const rm = Number(r.r_multiple ?? 0);
+    // Guard against corrupt R values in history (a few rows carry absurd
+    // magnitudes from an earlier exit-price bug) — clamp to a sane range.
+    const rmRaw = Number(r.r_multiple ?? 0);
+    const rm = Number.isFinite(rmRaw) ? Math.max(-5, Math.min(10, rmRaw)) : 0;
     const pnl = Number(r.profit ?? 0);
     const win = r.outcome === "win";
     for (const key of r.pattern_keys ?? []) {
