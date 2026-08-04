@@ -43,6 +43,11 @@ type ReviewRow = {
 function LearningPage() {
   const patterns = useLearning((s) => s.patterns);
   const history = useLearning((s) => s.history);
+  const blockedMap = useLearning((s) => s.blocked);
+  const blocked: BlockedPattern[] = useMemo(
+    () => Object.values(blockedMap ?? {}).sort((a, b) => a.winRate - b.winRate),
+    [blockedMap],
+  );
   const lastRunAt = useLearning((s) => s.lastRunAt);
   const reviewCount = useLearning((s) => s.reviewCount);
   const running = useLearning((s) => s.running);
