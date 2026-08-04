@@ -10,10 +10,12 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import {
   describePattern, refreshLearning, useLearning, MIN_PATTERN_SAMPLES,
+  BLOCK_MIN_SAMPLES, BLOCK_MAX_WIN_RATE, BLOCK_MAX_AVG_R,
+  UNBLOCK_MIN_RECENT, UNBLOCK_MIN_WIN_RATE, type BlockedPattern,
 } from "@/lib/strategyLearning";
 import { reviewClosedTrades, BEHAVIOR_LABEL, type TradeBehavior } from "@/lib/tradeReviewer";
 import { activeCooldowns, humanRemaining, useRejectionCooldown } from "@/lib/rejectionCooldown";
-import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer } from "lucide-react";
+import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer, Ban } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/learning")({
@@ -41,6 +43,11 @@ type ReviewRow = {
 function LearningPage() {
   const patterns = useLearning((s) => s.patterns);
   const history = useLearning((s) => s.history);
+  const blockedMap = useLearning((s) => s.blocked);
+  const blocked: BlockedPattern[] = useMemo(
+    () => Object.values(blockedMap ?? {}).sort((a, b) => a.winRate - b.winRate),
+    [blockedMap],
+  );
   const lastRunAt = useLearning((s) => s.lastRunAt);
   const reviewCount = useLearning((s) => s.reviewCount);
   const running = useLearning((s) => s.running);
@@ -129,10 +136,54 @@ function LearningPage() {
         <Tabs defaultValue="patterns">
           <TabsList>
             <TabsTrigger value="patterns">Patterns</TabsTrigger>
+            <TabsTrigger value="blocked">
+              Blocked {blocked.length > 0 && <span className="ml-1 text-bear">({blocked.length})</span>}
+            </TabsTrigger>
             <TabsTrigger value="changes">Adjustments made</TabsTrigger>
             <TabsTrigger value="reviews">Trade reviews</TabsTrigger>
             <TabsTrigger value="cooldowns">Cooldowns</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="blocked" className="mt-4">
+            <Card className="border-border/60 bg-card/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Ban className="h-4 w-4 text-bear" /> Patterns blocked from trading
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  These setups are refused outright — no new entry is allowed on them regardless of how high the
+                  quality score is. A block lifts automatically once the pattern's last {UNBLOCK_MIN_RECENT}+ closed
+                  trades recover to {UNBLOCK_MIN_WIN_RATE}% win rate or better.
+                </p>
+                {blocked.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nothing is blocked. A pattern is blocked after {BLOCK_MIN_SAMPLES}+ closed trades with a win rate
+                    under {BLOCK_MAX_WIN_RATE}% or an average below {BLOCK_MAX_AVG_R}R.
+                  </p>
+                ) : blocked.map((b) => (
+                  <div key={b.key} className="rounded border border-bear/40 bg-bear/5 px-3 py-2 text-[12px]">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <span className="font-medium">{describePattern(b.key)}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="outline" className="text-bear border-bear/50 font-mono-tabular">BLOCKED</Badge>
+                        <Badge variant="outline" className="text-bear border-bear/40 font-mono-tabular">
+                          {b.adjustment.toFixed(2)} pts
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-1 font-mono-tabular text-[11px] text-muted-foreground">
+                      {b.trades} trades · {b.winRate.toFixed(0)}% win · {b.avgR.toFixed(2)}R avg · ${b.pnl.toFixed(2)} ·
+                      blocked since {new Date(b.since).toLocaleString()}
+                    </div>
+                    <p className="mt-1 text-muted-foreground leading-snug">{b.reason}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
 
           <TabsContent value="patterns" className="space-y-4 mt-4">
             <div className="grid gap-4 lg:grid-cols-2">
