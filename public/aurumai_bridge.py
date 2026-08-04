@@ -797,8 +797,10 @@ _LAST_TRAIL_ATTEMPT_TS: dict[int, float] = {}     # last time we even considered
 
 
 def _apply_usd_trailing_stop(position) -> bool:
-    """Move SL only forward. Once profit clears broker's min-stop distance
-    the SL snaps to breakeven, then ratchets in USD_TRAIL_STEP increments.
+    """Move SL only forward. Once profit clears the broker's min-stop distance
+    the SL snaps to a small break-even lock (USD_BE_LOCK); once the trade is
+    +CHANDELIER_TRIGGER_R in profit the SL follows an ATR Chandelier Exit:
+    highest-since-entry − ATR×3 for buys, lowest-since-entry + ATR×3 for sells.
 
     Throttling rules (per user request):
       1. Do not modify the same ticket more often than TRAIL_MIN_INTERVAL_SEC.
@@ -884,6 +886,12 @@ def _apply_usd_trailing_stop(position) -> bool:
         dist = atr_now * mult
         raw_sl = (extreme - dist) if is_buy else (extreme + dist)
         mode = f"chandelier {mult:.2f}xATR @ {move_r:.2f}R"
+        # Safety guard: a chandelier level that lands on/behind entry is not a
+        # trailing stop — fall back to the break-even lock instead.
+        entry_buf = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
+        if (is_buy and raw_sl <= entry + entry_buf) or ((not is_buy) and raw_sl >= entry - entry_buf):
+            raw_sl = None
+            mode = "be-lock"
 
     if raw_sl is None:
         # Below +1.3R: break-even lock only (never a tight ladder), so normal
