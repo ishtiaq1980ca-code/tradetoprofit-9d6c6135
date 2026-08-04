@@ -23,8 +23,8 @@ export type RiskParams = {
 export const DEFAULT_RISK: RiskParams = {
   riskPct: 1,
   breakEvenAtR: 0.5,
-  trailStartAtR: 1.0,
-  trailStepR: 1.0,
+  trailStartAtR: 1.3,   // chandelier trailing engages at +1.3R
+  trailStepR: 3.0,      // trail distance = ATR × 3.0 (chandelier)
   maxDailyLossPct: 3,
   maxWeeklyLossPct: 8,
   maxMonthlyLossPct: 12,

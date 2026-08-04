@@ -95,9 +95,9 @@ export type TierExitParams = {
 
 export const TIER_EXITS: Record<Exclude<PairTier, "gold">, TierExitParams> = {
   // partialPct = 0 → partial close disabled per user request; ride to TP or trailing SL.
-  1: { breakEvenAtR: 0.6,  partialAtR: 1.6, partialPct: 0, trailStartAtR: 1.0, trailAtrMult: 1.5, minStopPips: 12 },
-  2: { breakEvenAtR: 0.5,  partialAtR: 1.5, partialPct: 0, trailStartAtR: 1.0, trailAtrMult: 1.3, minStopPips: 15 },
-  3: { breakEvenAtR: 0.45, partialAtR: 1.4, partialPct: 0, trailStartAtR: 1.0, trailAtrMult: 1.3, minStopPips: 20, minStopPipsJpy: 20 },
+  1: { breakEvenAtR: 0.6,  partialAtR: 1.6, partialPct: 0, trailStartAtR: 1.3, trailAtrMult: 3.0, minStopPips: 12 },
+  2: { breakEvenAtR: 0.5,  partialAtR: 1.5, partialPct: 0, trailStartAtR: 1.3, trailAtrMult: 3.0, minStopPips: 15 },
+  3: { breakEvenAtR: 0.45, partialAtR: 1.4, partialPct: 0, trailStartAtR: 1.3, trailAtrMult: 3.0, minStopPips: 20, minStopPipsJpy: 20 },
 };
 
 export function tierExitParams(tier: PairTier): TierExitParams | null {
