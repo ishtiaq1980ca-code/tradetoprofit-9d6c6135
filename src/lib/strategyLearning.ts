@@ -212,11 +212,17 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       continue;
     }
 
-    const badEnough =
+    // Two separate bars. The penalty bar is wider: any well-sampled pattern
+    // with a negative expectancy or a sub-40% win rate earns a score-breaking
+    // penalty. The block bar is stricter and refuses the setup outright.
+    const penaltyBar =
+      s.trades >= BLOCK_MIN_SAMPLES &&
+      (s.winRate < PENALTY_MAX_WIN_RATE || s.avgR < 0);
+    const blockBar =
       s.trades >= BLOCK_MIN_SAMPLES &&
       (s.winRate < BLOCK_MAX_WIN_RATE || s.avgR <= BLOCK_MAX_AVG_R);
 
-    if (badEnough) {
+    if (penaltyBar) {
       // Aggressive penalty — scaled by how bad the pattern actually is, big
       // enough on its own to push a typical 85–90 score below the gate.
       const winShort = Math.max(0, (45 - s.winRate) / 45);       // 0 .. 1
@@ -226,11 +232,9 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       const raw = -(6 + 14 * severity) * (0.6 + 0.4 * size);
       s.adjustment = +Math.max(-MAX_PATTERN_PENALTY, raw).toFixed(2);
 
-      if (recovering) {
-        s.blocked = false;
-        s.blockReason = "";
+      if (blockBar && recovering) {
         s.note = `Losing pattern under watch: ${s.trades} trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R → penalty ${s.adjustment.toFixed(2)}. Block lifted — last ${s.recentTrades} trades improved to ${s.recentWinRate.toFixed(0)}% win.`;
-      } else if (BLOCKABLE_DIMENSIONS.includes(s.dimension)) {
+      } else if (blockBar && BLOCKABLE_DIMENSIONS.includes(s.dimension)) {
         s.blocked = true;
         s.blockReason = `${s.trades} closed trades, ${s.winRate.toFixed(0)}% win rate, avg ${s.avgR.toFixed(2)}R — pattern blocked from new entries until recent form recovers (${UNBLOCK_MIN_RECENT}+ trades at ${UNBLOCK_MIN_WIN_RATE}%+ win).`;
         s.note = `BLOCKED. ${s.blockReason} Score penalty ${s.adjustment.toFixed(2)} also applies.`;
