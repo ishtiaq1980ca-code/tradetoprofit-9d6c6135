@@ -5,7 +5,7 @@ import { isGoldSymbol, isJpyQuoted } from "./pairProfiles";
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD } from "./riskEngine";
+import { lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD, CHANDELIER_ATR_MULT, CHANDELIER_TRIGGER_R, chandelierLevel } from "./riskEngine";
 
 export type Position = {
   id: string;
@@ -21,6 +21,11 @@ export type Position = {
   session?: string;
   breakEvenTriggered?: boolean;
   partialTaken?: boolean;
+  /** 14-period ATR captured at entry — drives the chandelier trailing stop. */
+  atr?: number;
+  /** Highest/lowest price seen since entry (chandelier extreme). */
+  peakPrice?: number;
+  troughPrice?: number;
 };
 
 
@@ -148,20 +153,38 @@ export const useAccount = create<Store>()(
           const moveInR = ((price - p.entry) * dir) / (r || 1);
           let updated: Position = { ...p };
 
+          // Track the running extreme since entry (chandelier reference point).
+          updated.peakPrice = Math.max(p.peakPrice ?? p.entry, price);
+          updated.troughPrice = Math.min(p.troughPrice ?? p.entry, price);
+
           if (s.useUsdTrail) {
-            // PHASE 10 §3/§4 — Intelligent BE + elite step trailing:
-            //   < $1 → no move, $1 → BE, $2 → +$1, $3 → +$2, $4 → +$3 ...
-            const profitUsd = pnlOf(p, price);
-            const lockUsd = lockedProfitUsd(profitUsd, s.trailStepUsd);
-            if (lockUsd !== null) {
-              const vpu = valuePerUnit(p.symbol) * p.lot || 1;
-              const priceMoveForLock = lockUsd / vpu;
-              const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
+            const atrVal = p.atr && p.atr > 0 ? p.atr : r / 2.2; // SL was built as ATR × 2.2
+            if (moveInR >= CHANDELIER_TRIGGER_R && atrVal > 0) {
+              // Chandelier Exit: extreme since entry ∓ ATR × 3.0, forward only.
+              const extreme = dir === 1 ? (updated.peakPrice as number) : (updated.troughPrice as number);
+              const candidateSl = chandelierLevel(p.side, extreme, atrVal, CHANDELIER_ATR_MULT);
+              const buffer = Math.max(atrVal * 0.05, Math.abs(p.entry) * 1e-5);
+              const safe = dir === 1 ? candidateSl > p.entry + buffer : candidateSl < p.entry - buffer;
               const better = dir === 1 ? candidateSl > updated.stopLoss : candidateSl < updated.stopLoss;
-              if (better) {
+              if (safe && better) {
                 updated.stopLoss = candidateSl;
                 updated.breakEvenTriggered = true;
                 touched = true;
+              }
+            } else {
+              // Below +1.3R: break-even lock only (no tight ladder trailing).
+              const profitUsd = pnlOf(p, price);
+              const lockUsd = lockedProfitUsd(profitUsd, s.trailStepUsd);
+              if (lockUsd !== null) {
+                const vpu = valuePerUnit(p.symbol) * p.lot || 1;
+                const priceMoveForLock = Math.max(lockUsd, 0) / vpu;
+                const candidateSl = dir === 1 ? p.entry + priceMoveForLock : p.entry - priceMoveForLock;
+                const better = dir === 1 ? candidateSl > updated.stopLoss : candidateSl < updated.stopLoss;
+                if (better) {
+                  updated.stopLoss = candidateSl;
+                  updated.breakEvenTriggered = true;
+                  touched = true;
+                }
               }
             }
           } else {
