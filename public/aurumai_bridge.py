@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080401                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080402                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -61,6 +61,11 @@ USD_BE_LOCK = 0.40                                # NEVER park SL exactly on ent
 USD_TRAIL_START   = 2.5                           # step trailing begins at +$2.50 profit
 USD_TRAIL_STEP = 1.0                              # ladder: +$2.5 → lock $1.5, +$3.5 → lock $2.5, ...
 WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
+# --- Chandelier Exit trailing (replaces the fixed-$ ladder) ---
+CHANDELIER_ATR_MULT = 3.0                         # BUY: highest-since-entry − ATR×3 | SELL: lowest-since-entry + ATR×3
+CHANDELIER_TRIGGER_R = 1.3                        # chandelier only engages once trade is +1.3R in profit
+CHANDELIER_ATR_PERIOD = 14                        # same 14-period ATR used for SL sizing
+CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a minute
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
@@ -91,6 +96,7 @@ try:
         "BASE_URL", "BRIDGE_TOKEN", "MT5_LOGIN", "MT5_PASS", "MT5_SERVER",
         "POLL_SEC", "SLIPPAGE", "MAGIC",
         "USD_TRAIL_TRIGGER", "USD_BE_LOCK", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
+        "CHANDELIER_ATR_MULT", "CHANDELIER_TRIGGER_R", "CHANDELIER_ATR_PERIOD",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -761,6 +767,32 @@ def _report_trailing_update(position) -> None:
 
 
 _LAST_SL_BY_TICKET: dict[int, float] = {}         # remembers the SL we last successfully moved to
+_R_BY_TICKET: dict[int, float] = {}               # original 1R distance (entry → initial SL) per ticket
+_EXTREME_BY_TICKET: dict[int, float] = {}         # highest (BUY) / lowest (SELL) price since entry
+_ATR_CACHE: dict[str, tuple] = {}                 # symbol -> (timestamp, atr)
+
+
+def _current_atr(symbol: str, period: int = CHANDELIER_ATR_PERIOD):
+    """14-period ATR on the structure timeframe — the same ATR family used for
+    SL sizing. Cached briefly so trailing does not hammer MT5 history."""
+    now = time.time()
+    cached = _ATR_CACHE.get(symbol)
+    if cached and now - cached[0] < CHANDELIER_ATR_TTL_SEC:
+        return cached[1]
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, period * 6)
+        if rates is None or len(rates) < period + 3:
+            return None
+        highs = [float(r["high"]) for r in rates][:-1]
+        lows = [float(r["low"]) for r in rates][:-1]
+        closes = [float(r["close"]) for r in rates][:-1]
+        a = _atr_last(highs, lows, closes, period)
+        if a is None or a <= 0:
+            return None
+        _ATR_CACHE[symbol] = (now, a)
+        return a
+    except Exception:
+        return None
 _LAST_TRAIL_ATTEMPT_TS: dict[int, float] = {}     # last time we even considered modifying this ticket
 
 
@@ -822,22 +854,43 @@ def _apply_usd_trailing_stop(position) -> bool:
         if tp_total > 0 and (tp_moved / tp_total) < TRAIL_TP_PROGRESS_GATE:
             return False
 
-    # Smart Trailing v2 — step ladder. SL always sits one full USD_TRAIL_STEP
-    # behind the highest completed profit step:
-    #   +$1.5 → BE (lock $0), +$3 → lock $1.5, +$4.5 → lock $3, ...
-    step = max(0.01, float(USD_TRAIL_STEP))
-    adx_now = _current_adx(position.symbol)
-    if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
-        step = step * 2.0          # §8 dynamic trailing speed: let strong trends breathe
-    if profit < float(USD_TRAIL_START):
-        # NEVER lock exactly break-even: an SL parked on the entry price turns
-        # every small retrace into a 0.00 round-trip close. Lock a real buffer.
+    # ---- Chandelier Exit trailing --------------------------------------
+    # Track the running extreme since entry and, once the trade clears
+    # CHANDELIER_TRIGGER_R, park the SL at extreme ∓ ATR × CHANDELIER_ATR_MULT.
+    cur_price = float(tick.bid if is_buy else tick.ask)
+    prev_ext = _EXTREME_BY_TICKET.get(ticket)
+    extreme = cur_price if prev_ext is None else (max(prev_ext, cur_price) if is_buy else min(prev_ext, cur_price))
+    _EXTREME_BY_TICKET[ticket] = extreme
+
+    # Remember the original 1R distance the first time we see this ticket with
+    # an untouched (losing-side) stop.
+    r_dist = _R_BY_TICKET.get(ticket)
+    if r_dist is None and old_sl > 0:
+        if (is_buy and old_sl < entry) or ((not is_buy) and old_sl > entry):
+            r_dist = abs(entry - old_sl)
+            _R_BY_TICKET[ticket] = r_dist
+
+    moved = (cur_price - entry) if is_buy else (entry - cur_price)
+    move_r = (moved / r_dist) if (r_dist and r_dist > 0) else 0.0
+    atr_now = _current_atr(position.symbol)
+
+    raw_sl = None
+    mode = "be-lock"
+    if move_r >= CHANDELIER_TRIGGER_R and atr_now and atr_now > 0:
+        mult = float(CHANDELIER_ATR_MULT)
+        adx_now = _current_adx(position.symbol)
+        if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
+            mult = mult * 1.25      # strong trend → give the runner more room
+        dist = atr_now * mult
+        raw_sl = (extreme - dist) if is_buy else (extreme + dist)
+        mode = f"chandelier {mult:.2f}xATR @ {move_r:.2f}R"
+
+    if raw_sl is None:
+        # Below +1.3R: break-even lock only (never a tight ladder), so normal
+        # pullback noise cannot stop a winner out early.
         lock_usd = float(USD_BE_LOCK)
-    else:
-        steps_done = int(profit // step)
-        lock_usd = max(float(USD_BE_LOCK), (steps_done - 1) * step)
-    lock_price_move = lock_usd / vpu
-    raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
+        lock_price_move = lock_usd / vpu
+        raw_sl = entry + lock_price_move if is_buy else entry - lock_price_move
 
     # Hard guard: the trailing SL must stay strictly in profit. If the broker's
     # min-stop clamp would push it onto (or behind) the entry price, skip the
@@ -872,7 +925,7 @@ def _apply_usd_trailing_stop(position) -> bool:
     if _modify_position_stops(position, new_sl, tp):
         _LAST_SL_BY_TICKET[ticket] = new_sl
         refreshed = _find_position_after_fill(position.symbol, ticket, None, allow_latest=False) or position
-        print(f"Trailing SL moved ticket={ticket} profit=${profit:.2f} sl={new_sl} (trigger=${effective_trigger:.2f})")
+        print(f"Trailing SL moved ticket={ticket} profit=${profit:.2f} sl={new_sl} [{mode}]")
         _report_trailing_update(refreshed)
         return True
     return False
