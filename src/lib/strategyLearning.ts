@@ -149,6 +149,8 @@ export const MAX_TOTAL_PENALTY = 35;
 
 /** Evidence bar at which a pattern stops being merely penalised and is blocked. */
 export const BLOCK_MIN_SAMPLES = 10;
+/** Win rate under this (with enough samples) earns the aggressive penalty. */
+export const PENALTY_MAX_WIN_RATE = 40;
 export const BLOCK_MAX_WIN_RATE = 30;
 export const BLOCK_MAX_AVG_R = -0.25;
 /** Recent-form escape hatch: this many recent trades at this win rate unblocks. */
