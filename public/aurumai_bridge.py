@@ -994,8 +994,21 @@ def _apply_usd_trailing_stop(position) -> bool:
     if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
         mult = mult * 1.25      # strong trend → give the runner more room
     dist = atr_now * mult
+    # Symbol-agnostic cap: on pairs where ATR is large relative to the R
+    # distance (most crosses/JPY pairs), mult x ATR exceeds the whole run-up,
+    # so the raw level always sits behind entry and the trail never engages.
+    # Cap the distance so we always lock at least TRAIL_MIN_LOCK_FRACTION of
+    # the achieved move from entry.
+    run = abs(extreme - entry)
+    capped = False
+    if run > 0:
+        max_dist = run * (1.0 - float(TRAIL_MIN_LOCK_FRACTION))
+        if max_dist < dist:
+            dist = max_dist
+            capped = True
     raw_sl = (extreme - dist) if is_buy else (extreme + dist)
-    mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}"
+    mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}{' capped' if capped else ''}"
+
 
     # A wide Chandelier level can legitimately remain behind entry near +0.5R.
     # In that case preserve the existing initial SL. Do NOT replace it with a
