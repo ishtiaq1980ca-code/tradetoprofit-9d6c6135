@@ -40,7 +40,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080402                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080501                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -63,9 +63,13 @@ USD_TRAIL_STEP = 1.0                              # ladder: +$2.5 → lock $1.5,
 WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
 # --- Chandelier Exit trailing (replaces the fixed-$ ladder) ---
 CHANDELIER_ATR_MULT = 3.0                         # BUY: highest-since-entry − ATR×3 | SELL: lowest-since-entry + ATR×3
-CHANDELIER_TRIGGER_R = 1.3                        # chandelier only engages once trade is +1.3R in profit
+CHANDELIER_TRIGGER_R = 1.3                        # full 3.0×ATR chandelier from +1.3R onward
 CHANDELIER_ATR_PERIOD = 14                        # same 14-period ATR used for SL sizing
 CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a minute
+# --- Graduated gap-zone trail (0.5R → 1.3R) ---
+GRADUATED_TRIGGER_R = 0.5                         # loose ATR trail starts here instead of a flat $0.40 lock
+GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
+GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
@@ -97,6 +101,7 @@ try:
         "POLL_SEC", "SLIPPAGE", "MAGIC",
         "USD_TRAIL_TRIGGER", "USD_BE_LOCK", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
         "CHANDELIER_ATR_MULT", "CHANDELIER_TRIGGER_R", "CHANDELIER_ATR_PERIOD",
+        "GRADUATED_TRIGGER_R", "GRADUATED_ATR_MULT_START", "GRADUATED_ATR_MULT_END",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -878,15 +883,26 @@ def _apply_usd_trailing_stop(position) -> bool:
 
     raw_sl = None
     mode = "be-lock"
-    if move_r >= CHANDELIER_TRIGGER_R and atr_now and atr_now > 0:
-        mult = float(CHANDELIER_ATR_MULT)
+    if move_r >= GRADUATED_TRIGGER_R and atr_now and atr_now > 0:
+        # Graduated protection: 4.5×ATR at +0.5R tightening linearly to
+        # 3.0×ATR at +1.3R, then the plain chandelier from +1.3R onward.
+        if move_r >= CHANDELIER_TRIGGER_R:
+            mult = float(CHANDELIER_ATR_MULT)
+            label = "chandelier"
+        else:
+            span = max(1e-9, float(CHANDELIER_TRIGGER_R) - float(GRADUATED_TRIGGER_R))
+            t = min(1.0, max(0.0, (move_r - float(GRADUATED_TRIGGER_R)) / span))
+            mult = float(GRADUATED_ATR_MULT_START) + t * (
+                float(GRADUATED_ATR_MULT_END) - float(GRADUATED_ATR_MULT_START)
+            )
+            label = "graduated"
         adx_now = _current_adx(position.symbol)
         if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
             mult = mult * 1.25      # strong trend → give the runner more room
         dist = atr_now * mult
         raw_sl = (extreme - dist) if is_buy else (extreme + dist)
-        mode = f"chandelier {mult:.2f}xATR @ {move_r:.2f}R"
-        # Safety guard: a chandelier level that lands on/behind entry is not a
+        mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R"
+        # Safety guard: a trail level that lands on/behind entry is not a
         # trailing stop — fall back to the break-even lock instead.
         entry_buf = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
         if (is_buy and raw_sl <= entry + entry_buf) or ((not is_buy) and raw_sl >= entry - entry_buf):
@@ -894,7 +910,7 @@ def _apply_usd_trailing_stop(position) -> bool:
             mode = "be-lock"
 
     if raw_sl is None:
-        # Below +1.3R: break-even lock only (never a tight ladder), so normal
+        # Below +0.5R (or no ATR available): break-even lock only, so normal
         # pullback noise cannot stop a winner out early.
         lock_usd = float(USD_BE_LOCK)
         lock_price_move = lock_usd / vpu

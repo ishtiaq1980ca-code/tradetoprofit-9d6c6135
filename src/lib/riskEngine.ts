@@ -124,6 +124,21 @@ export function dailyLossBreached(dailyPnl: number, startingBalance: number, max
 export const CHANDELIER_ATR_MULT = 3.0;
 export const CHANDELIER_TRIGGER_R = 1.3;
 
+// Graduated gap-zone trail (0.5R → 1.3R): instead of leaving only the tiny
+// break-even lock in place until the chandelier engages, run a loose ATR trail
+// that starts wide (4.5×ATR) and tightens linearly to the 3.0×ATR chandelier.
+export const GRADUATED_TRIGGER_R = 0.5;
+export const GRADUATED_ATR_MULT_START = 4.5;
+export const GRADUATED_ATR_MULT_END = 3.0;
+
+/** ATR multiplier to use for the trail at a given profit in R. */
+export function trailAtrMultForR(moveInR: number): number {
+  if (moveInR >= CHANDELIER_TRIGGER_R) return CHANDELIER_ATR_MULT;
+  const span = Math.max(1e-9, CHANDELIER_TRIGGER_R - GRADUATED_TRIGGER_R);
+  const t = Math.min(1, Math.max(0, (moveInR - GRADUATED_TRIGGER_R) / span));
+  return GRADUATED_ATR_MULT_START + t * (GRADUATED_ATR_MULT_END - GRADUATED_ATR_MULT_START);
+}
+
 /** Raw chandelier stop level from the running extreme. */
 export function chandelierLevel(
   side: "BUY" | "SELL",
@@ -136,9 +151,10 @@ export function chandelierLevel(
 }
 
 /**
- * ATR chandelier trailing stop. Returns the new SL only when the trade has
- * cleared CHANDELIER_TRIGGER_R, the stop improves in the favourable direction,
- * and it stays a safe distance away from entry (never on/behind entry).
+ * Staged ATR trailing stop. From +0.5R a loose ATR trail (4.5× tapering to
+ * 3.0×) protects the run-up; from +1.3R the full chandelier takes over. The
+ * stop only ever ratchets forward and never lands on/behind entry — when the
+ * ATR level would, we fall back to the break-even lock.
  */
 export function computeTrailStop(
   side: "BUY" | "SELL",
@@ -153,29 +169,33 @@ export function computeTrailStop(
   const dir = side === "BUY" ? 1 : -1;
   const moveInR = ((currentPrice - entry) * dir) / rDistance;
 
-  // 1. Break-even lock before the chandelier engages.
-  if (moveInR >= params.breakEvenAtR && moveInR < CHANDELIER_TRIGGER_R) {
-    const better = dir === 1 ? entry > currentStop : entry < currentStop;
-    if (better) return { newStop: entry, reason: `Break-even at +${params.breakEvenAtR}R` };
-    return null;
-  }
-
-  if (moveInR < CHANDELIER_TRIGGER_R) return null;
+  const trailFloorR = Math.min(GRADUATED_TRIGGER_R, params.breakEvenAtR);
+  if (moveInR < trailFloorR) return null;
 
   const atrVal = opts?.atr && opts.atr > 0 ? opts.atr : rDistance / 2.2; // fallback: SL was ATR×2.2
-  const mult = opts?.atrMult ?? CHANDELIER_ATR_MULT;
+  const mult = opts?.atrMult ?? trailAtrMultForR(moveInR);
   const extreme = opts?.extreme ?? currentPrice;
   const candidate = chandelierLevel(side, extreme, atrVal, mult);
 
   // Safety guard: never park the stop on (or within a hair of) entry.
   const buffer = opts?.minEntryBuffer ?? Math.max(atrVal * 0.05, Math.abs(entry) * 1e-5);
-  if (dir === 1 ? candidate <= entry + buffer : candidate >= entry - buffer) return null;
+  const candidateSafe = dir === 1 ? candidate > entry + buffer : candidate < entry - buffer;
 
-  const better = dir === 1 ? candidate > currentStop : candidate < currentStop;
-  if (!better) return null;
-  return {
-    newStop: candidate,
-    reason: `Chandelier trail at +${moveInR.toFixed(2)}R (extreme ∓ ${mult}×ATR)`,
-  };
+  if (candidateSafe) {
+    const better = dir === 1 ? candidate > currentStop : candidate < currentStop;
+    if (!better) return null;
+    const label = moveInR >= CHANDELIER_TRIGGER_R ? "Chandelier" : "Graduated";
+    return {
+      newStop: candidate,
+      reason: `${label} trail at +${moveInR.toFixed(2)}R (extreme ∓ ${mult.toFixed(2)}×ATR)`,
+    };
+  }
+
+  // Fallback: break-even lock once we are past the BE threshold.
+  if (moveInR >= params.breakEvenAtR) {
+    const better = dir === 1 ? entry > currentStop : entry < currentStop;
+    if (better) return { newStop: entry, reason: `Break-even at +${params.breakEvenAtR}R` };
+  }
+  return null;
 }
 
