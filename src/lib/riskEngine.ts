@@ -131,6 +131,13 @@ export const GRADUATED_TRIGGER_R = 0.5;
 export const GRADUATED_ATR_MULT_START = 4.5;
 export const GRADUATED_ATR_MULT_END = 3.0;
 
+// Symbol-agnostic cap. On pairs whose R distance is small relative to ATR
+// (most crosses/JPY pairs at our SL sizing), mult×ATR is wider than the whole
+// run-up, so the raw chandelier level always sits behind entry and the trail
+// never engages. Cap the trail distance so it always locks at least this
+// fraction of the achieved move from entry.
+export const TRAIL_MIN_LOCK_FRACTION = 0.35;
+
 /** ATR multiplier to use for the trail at a given profit in R. */
 export function trailAtrMultForR(moveInR: number): number {
   if (moveInR >= CHANDELIER_TRIGGER_R) return CHANDELIER_ATR_MULT;
@@ -139,16 +146,22 @@ export function trailAtrMultForR(moveInR: number): number {
   return GRADUATED_ATR_MULT_START + t * (GRADUATED_ATR_MULT_END - GRADUATED_ATR_MULT_START);
 }
 
-/** Raw chandelier stop level from the running extreme. */
+/** Raw chandelier stop level from the running extreme (distance capped). */
 export function chandelierLevel(
   side: "BUY" | "SELL",
   extreme: number,
   atrVal: number,
   mult = CHANDELIER_ATR_MULT,
+  entry?: number,
 ): number {
-  const dist = Math.max(0, atrVal) * mult;
+  let dist = Math.max(0, atrVal) * mult;
+  if (entry !== undefined) {
+    const run = Math.abs(extreme - entry);
+    if (run > 0) dist = Math.min(dist, run * (1 - TRAIL_MIN_LOCK_FRACTION));
+  }
   return side === "BUY" ? extreme - dist : extreme + dist;
 }
+
 
 /**
  * Staged ATR trailing stop. From +0.5R a loose ATR trail (4.5× tapering to
@@ -175,7 +188,7 @@ export function computeTrailStop(
   const atrVal = opts?.atr && opts.atr > 0 ? opts.atr : rDistance / 2.2; // fallback: SL was ATR×2.2
   const mult = opts?.atrMult ?? trailAtrMultForR(moveInR);
   const extreme = opts?.extreme ?? currentPrice;
-  const candidate = chandelierLevel(side, extreme, atrVal, mult);
+  const candidate = chandelierLevel(side, extreme, atrVal, mult, entry);
 
   // Safety guard: never park the stop on (or within a hair of) entry.
   const buffer = opts?.minEntryBuffer ?? Math.max(atrVal * 0.05, Math.abs(entry) * 1e-5);
