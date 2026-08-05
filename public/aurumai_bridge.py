@@ -167,6 +167,8 @@ def _acquire_single_instance() -> None:
     PID/lock file which can remain stale. On non-Windows systems this is a no-op
     because the MetaTrader5 package itself is Windows-only in production.
     """
+    if globals().get("_BRIDGE_MUTEX_HANDLE"):
+        return
     if os.name != "nt":
         return
     try:
