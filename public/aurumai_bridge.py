@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080503                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080504                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -71,6 +71,7 @@ CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a m
 GRADUATED_TRIGGER_R = 0.5                         # loose ATR trail starts here instead of a flat $0.40 lock
 GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
 GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
+TRAIL_MIN_LOCK_FRACTION = 0.35                    # cap trail distance so it always locks >=35% of the run-up (all symbols)
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
@@ -103,6 +104,7 @@ try:
         "USD_TRAIL_TRIGGER", "USD_BE_LOCK", "USD_TRAIL_START", "USD_TRAIL_STEP", "WIDE_TRAIL_ADX",
         "CHANDELIER_ATR_MULT", "CHANDELIER_TRIGGER_R", "CHANDELIER_ATR_PERIOD",
         "GRADUATED_TRIGGER_R", "GRADUATED_ATR_MULT_START", "GRADUATED_ATR_MULT_END",
+        "TRAIL_MIN_LOCK_FRACTION",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
