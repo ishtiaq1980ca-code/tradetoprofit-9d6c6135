@@ -883,15 +883,26 @@ def _apply_usd_trailing_stop(position) -> bool:
 
     raw_sl = None
     mode = "be-lock"
-    if move_r >= CHANDELIER_TRIGGER_R and atr_now and atr_now > 0:
-        mult = float(CHANDELIER_ATR_MULT)
+    if move_r >= GRADUATED_TRIGGER_R and atr_now and atr_now > 0:
+        # Graduated protection: 4.5×ATR at +0.5R tightening linearly to
+        # 3.0×ATR at +1.3R, then the plain chandelier from +1.3R onward.
+        if move_r >= CHANDELIER_TRIGGER_R:
+            mult = float(CHANDELIER_ATR_MULT)
+            label = "chandelier"
+        else:
+            span = max(1e-9, float(CHANDELIER_TRIGGER_R) - float(GRADUATED_TRIGGER_R))
+            t = min(1.0, max(0.0, (move_r - float(GRADUATED_TRIGGER_R)) / span))
+            mult = float(GRADUATED_ATR_MULT_START) + t * (
+                float(GRADUATED_ATR_MULT_END) - float(GRADUATED_ATR_MULT_START)
+            )
+            label = "graduated"
         adx_now = _current_adx(position.symbol)
         if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
             mult = mult * 1.25      # strong trend → give the runner more room
         dist = atr_now * mult
         raw_sl = (extreme - dist) if is_buy else (extreme + dist)
-        mode = f"chandelier {mult:.2f}xATR @ {move_r:.2f}R"
-        # Safety guard: a chandelier level that lands on/behind entry is not a
+        mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R"
+        # Safety guard: a trail level that lands on/behind entry is not a
         # trailing stop — fall back to the break-even lock instead.
         entry_buf = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
         if (is_buy and raw_sl <= entry + entry_buf) or ((not is_buy) and raw_sl >= entry - entry_buf):
