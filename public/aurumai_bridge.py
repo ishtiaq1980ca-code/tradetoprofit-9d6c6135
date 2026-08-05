@@ -63,9 +63,13 @@ USD_TRAIL_STEP = 1.0                              # ladder: +$2.5 → lock $1.5,
 WIDE_TRAIL_ADX = 35.0                             # PHASE 10 §8: ADX > 35 → wider (2×) trailing step
 # --- Chandelier Exit trailing (replaces the fixed-$ ladder) ---
 CHANDELIER_ATR_MULT = 3.0                         # BUY: highest-since-entry − ATR×3 | SELL: lowest-since-entry + ATR×3
-CHANDELIER_TRIGGER_R = 1.3                        # chandelier only engages once trade is +1.3R in profit
+CHANDELIER_TRIGGER_R = 1.3                        # full 3.0×ATR chandelier from +1.3R onward
 CHANDELIER_ATR_PERIOD = 14                        # same 14-period ATR used for SL sizing
 CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a minute
+# --- Graduated gap-zone trail (0.5R → 1.3R) ---
+GRADUATED_TRIGGER_R = 0.5                         # loose ATR trail starts here instead of a flat $0.40 lock
+GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
+GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
