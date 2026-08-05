@@ -188,7 +188,7 @@ export function computeTrailStop(
   const atrVal = opts?.atr && opts.atr > 0 ? opts.atr : rDistance / 2.2; // fallback: SL was ATR×2.2
   const mult = opts?.atrMult ?? trailAtrMultForR(moveInR);
   const extreme = opts?.extreme ?? currentPrice;
-  const candidate = chandelierLevel(side, extreme, atrVal, mult);
+  const candidate = chandelierLevel(side, extreme, atrVal, mult, entry);
 
   // Safety guard: never park the stop on (or within a hair of) entry.
   const buffer = opts?.minEntryBuffer ?? Math.max(atrVal * 0.05, Math.abs(entry) * 1e-5);
