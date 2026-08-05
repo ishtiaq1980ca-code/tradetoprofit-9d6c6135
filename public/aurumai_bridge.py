@@ -910,7 +910,7 @@ def _apply_usd_trailing_stop(position) -> bool:
             mode = "be-lock"
 
     if raw_sl is None:
-        # Below +1.3R: break-even lock only (never a tight ladder), so normal
+        # Below +0.5R (or no ATR available): break-even lock only, so normal
         # pullback noise cannot stop a winner out early.
         lock_usd = float(USD_BE_LOCK)
         lock_price_move = lock_usd / vpu
