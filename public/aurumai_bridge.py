@@ -16,6 +16,7 @@ import time
 import datetime as dt
 import json
 import sys
+import uuid
 
 try:
     import MetaTrader5 as mt5
@@ -40,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080502                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080503                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -132,6 +133,8 @@ import threading
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 LOG_FILE = os.path.join(LOG_DIR, "bridge.log")
+STATE_FILE = os.path.join(LOG_DIR, "trailing_state.json")
+PROCESS_SESSION_ID = uuid.uuid4().hex[:12]
 try:
     os.makedirs(LOG_DIR, exist_ok=True)
     _LOGGER = logging.getLogger("aurumai.bridge")
@@ -155,6 +158,29 @@ def print(*args, **kwargs):  # noqa: A001 - console + logs/bridge.log with times
     except Exception:
         pass
     _builtin_print(*args, **kwargs)
+
+
+def _acquire_single_instance() -> None:
+    """Refuse a second bridge process for the same Windows user/session.
+
+    A named Windows mutex is released by the OS even after a crash, unlike a
+    PID/lock file which can remain stale. On non-Windows systems this is a no-op
+    because the MetaTrader5 package itself is Windows-only in production.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        mutex_name = f"Local\\AurumAI_MT5_Bridge_{MAGIC}"
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        if not handle or ctypes.windll.kernel32.GetLastError() == 183:
+            print(f"FATAL: another AurumAI bridge instance is already running (mutex={mutex_name}).")
+            raise SystemExit(2)
+        globals()["_BRIDGE_MUTEX_HANDLE"] = handle
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"WARNING: duplicate-process mutex unavailable: {e}")
 
 
 MT5_LOCK = threading.RLock()
@@ -775,6 +801,77 @@ _LAST_SL_BY_TICKET: dict[int, float] = {}         # remembers the SL we last suc
 _R_BY_TICKET: dict[int, float] = {}               # original 1R distance (entry → initial SL) per ticket
 _EXTREME_BY_TICKET: dict[int, float] = {}         # highest (BUY) / lowest (SELL) price since entry
 _ATR_CACHE: dict[str, tuple] = {}                 # symbol -> (timestamp, atr)
+_LAST_TRAIL_DIAG_TS: dict[int, float] = {}
+_LAST_STATE_SAVE_TS = 0.0
+
+
+def _save_trailing_state(force: bool = False) -> None:
+    """Persist immutable R and running extremes so bridge updates/restarts do
+    not forget positions that already had their stop moved into profit."""
+    global _LAST_STATE_SAVE_TS
+    now = time.time()
+    if not force and now - _LAST_STATE_SAVE_TS < 5.0:
+        return
+    _LAST_STATE_SAVE_TS = now
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        payload = {
+            "r": {str(k): v for k, v in _R_BY_TICKET.items()},
+            "extreme": {str(k): v for k, v in _EXTREME_BY_TICKET.items()},
+            "last_sl": {str(k): v for k, v in _LAST_SL_BY_TICKET.items()},
+        }
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"))
+        os.replace(tmp, STATE_FILE)
+    except Exception as e:
+        print(f"trailing state save failed: {e}")
+
+
+def _load_trailing_state() -> None:
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        for key, target in (("r", _R_BY_TICKET), ("extreme", _EXTREME_BY_TICKET), ("last_sl", _LAST_SL_BY_TICKET)):
+            for ticket, value in (payload.get(key) or {}).items():
+                target[int(ticket)] = float(value)
+        print(f"Loaded persistent trailing state for {len(_R_BY_TICKET)} ticket(s)")
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        print(f"trailing state load failed: {e}")
+
+
+def _recover_original_r(position, is_buy: bool, entry: float, old_sl: float, tp: float) -> tuple[float | None, str]:
+    """Recover original 1R after a restart, even when the live SL is already
+    profitable. Prefer the broker's opening-order SL; TP/2 is a last-resort
+    reconstruction because this bridge opens normalized plans at 2R by default."""
+    try:
+        orders = mt5.history_orders_get(position=int(position.ticket)) or []
+        for order in sorted(orders, key=lambda item: int(getattr(item, "time_setup_msc", 0) or 0)):
+            sl = float(getattr(order, "sl", 0) or 0)
+            if sl > 0 and ((is_buy and sl < entry) or ((not is_buy) and sl > entry)):
+                return abs(entry - sl), "broker-opening-order"
+    except Exception:
+        pass
+    if old_sl > 0 and ((is_buy and old_sl < entry) or ((not is_buy) and old_sl > entry)):
+        return abs(entry - old_sl), "live-initial-sl"
+    if tp > 0 and ((is_buy and tp > entry) or ((not is_buy) and tp < entry)):
+        return abs(tp - entry) / 2.0, "tp-distance/2-fallback"
+    return None, "unavailable"
+
+
+def _trail_diag(position, action: str, detail: str) -> None:
+    """Send compact trailing evidence to the existing remote execution log."""
+    ticket = int(position.ticket)
+    now = time.time()
+    if action != "trail_move" and now - _LAST_TRAIL_DIAG_TS.get(ticket, 0.0) < 60.0:
+        return
+    _LAST_TRAIL_DIAG_TS[ticket] = now
+    _log_execution(None, position.symbol,
+                   "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
+                   action, None, 0, None, ticket,
+                   f"bridge={BRIDGE_VERSION} session={PROCESS_SESSION_ID} pid={os.getpid()} {detail}")
 
 
 def _current_atr(symbol: str, period: int = CHANDELIER_ATR_PERIOD):
@@ -852,22 +949,31 @@ def _apply_usd_trailing_stop(position) -> bool:
     extreme = cur_price if prev_ext is None else (max(prev_ext, cur_price) if is_buy else min(prev_ext, cur_price))
     _EXTREME_BY_TICKET[ticket] = extreme
 
-    # Remember the original 1R distance the first time we see this ticket with
-    # an untouched (losing-side) stop.
+    # Recover original R across updates/restarts. v502 only accepted a live
+    # losing-side SL, so a position previously moved to +$0.40 had r_dist=None
+    # forever and silently skipped all graduated/chandelier calculations.
     r_dist = _R_BY_TICKET.get(ticket)
-    if r_dist is None and old_sl > 0:
-        if (is_buy and old_sl < entry) or ((not is_buy) and old_sl > entry):
-            r_dist = abs(entry - old_sl)
+    if r_dist is None:
+        r_dist, r_source = _recover_original_r(position, is_buy, entry, old_sl, tp)
+        if r_dist and r_dist > 0:
             _R_BY_TICKET[ticket] = r_dist
+            _LAST_SL_BY_TICKET.setdefault(ticket, old_sl)
+            _save_trailing_state(force=True)
+            _trail_diag(position, "trail_state", f"recovered_r={r_dist:.{digits}f} source={r_source} entry={entry} sl={old_sl} tp={tp}")
+        else:
+            _trail_diag(position, "trail_skip", f"reason=no-original-r source={r_source} entry={entry} sl={old_sl} tp={tp}")
 
     moved = (cur_price - entry) if is_buy else (entry - cur_price)
     move_r = (moved / r_dist) if (r_dist and r_dist > 0) else 0.0
     if move_r < float(GRADUATED_TRIGGER_R):
+        _save_trailing_state()
+        _trail_diag(position, "trail_skip", f"reason=below-trigger move_r={move_r:.4f} r={r_dist or 0:.{digits}f} price={cur_price} entry={entry} sl={old_sl}")
         return False
 
     atr_now = _current_atr(position.symbol)
     if atr_now is None or atr_now <= 0:
         # Never substitute a dollar lock when market-data history is missing.
+        _trail_diag(position, "trail_skip", f"reason=no-atr move_r={move_r:.4f} r={r_dist or 0:.{digits}f} price={cur_price}")
         return False
 
     # Graduated protection: 4.5×ATR at +0.5R tightening linearly to
@@ -894,6 +1000,7 @@ def _apply_usd_trailing_stop(position) -> bool:
     # flat $0.40 lock: wait until the ATR candidate itself protects profit.
     entry_buf = max(point, (float(USD_BE_LOCK) * 0.5) / vpu)
     if (is_buy and raw_sl <= entry + entry_buf) or ((not is_buy) and raw_sl >= entry - entry_buf):
+        _trail_diag(position, "trail_skip", f"reason=raw-not-profitable mode={mode} extreme={extreme} raw_sl={raw_sl} entry={entry} old_sl={old_sl}")
         return False
 
     # Hard guard: the trailing SL must stay strictly in profit. If the broker's
@@ -904,15 +1011,18 @@ def _apply_usd_trailing_stop(position) -> bool:
         max_allowed_sl = float(tick.bid) - min_dist
         new_sl = min(raw_sl, max_allowed_sl)
         if new_sl <= entry + min_lock_move:
+            _trail_diag(position, "trail_skip", f"reason=clamp-not-profitable mode={mode} raw_sl={raw_sl} clamped={new_sl} min_dist={min_dist}")
             return False
         better = old_sl <= 0 or new_sl > old_sl + point
     else:
         min_allowed_sl = float(tick.ask) + min_dist
         new_sl = max(raw_sl, min_allowed_sl)
         if new_sl >= entry - min_lock_move:
+            _trail_diag(position, "trail_skip", f"reason=clamp-not-profitable mode={mode} raw_sl={raw_sl} clamped={new_sl} min_dist={min_dist}")
             return False
         better = old_sl <= 0 or new_sl < old_sl - point
     if not better:
+        _trail_diag(position, "trail_skip", f"reason=not-better mode={mode} candidate={new_sl} old_sl={old_sl} extreme={extreme}")
         return False
 
     new_sl = round(new_sl, digits)
@@ -924,12 +1034,15 @@ def _apply_usd_trailing_stop(position) -> bool:
         extra_move = abs(new_sl - last_sl)
         extra_usd = extra_move * vpu
         if extra_usd < TRAIL_MIN_STEP_USD:
+            _trail_diag(position, "trail_skip", f"reason=min-step mode={mode} candidate={new_sl} last_sl={last_sl} extra_usd={extra_usd:.4f}")
             return False
 
     if _modify_position_stops(position, new_sl, tp):
         _LAST_SL_BY_TICKET[ticket] = new_sl
+        _save_trailing_state(force=True)
         refreshed = _find_position_after_fill(position.symbol, ticket, None, allow_latest=False) or position
         print(f"Trailing SL moved ticket={ticket} profit=${float(position.profit or 0):.2f} sl={new_sl} [{mode}]")
+        _trail_diag(position, "trail_move", f"profit={float(position.profit or 0):.2f} old_sl={old_sl} new_sl={new_sl} raw_sl={raw_sl} extreme={extreme} min_dist={min_dist} {mode}")
         _report_trailing_update(refreshed)
         return True
     return False
@@ -1513,6 +1626,7 @@ def execute_signal(sig: dict) -> bool:
             _R_BY_TICKET[ticket] = abs(filled_price - live_sl)
         _EXTREME_BY_TICKET[ticket] = filled_price
         _LAST_SL_BY_TICKET[ticket] = live_sl
+        _save_trailing_state(force=True)
     else:
         filled_price = float(res.price or price)
         live_sl = float(sl)
@@ -1635,6 +1749,8 @@ def discover_all_symbols() -> None:
 def main():
     # PHASE 11 §12 — the bridge NEVER exits. It boots into RECOVERING state,
     # starts the heartbeat + watchdog threads, and keeps polling forever.
+    _acquire_single_instance()
+    _load_trailing_state()
     set_state("RECOVERING", "bridge starting")
     attempt = 0
     while not ensure_mt5(force=True):
@@ -1650,6 +1766,8 @@ def main():
     start_background_threads()
     print(f"AurumAI bridge v{BRIDGE_VERSION} online, polling {BASE_URL} every {POLL_SEC}s")
     print(f"Detailed logs: {LOG_FILE}")
+    _log_execution(None, "BRIDGE", None, "bridge_start", None, 0, None, None,
+                   f"bridge={BRIDGE_VERSION} session={PROCESS_SESSION_ID} pid={os.getpid()} state_file={STATE_FILE}")
 
     last_closed_sync = 0.0
     waited_first_heartbeat = time.time()
