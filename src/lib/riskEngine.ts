@@ -191,11 +191,9 @@ export function computeTrailStop(
     };
   }
 
-  // Fallback: break-even lock once we are past the BE threshold.
-  if (moveInR >= params.breakEvenAtR) {
-    const better = dir === 1 ? entry > currentStop : entry < currentStop;
-    if (better) return { newStop: entry, reason: `Break-even at +${params.breakEvenAtR}R` };
-  }
+  // A wide ATR candidate can still sit behind entry near the activation
+  // threshold. Preserve the existing SL until the ATR-derived level itself
+  // protects profit; never substitute a flat break-even/dollar lock.
   return null;
 }
 
