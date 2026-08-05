@@ -1,7 +1,7 @@
 // Single source of truth for the bridge script version the backend expects.
 // Bump this whenever public/aurumai_bridge.py gets a safety-relevant fix so
 // the dashboard can loudly warn when an older bridge process is still running.
-export const REQUIRED_BRIDGE_VERSION = 2026080502;
+export const REQUIRED_BRIDGE_VERSION = 2026080503;
 
 /** Approximate pip size for a broker symbol (handles "EURUSDm"-style suffixes). */
 export function pipSizeFor(symbol: string): number {
