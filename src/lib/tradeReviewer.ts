@@ -37,6 +37,7 @@ export type TradeBehavior =
   | "slow_winner"
   | "gradual_bleed"
   | "mixed"
+  | "structure_invalidated"
   | "unknown";
 
 export const BEHAVIOR_LABEL: Record<TradeBehavior, string> = {
@@ -46,6 +47,7 @@ export const BEHAVIOR_LABEL: Record<TradeBehavior, string> = {
   slow_winner: "Won, but took its time",
   gradual_bleed: "Bled out slowly against the position",
   mixed: "Mixed / inconclusive behaviour",
+  structure_invalidated: "Closed early — market structure invalidated the setup",
   unknown: "Not enough data to classify",
 };
 
@@ -76,7 +78,14 @@ export function computeRMultiple(t: ClosedTradeRow): number | null {
   return +(move / risk).toFixed(3);
 }
 
-export function classifyBehavior(t: ClosedTradeRow, r: number | null): TradeBehavior {
+export function classifyBehavior(
+  t: ClosedTradeRow,
+  r: number | null,
+  structureExit = false,
+): TradeBehavior {
+  // A structure-invalidation exit is its own category — it is NOT a stop-loss
+  // hit and must be learned from separately.
+  if (structureExit) return "structure_invalidated";
   const closed = t.closed_at ? new Date(t.closed_at).getTime() : null;
   if (!closed) return "unknown";
   const mins = (closed - new Date(t.opened_at).getTime()) / 60_000;
@@ -112,10 +121,15 @@ function contextFrom(trade: ClosedTradeRow, snap: DecisionRecord | null): Patter
   };
 }
 
-export function buildReview(trade: ClosedTradeRow, snap: DecisionRecord | null, userId: string) {
+export function buildReview(
+  trade: ClosedTradeRow,
+  snap: DecisionRecord | null,
+  userId: string,
+  structureExit: { reason: string } | null = null,
+) {
   const profit = Number(trade.profit ?? 0);
   const r = computeRMultiple(trade);
-  const behavior = classifyBehavior(trade, r);
+  const behavior = classifyBehavior(trade, r, !!structureExit);
   const outcome = outcomeOf(profit);
   const ctx = contextFrom(trade, snap);
   const keys = ctx
