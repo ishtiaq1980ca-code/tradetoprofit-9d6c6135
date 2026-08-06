@@ -197,6 +197,51 @@ export type Database = {
         }
         Relationships: []
       }
+      close_requests: {
+        Row: {
+          created_at: string
+          error: string | null
+          executed_at: string | null
+          id: string
+          kind: string
+          leased_at: string | null
+          mt5_ticket: number
+          reason: string
+          side: string
+          status: string
+          symbol: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          kind?: string
+          leased_at?: string | null
+          mt5_ticket: number
+          reason: string
+          side: string
+          status?: string
+          symbol: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          kind?: string
+          leased_at?: string | null
+          mt5_ticket?: number
+          reason?: string
+          side?: string
+          status?: string
+          symbol?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       execution_log: {
         Row: {
           action: string
