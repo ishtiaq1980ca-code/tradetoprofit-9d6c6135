@@ -205,6 +205,9 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
     .from("trades")
     .select("id,mt5_ticket,symbol,side,entry,exit,stop_loss,take_profit,lot,profit,pips,opened_at,closed_at")
     .eq("status", "closed")
+    // Reconciled rows were closed by cleanup with unknown P/L — they carry no
+    // learnable outcome and must never enter trade_reviews.
+    .eq("reconciled", false)
     .gte("opened_at", since)
     .order("closed_at", { ascending: false })
     .limit(400);
