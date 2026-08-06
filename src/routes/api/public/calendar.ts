@@ -117,7 +117,7 @@ export const Route = createFileRoute("/api/public/calendar")({
           let events: Out[] | null = null;
           for (const src of SOURCES) {
             try {
-              const parsed = normalize(await fetchJson(src.url));
+              const parsed = src.parse(await fetchJson(src.url())).sort((a, b) => a.at - b.at);
               if (parsed.length === 0) throw new Error("no usable events");
               events = parsed;
               activeSource = src.name;
