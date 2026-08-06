@@ -151,6 +151,9 @@ export function buildReview(
       : st && outcome === "win" && behavior === "clean_run"
         ? `Lesson: the ${st.zone} read on a ${st.htfTrend} H1 trend with ${st.swing} structure delivered cleanly — this combination is being rewarded.`
         : "",
+    structureExit
+      ? `Early exit (not a stop-loss hit): ${structureExit.reason} — the position was closed at market because the structural thesis was invalidated.`
+      : "",
   ].filter(Boolean).join(" ");
 
   return {
