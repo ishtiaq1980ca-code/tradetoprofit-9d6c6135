@@ -90,8 +90,11 @@ export const useEconomicCalendar = create<Store>()(
       events: [],
       lastFeedFetch: 0,
       lastFeedOk: 0,
+      serverLastOk: 0,
+      serverSource: null,
       lastFeedError: null,
       feedLoading: false,
+
 
       setEnabled: (v) => set({ enabled: v }),
       setBufferBefore: (n) => set({ bufferBeforeMin: Math.max(0, Math.min(240, n)) }),
