@@ -55,8 +55,13 @@ type Store = {
   lastFeedFetch: number;
   /** Last fetch that actually succeeded (0 = never). */
   lastFeedOk: number;
+  /** Last time the SERVER successfully pulled the upstream feed (0 = never). */
+  serverLastOk: number;
+  /** Which upstream mirror the server last used. */
+  serverSource: string | null;
   lastFeedError: string | null;
   feedLoading: boolean;
+
 
   setEnabled: (v: boolean) => void;
   setBufferBefore: (n: number) => void;
