@@ -752,9 +752,12 @@ export type Database = {
           id: string
           lot: number
           mt5_ticket: number | null
+          needs_review: boolean
           opened_at: string
           pips: number | null
           profit: number | null
+          reconcile_note: string | null
+          reconciled: boolean
           side: string
           signal_id: string | null
           status: string
@@ -770,9 +773,12 @@ export type Database = {
           id?: string
           lot: number
           mt5_ticket?: number | null
+          needs_review?: boolean
           opened_at?: string
           pips?: number | null
           profit?: number | null
+          reconcile_note?: string | null
+          reconciled?: boolean
           side: string
           signal_id?: string | null
           status?: string
@@ -788,9 +794,12 @@ export type Database = {
           id?: string
           lot?: number
           mt5_ticket?: number | null
+          needs_review?: boolean
           opened_at?: string
           pips?: number | null
           profit?: number | null
+          reconcile_note?: string | null
+          reconciled?: boolean
           side?: string
           signal_id?: string | null
           status?: string
@@ -859,6 +868,10 @@ export type Database = {
         }
       }
       claim_admin_if_none: { Args: never; Returns: boolean }
+      flag_stale_open_trades: {
+        Args: { _max_age_days?: number }
+        Returns: number
+      }
       has_active_license: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {

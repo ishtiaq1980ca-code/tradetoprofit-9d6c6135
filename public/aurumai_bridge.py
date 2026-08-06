@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080601                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080602                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -295,6 +295,26 @@ def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
             _log_net_err(f"POST {path} failed:", str(e))
             return False
     return False
+
+
+def _post_json_result(path: str, payload: dict, timeout: int = 10) -> tuple[bool, dict | None, str]:
+    """Same as _post_json but returns the parsed JSON body of the response."""
+    for attempt in range(2):
+        try:
+            r = SESSION.post(f"{BASE_URL}{path}", json=payload, timeout=timeout)
+            if not r.ok:
+                return False, None, f"HTTP {r.status_code}: {r.text[:240]}"
+            try:
+                return True, r.json(), ""
+            except Exception:
+                return True, None, ""
+        except Exception as e:
+            if _is_conn_error(e) and attempt == 0:
+                _reset_session()
+                continue
+            return False, None, str(e)
+    return False, None, "unknown network error"
+
 
 
 def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
@@ -1808,6 +1828,79 @@ def discover_all_symbols() -> None:
     print("─" * 72)
 
 
+def reconcile_open_trades():
+    """Verify every position the dashboard still thinks is open.
+
+    The dashboard can drift out of sync with the broker (missed close report,
+    bridge outage, restart). For each open ticket we answer one of:
+      verified : still in positions_get() -> leave alone
+      closed   : exit deal recoverable from MT5 history -> backfill real
+                 exit price / profit / close time
+      missing  : broker knows nothing about it -> server flags it for review
+                 once it is old enough
+
+    Read-only against MT5; it never sends orders.
+    """
+    ok, data, err = _get_json("/api/public/bridge/reconcile", timeout=10)
+    if not ok or not data:
+        _log_net_err("reconcile fetch failed:", err)
+        return
+    rows = data.get("open") or []
+    if not rows:
+        return
+
+    live = {int(p.ticket) for p in (mt5.positions_get() or [])}
+    verdicts = []
+    for row in rows:
+        ticket = int(row.get("mt5_ticket") or 0)
+        if not ticket:
+            continue
+        if ticket in live:
+            verdicts.append({"mt5_ticket": ticket, "state": "verified"})
+            continue
+
+        # Not open — try to recover the real exit from deal history.
+        try:
+            deals = mt5.history_deals_get(position=ticket) or []
+        except Exception:
+            deals = []
+        outs = [d for d in deals if d.entry == mt5.DEAL_ENTRY_OUT]
+        if outs:
+            profit = sum(
+                float(d.profit)
+                + float(getattr(d, "swap", 0.0) or 0.0)
+                + float(getattr(d, "commission", 0.0) or 0.0)
+                for d in outs
+            )
+            last = max(outs, key=lambda d: int(d.time))
+            volume = sum(float(d.volume) for d in outs)
+            closed_at = dt.datetime.fromtimestamp(int(last.time), dt.UTC).replace(microsecond=0)
+            verdicts.append({
+                "mt5_ticket": ticket,
+                "state": "closed",
+                "exit": float(last.price),
+                "profit": round(profit, 2),
+                "lot": max(0.01, round(volume, 2)),
+                "closed_at": closed_at.isoformat().replace("+00:00", "Z"),
+            })
+            _CLOSED_REPORTED.add(ticket)
+        else:
+            verdicts.append({"mt5_ticket": ticket, "state": "missing"})
+
+    if not verdicts:
+        return
+    ok2, res, err2 = _post_json_result("/api/public/bridge/reconcile", {"verdicts": verdicts}, timeout=20)
+    if not ok2:
+        _log_net_err("reconcile report failed:", err2)
+        return
+    res = res or {}
+    if res.get("closed") or res.get("flagged"):
+        print(
+            f"reconciliation: {res.get('verified', 0)} still open, "
+            f"{res.get('closed', 0)} backfilled as closed, {res.get('flagged', 0)} flagged for review"
+        )
+
+
 def main():
     # PHASE 11 §12 — the bridge NEVER exits. It boots into RECOVERING state,
     # starts the heartbeat + watchdog threads, and keeps polling forever.
@@ -1832,6 +1925,12 @@ def main():
                    f"bridge={BRIDGE_VERSION} session={PROCESS_SESSION_ID} pid={os.getpid()} state_file={STATE_FILE}")
 
     last_closed_sync = 0.0
+    last_reconcile = 0.0
+    try:
+        reconcile_open_trades()
+        last_reconcile = time.time()
+    except Exception as e:
+        print(f"startup reconciliation error (non-fatal): {e}")
     waited_first_heartbeat = time.time()
     while True:
         try:
@@ -1874,6 +1973,12 @@ def main():
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
                 last_closed_sync = time.time()
+
+            # Ghost-position sweep every 15 min: anything the dashboard still
+            # calls open but the broker does not is closed or flagged.
+            if time.time() - last_reconcile > 900:
+                reconcile_open_trades()
+                last_reconcile = time.time()
         except Exception as e:
             # PHASE 11 §6 — the polling loop can never terminate.
             if _is_conn_error(e):

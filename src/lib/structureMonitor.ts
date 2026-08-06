@@ -49,10 +49,16 @@ export async function monitorStructureInvalidation(): Promise<MonitorOutcome> {
     const uid = userData.user?.id;
     if (!uid) return out;
 
+    // Only genuinely-live positions. Rows flagged for review (no broker close
+    // report) or older than the broker's history window are ghosts — closing
+    // them would fire pointless close requests and skew exposure.
+    const freshCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: open, error } = await supabase
       .from("trades")
       .select("id,mt5_ticket,symbol,side,entry,stop_loss,take_profit,opened_at")
       .eq("status", "open")
+      .eq("needs_review", false)
+      .gte("opened_at", freshCutoff)
       .order("opened_at", { ascending: false })
       .limit(50);
     if (error) { out.errors.push(error.message); return out; }

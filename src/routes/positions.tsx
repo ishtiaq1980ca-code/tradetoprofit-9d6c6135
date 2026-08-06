@@ -37,7 +37,9 @@ function PositionsPage() {
     let alive = true;
     async function load() {
       const [o, h] = await Promise.all([
-        supabase.from("trades").select("*").eq("status", "open").order("opened_at", { ascending: false }),
+        // Only genuinely-live positions: a row flagged for review never got a
+        // broker close report and must not inflate the open list.
+        supabase.from("trades").select("*").eq("status", "open").eq("needs_review", false).order("opened_at", { ascending: false }),
         supabase.from("trades").select("*").in("status", ["closed", "cancelled"]).order("closed_at", { ascending: false }).limit(200),
       ]);
       if (!alive) return;
