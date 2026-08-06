@@ -10,13 +10,57 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const RAW = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 
-// Ordered by preference. Mirrors/proxies are only tried if the primary fails.
-const SOURCES: Array<{ name: string; url: string }> = [
-  { name: "faireconomy", url: RAW },
-  { name: "faireconomy-cdn", url: "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json" },
-  { name: "faireconomy-nextweek", url: "https://nfs.faireconomy.media/ff_calendar_nextweek.json" },
-  { name: "allorigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(RAW)}` },
-  { name: "codetabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(RAW)}` },
+type Out = { title: string; currency: string; impact: "high" | "medium"; at: number };
+type Source = { name: string; url: () => string; parse: (raw: unknown) => Out[] };
+
+/** Forex Factory weekly JSON shape. */
+function parseFF(raw: unknown): Out[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Out[] = [];
+  for (const r of raw as any[]) {
+    const imp = String(r?.impact ?? "").toLowerCase();
+    const impact: Out["impact"] | null = imp === "high" ? "high" : imp === "medium" ? "medium" : null;
+    if (!impact) continue; // skips Low + Holiday
+    const at = Date.parse(String(r?.date ?? ""));
+    if (!isFinite(at)) continue;
+    const currency = String(r?.country ?? r?.currency ?? "").toUpperCase().trim();
+    if (!currency) continue;
+    out.push({ title: String(r?.title ?? "Economic release"), currency, impact, at });
+  }
+  return out;
+}
+
+/** TradingView public economic-calendar JSON (importance: 1 high, 0 medium). */
+function parseTV(raw: unknown): Out[] {
+  const arr = (raw as any)?.result;
+  if (!Array.isArray(arr)) return [];
+  const out: Out[] = [];
+  for (const r of arr as any[]) {
+    if (String(r?.indicator ?? "").toLowerCase() === "holidays") continue;
+    const imp = Number(r?.importance);
+    const impact: Out["impact"] | null = imp >= 1 ? "high" : imp === 0 ? "medium" : null;
+    if (!impact) continue;
+    const at = Date.parse(String(r?.date ?? ""));
+    if (!isFinite(at)) continue;
+    const currency = String(r?.currency ?? r?.country ?? "").toUpperCase().trim();
+    if (!currency) continue;
+    out.push({ title: String(r?.title ?? "Economic release"), currency, impact, at });
+  }
+  return out;
+}
+
+const tvUrl = () => {
+  const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const to = new Date(Date.now() + 14 * 24 * 3600_000).toISOString();
+  return `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=US,EU,JP,GB,AU,NZ,CA,CH,CN`;
+};
+
+// Ordered by preference. Later entries are only tried if earlier ones fail.
+const SOURCES: Source[] = [
+  { name: "faireconomy", url: () => RAW, parse: parseFF },
+  { name: "tradingview", url: tvUrl, parse: parseTV },
+  { name: "faireconomy-nextweek", url: () => "https://nfs.faireconomy.media/ff_calendar_nextweek.json", parse: parseFF },
+  { name: "allorigins", url: () => `https://api.allorigins.win/raw?url=${encodeURIComponent(RAW)}`, parse: parseFF },
 ];
 
 /** How long cached data is considered fresh (4 h — plenty for a weekly file). */
@@ -31,32 +75,18 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 } as const;
 
-type Out = { title: string; currency: string; impact: "high" | "medium"; at: number };
-
-function normalize(raw: unknown): Out[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Out[] = [];
-  for (const r of raw as any[]) {
-    const imp = String(r?.impact ?? "").toLowerCase();
-    const impact: Out["impact"] | null = imp === "high" ? "high" : imp === "medium" ? "medium" : null;
-    if (!impact) continue; // skips Low + Holiday
-    const at = Date.parse(String(r?.date ?? ""));
-    if (!isFinite(at)) continue;
-    const currency = String(r?.country ?? r?.currency ?? "").toUpperCase().trim();
-    if (!currency) continue;
-    out.push({ title: String(r?.title ?? "Economic release"), currency, impact, at });
-  }
-  return out.sort((a, b) => a.at - b.at);
-}
-
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; AurumAI/1.0)" },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Mozilla/5.0 (compatible; AurumAI/1.0)",
+      Origin: "https://www.tradingview.com",
+    },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
-  return JSON.parse(text);
+  return JSON.parse(await res.text());
 }
+
 
 export const Route = createFileRoute("/api/public/calendar")({
   server: {
