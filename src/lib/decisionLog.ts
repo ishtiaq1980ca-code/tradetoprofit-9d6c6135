@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { StructureRead } from "./marketStructure";
 
-export type DecisionStatus = "queued" | "executed" | "rejected" | "blocked" | "duplicate";
+export type DecisionStatus = "queued" | "executed" | "rejected" | "blocked" | "duplicate" | "exited";
 
 export type DecisionRecord = {
   id: string;

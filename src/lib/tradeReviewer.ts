@@ -37,6 +37,7 @@ export type TradeBehavior =
   | "slow_winner"
   | "gradual_bleed"
   | "mixed"
+  | "structure_invalidated"
   | "unknown";
 
 export const BEHAVIOR_LABEL: Record<TradeBehavior, string> = {
@@ -46,6 +47,7 @@ export const BEHAVIOR_LABEL: Record<TradeBehavior, string> = {
   slow_winner: "Won, but took its time",
   gradual_bleed: "Bled out slowly against the position",
   mixed: "Mixed / inconclusive behaviour",
+  structure_invalidated: "Closed early — market structure invalidated the setup",
   unknown: "Not enough data to classify",
 };
 
@@ -76,7 +78,14 @@ export function computeRMultiple(t: ClosedTradeRow): number | null {
   return +(move / risk).toFixed(3);
 }
 
-export function classifyBehavior(t: ClosedTradeRow, r: number | null): TradeBehavior {
+export function classifyBehavior(
+  t: ClosedTradeRow,
+  r: number | null,
+  structureExit = false,
+): TradeBehavior {
+  // A structure-invalidation exit is its own category — it is NOT a stop-loss
+  // hit and must be learned from separately.
+  if (structureExit) return "structure_invalidated";
   const closed = t.closed_at ? new Date(t.closed_at).getTime() : null;
   if (!closed) return "unknown";
   const mins = (closed - new Date(t.opened_at).getTime()) / 60_000;
@@ -112,15 +121,21 @@ function contextFrom(trade: ClosedTradeRow, snap: DecisionRecord | null): Patter
   };
 }
 
-export function buildReview(trade: ClosedTradeRow, snap: DecisionRecord | null, userId: string) {
+export function buildReview(
+  trade: ClosedTradeRow,
+  snap: DecisionRecord | null,
+  userId: string,
+  structureExit: { reason: string } | null = null,
+) {
   const profit = Number(trade.profit ?? 0);
   const r = computeRMultiple(trade);
-  const behavior = classifyBehavior(trade, r);
+  const behavior = classifyBehavior(trade, r, !!structureExit);
   const outcome = outcomeOf(profit);
   const ctx = contextFrom(trade, snap);
   const keys = ctx
     ? patternKeys(ctx)
     : [`pair:${normalizeSymbol(trade.symbol)}`, `pair-side:${normalizeSymbol(trade.symbol)}:${trade.side.toUpperCase()}`];
+  if (structureExit) keys.push("exit:structure_invalidated");
 
   const durationSec = trade.closed_at
     ? Math.max(0, Math.round((new Date(trade.closed_at).getTime() - new Date(trade.opened_at).getTime()) / 1000))
@@ -136,6 +151,9 @@ export function buildReview(trade: ClosedTradeRow, snap: DecisionRecord | null, 
       : st && outcome === "win" && behavior === "clean_run"
         ? `Lesson: the ${st.zone} read on a ${st.htfTrend} H1 trend with ${st.swing} structure delivered cleanly — this combination is being rewarded.`
         : "",
+    structureExit
+      ? `Early exit (not a stop-loss hit): ${structureExit.reason} — the position was closed at market because the structural thesis was invalidated.`
+      : "",
   ].filter(Boolean).join(" ");
 
   return {
@@ -204,7 +222,28 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
   if (!pending.length) return { created: 0 };
 
   const records = useDecisionLog.getState().records;
-  const rows = pending.map((t) => buildReview(t, findEntrySnapshot(t, records), uid));
+
+  // Tickets that were closed early by the structure-invalidation system get
+  // their own behavior category instead of being scored as stop-loss hits.
+  const { data: closeReqs } = await supabase
+    .from("close_requests")
+    .select("mt5_ticket,reason,kind,status")
+    .eq("status", "executed")
+    .gte("created_at", since)
+    .limit(500);
+  const structureExits = new Map<number, { reason: string }>();
+  for (const c of closeReqs ?? []) {
+    if (c.mt5_ticket != null) structureExits.set(Number(c.mt5_ticket), { reason: String(c.reason) });
+  }
+
+  const rows = pending.map((t) =>
+    buildReview(
+      t,
+      findEntrySnapshot(t, records),
+      uid,
+      t.mt5_ticket != null ? structureExits.get(Number(t.mt5_ticket)) ?? null : null,
+    ),
+  );
 
   const { error: insErr, data: inserted } = await supabase
     .from("trade_reviews")
