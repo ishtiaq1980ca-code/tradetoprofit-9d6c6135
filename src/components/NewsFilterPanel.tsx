@@ -81,14 +81,24 @@ export function NewsFilterPanel({ editable = false }: { editable?: boolean }) {
           <div className="min-w-0 flex-1">
             {feedOk ? (
               <span>
-                Auto feed live — {feedEvents.length} events synced, <b>{upcomingHigh}</b> upcoming high-impact.
-                <span className="text-muted-foreground"> Updated {ago(cal.lastFeedOk)}.</span>
+                Auto feed live — {feedEvents.length} events cached, <b>{upcomingHigh}</b> upcoming high-impact.
+                <span className="text-muted-foreground">
+                  {" "}Last upstream sync {cal.serverLastOk ? ago(cal.serverLastOk) : ago(cal.lastFeedOk)}
+                  {cal.serverSource ? ` via ${cal.serverSource}` : ""}.
+                  {cal.serverLastOk > 0 && Date.now() - cal.serverLastOk > 8 * 3600_000
+                    ? " Data may be stale."
+                    : ""}
+                </span>
+                {cal.lastFeedError && (
+                  <span className="text-muted-foreground"> (last refresh warning: {cal.lastFeedError})</span>
+                )}
               </span>
             ) : cal.lastFeedError ? (
               <span className="text-bear">Auto feed unavailable: {cal.lastFeedError} — manual events only.</span>
             ) : (
               <span className="text-muted-foreground">Fetching economic calendar…</span>
             )}
+
           </div>
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => void refreshCalendarFeed(true)}>
             <RefreshCw className="h-3.5 w-3.5" />
