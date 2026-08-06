@@ -238,21 +238,31 @@ function parseFeed(raw: unknown): CalendarEvent[] {
 
 let feedInFlight = false;
 
-/** Refresh the calendar feed (defaults to the built-in automatic source). */
+/**
+ * Refresh from the app's own server cache (`/api/public/calendar`).
+ * The server owns the upstream fetch, so this call never touches the
+ * rate-limited external feed — any number of tabs can poll it safely.
+ */
 export async function refreshCalendarFeed(force = false): Promise<void> {
   const st = useEconomicCalendar.getState();
-  const url = st.feedUrl || DEFAULT_FEED_URL;
+  const base = st.feedUrl || DEFAULT_FEED_URL;
+  const url = force && base === DEFAULT_FEED_URL ? `${base}?force=1` : base;
   if (feedInFlight) return;
-  if (!force && Date.now() - st.lastFeedFetch < 3600_000) return;
+  if (!force && Date.now() - st.lastFeedFetch < 10 * 60_000) return;
   feedInFlight = true;
   useEconomicCalendar.setState({ feedLoading: true });
   try {
     const res = await fetch(url, { headers: { Accept: "application/json" } });
-    const json = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((json as any)?.error ?? `feed HTTP ${res.status}`);
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(json?.error ?? `feed HTTP ${res.status}`);
     const parsed = parseFeed(json);
-    if (parsed.length === 0) throw new Error("feed returned no usable events");
+    if (parsed.length === 0) throw new Error(json?.error ?? "feed returned no usable events");
     useEconomicCalendar.getState().mergeFeed(parsed);
+    useEconomicCalendar.setState({
+      serverLastOk: typeof json?.lastOk === "number" ? json.lastOk : 0,
+      serverSource: json?.source ?? null,
+      lastFeedError: json?.warning ?? null,
+    });
   } catch (e: any) {
     useEconomicCalendar.setState({ lastFeedError: e?.message ?? "feed fetch failed", lastFeedFetch: Date.now() });
   } finally {
@@ -260,6 +270,7 @@ export async function refreshCalendarFeed(force = false): Promise<void> {
     useEconomicCalendar.setState({ feedLoading: false });
   }
 }
+
 
 let autoTimer: number | null = null;
 
