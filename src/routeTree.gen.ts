@@ -26,6 +26,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsPairsRouteImport } from './routes/settings.pairs'
 import { Route as ApiPublicCalendarRouteImport } from './routes/api/public/calendar'
 import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/bridge/trades'
+import { Route as ApiPublicBridgeReconcileRouteImport } from './routes/api/public/bridge/reconcile'
 import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
 import { Route as ApiPublicBridgeExecution_logRouteImport } from './routes/api/public/bridge/execution_log'
 import { Route as ApiPublicBridgeClose_requestsRouteImport } from './routes/api/public/bridge/close_requests'
@@ -116,6 +117,12 @@ const ApiPublicBridgeTradesRoute = ApiPublicBridgeTradesRouteImport.update({
   path: '/api/public/bridge/trades',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBridgeReconcileRoute =
+  ApiPublicBridgeReconcileRouteImport.update({
+    id: '/api/public/bridge/reconcile',
+    path: '/api/public/bridge/reconcile',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicBridgePollRoute = ApiPublicBridgePollRouteImport.update({
   id: '/api/public/bridge/poll',
   path: '/api/public/bridge/poll',
@@ -160,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/api/public/bridge/close_requests': typeof ApiPublicBridgeClose_requestsRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRoutesByTo {
@@ -183,6 +191,7 @@ export interface FileRoutesByTo {
   '/api/public/bridge/close_requests': typeof ApiPublicBridgeClose_requestsRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRoutesById {
@@ -207,6 +216,7 @@ export interface FileRoutesById {
   '/api/public/bridge/close_requests': typeof ApiPublicBridgeClose_requestsRoute
   '/api/public/bridge/execution_log': typeof ApiPublicBridgeExecution_logRoute
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
+  '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
 }
 export interface FileRouteTypes {
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/close_requests'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
+    | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -255,6 +266,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/close_requests'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
+    | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
   id:
     | '__root__'
@@ -278,6 +290,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/close_requests'
     | '/api/public/bridge/execution_log'
     | '/api/public/bridge/poll'
+    | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
   fileRoutesById: FileRoutesById
 }
@@ -301,6 +314,7 @@ export interface RootRouteChildren {
   ApiPublicBridgeClose_requestsRoute: typeof ApiPublicBridgeClose_requestsRoute
   ApiPublicBridgeExecution_logRoute: typeof ApiPublicBridgeExecution_logRoute
   ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
+  ApiPublicBridgeReconcileRoute: typeof ApiPublicBridgeReconcileRoute
   ApiPublicBridgeTradesRoute: typeof ApiPublicBridgeTradesRoute
 }
 
@@ -425,6 +439,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicBridgeTradesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bridge/reconcile': {
+      id: '/api/public/bridge/reconcile'
+      path: '/api/public/bridge/reconcile'
+      fullPath: '/api/public/bridge/reconcile'
+      preLoaderRoute: typeof ApiPublicBridgeReconcileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/bridge/poll': {
       id: '/api/public/bridge/poll'
       path: '/api/public/bridge/poll'
@@ -488,18 +509,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicBridgeClose_requestsRoute: ApiPublicBridgeClose_requestsRoute,
   ApiPublicBridgeExecution_logRoute: ApiPublicBridgeExecution_logRoute,
   ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
+  ApiPublicBridgeReconcileRoute: ApiPublicBridgeReconcileRoute,
   ApiPublicBridgeTradesRoute: ApiPublicBridgeTradesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
