@@ -25,6 +25,7 @@ const STATUS_META: Record<DecisionStatus, { label: string; cls: string; icon: an
   rejected: { label: "Rejected", cls: "border-muted bg-muted/30 text-muted-foreground", icon: XCircle },
   blocked: { label: "Blocked", cls: "border-bear/40 bg-bear/10 text-bear", icon: ShieldAlert },
   duplicate: { label: "Duplicate", cls: "border-amber-500/40 bg-amber-500/10 text-amber-400", icon: Copy },
+  exited: { label: "Structure exit", cls: "border-primary/40 bg-primary/10 text-primary", icon: ShieldAlert },
 };
 
 function DecisionsPage() {
