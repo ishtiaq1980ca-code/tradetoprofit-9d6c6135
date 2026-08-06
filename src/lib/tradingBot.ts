@@ -694,6 +694,19 @@ async function runScan() {
     bot.pushLog({ t: Date.now(), level: "info", msg: "MT5 bridge reconnected — trading resumed automatically" });
   }
 
+  // Structure-invalidation early exit. Runs BEFORE any of the entry-side caps
+  // below can short-circuit this scan, so open positions are always monitored
+  // even when no new trades can be opened. Independent of the trailing stop.
+  void monitorStructureInvalidation().then((r) => {
+    if (r.queued) {
+      bot.pushLog({
+        t: Date.now(), level: "warn",
+        msg: `Structure invalidation: queued ${r.queued} market close${r.queued > 1 ? "s" : ""} — see Decisions log`,
+      });
+    }
+    for (const e of r.errors) logThrottled("struct-exit-err", "warn", `Structure exit monitor: ${e}`);
+  });
+
   // When MT5 is connected, the browser must not keep old virtual/paper
   // positions from previous rejected/expired queue attempts. Those stale local
   // positions were making the bot think trade slots were full, so no new
