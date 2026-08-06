@@ -222,7 +222,28 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
   if (!pending.length) return { created: 0 };
 
   const records = useDecisionLog.getState().records;
-  const rows = pending.map((t) => buildReview(t, findEntrySnapshot(t, records), uid));
+
+  // Tickets that were closed early by the structure-invalidation system get
+  // their own behavior category instead of being scored as stop-loss hits.
+  const { data: closeReqs } = await supabase
+    .from("close_requests")
+    .select("mt5_ticket,reason,kind,status")
+    .eq("status", "executed")
+    .gte("created_at", since)
+    .limit(500);
+  const structureExits = new Map<number, { reason: string }>();
+  for (const c of closeReqs ?? []) {
+    if (c.mt5_ticket != null) structureExits.set(Number(c.mt5_ticket), { reason: String(c.reason) });
+  }
+
+  const rows = pending.map((t) =>
+    buildReview(
+      t,
+      findEntrySnapshot(t, records),
+      uid,
+      t.mt5_ticket != null ? structureExits.get(Number(t.mt5_ticket)) ?? null : null,
+    ),
+  );
 
   const { error: insErr, data: inserted } = await supabase
     .from("trade_reviews")
