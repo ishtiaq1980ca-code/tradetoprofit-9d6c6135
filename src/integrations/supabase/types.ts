@@ -197,6 +197,39 @@ export type Database = {
         }
         Relationships: []
       }
+      calendar_feed_state: {
+        Row: {
+          active_source: string | null
+          backoff_until: string | null
+          event_count: number
+          id: number
+          last_attempt: string | null
+          last_error: string | null
+          last_ok: string | null
+          updated_at: string
+        }
+        Insert: {
+          active_source?: string | null
+          backoff_until?: string | null
+          event_count?: number
+          id?: number
+          last_attempt?: string | null
+          last_error?: string | null
+          last_ok?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active_source?: string | null
+          backoff_until?: string | null
+          event_count?: number
+          id?: number
+          last_attempt?: string | null
+          last_error?: string | null
+          last_ok?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       close_requests: {
         Row: {
           created_at: string
@@ -239,6 +272,36 @@ export type Database = {
           status?: string
           symbol?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      economic_events: {
+        Row: {
+          at: string
+          created_at: string
+          currency: string
+          id: string
+          impact: string
+          source: string
+          title: string
+        }
+        Insert: {
+          at: string
+          created_at?: string
+          currency: string
+          id?: string
+          impact: string
+          source?: string
+          title: string
+        }
+        Update: {
+          at?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          impact?: string
+          source?: string
+          title?: string
         }
         Relationships: []
       }
