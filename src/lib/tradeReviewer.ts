@@ -135,6 +135,7 @@ export function buildReview(
   const keys = ctx
     ? patternKeys(ctx)
     : [`pair:${normalizeSymbol(trade.symbol)}`, `pair-side:${normalizeSymbol(trade.symbol)}:${trade.side.toUpperCase()}`];
+  if (structureExit) keys.push("exit:structure_invalidated");
 
   const durationSec = trade.closed_at
     ? Math.max(0, Math.round((new Date(trade.closed_at).getTime() - new Date(trade.opened_at).getTime()) / 1000))
