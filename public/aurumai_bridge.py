@@ -297,6 +297,26 @@ def _post_json(path: str, payload: dict, timeout: int = 10) -> bool:
     return False
 
 
+def _post_json_result(path: str, payload: dict, timeout: int = 10) -> tuple[bool, dict | None, str]:
+    """Same as _post_json but returns the parsed JSON body of the response."""
+    for attempt in range(2):
+        try:
+            r = SESSION.post(f"{BASE_URL}{path}", json=payload, timeout=timeout)
+            if not r.ok:
+                return False, None, f"HTTP {r.status_code}: {r.text[:240]}"
+            try:
+                return True, r.json(), ""
+            except Exception:
+                return True, None, ""
+        except Exception as e:
+            if _is_conn_error(e) and attempt == 0:
+                _reset_session()
+                continue
+            return False, None, str(e)
+    return False, None, "unknown network error"
+
+
+
 def _get_json(path: str, timeout: int = 5) -> tuple[bool, dict | None, str]:
     """GET JSON through one persistent HTTPS session for lower latency."""
     for attempt in range(2):
