@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080601                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080602                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -1925,6 +1925,12 @@ def main():
                    f"bridge={BRIDGE_VERSION} session={PROCESS_SESSION_ID} pid={os.getpid()} state_file={STATE_FILE}")
 
     last_closed_sync = 0.0
+    last_reconcile = 0.0
+    try:
+        reconcile_open_trades()
+        last_reconcile = time.time()
+    except Exception as e:
+        print(f"startup reconciliation error (non-fatal): {e}")
     waited_first_heartbeat = time.time()
     while True:
         try:
@@ -1967,6 +1973,12 @@ def main():
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
                 last_closed_sync = time.time()
+
+            # Ghost-position sweep every 15 min: anything the dashboard still
+            # calls open but the broker does not is closed or flagged.
+            if time.time() - last_reconcile > 900:
+                reconcile_open_trades()
+                last_reconcile = time.time()
         except Exception as e:
             # PHASE 11 §6 — the polling loop can never terminate.
             if _is_conn_error(e):
