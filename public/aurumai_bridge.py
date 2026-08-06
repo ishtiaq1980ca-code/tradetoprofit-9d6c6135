@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080504                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026080601                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -672,6 +672,51 @@ def report_trade_failure(sig: dict, symbol: str, reason: str, mt5_ticket: int | 
             "status": "cancelled",
             "failure_reason": reason,
         })
+
+
+def process_close_requests() -> None:
+    """Structure-invalidation early exits.
+
+    The dashboard queues market-close requests when a position's structural
+    thesis is invalidated (swing level broken on a confirmed close, or the
+    entry-timeframe trend flipped). This closes those tickets at market and
+    reports the result back. Entry execution and trailing stops are untouched.
+    """
+    ok, data, err = _get_json("/api/public/bridge/close_requests", timeout=5)
+    if not ok or not data:
+        if err:
+            _log_net_err("close_requests poll failed:", err)
+        return
+    reqs = data.get("requests") or []
+    if not reqs:
+        return
+
+    positions = mt5.positions_get() or []
+    by_ticket = {int(p.ticket): p for p in positions}
+
+    for req in reqs:
+        rid = req.get("id")
+        ticket = int(req.get("mt5_ticket") or 0)
+        reason = str(req.get("reason") or "structure invalidated")
+        pos = by_ticket.get(ticket)
+        if pos is None:
+            # Already gone (SL/TP/manual close) — ack so it is not retried.
+            _post_json("/api/public/bridge/close_requests",
+                       {"id": rid, "ok": True, "error": None})
+            continue
+
+        t0 = time.time()
+        closed = _close_position(pos, f"structure invalidated: {reason}")
+        latency = int((time.time() - t0) * 1000)
+        _log_execution(None, pos.symbol,
+                       "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL",
+                       "structure_exit" if closed else "structure_exit_failed",
+                       None, 0, latency, ticket,
+                       reason if closed else f"close failed: {reason}")
+        print(f"structure exit ticket={ticket} {pos.symbol} -> {'closed' if closed else 'FAILED'} ({reason})")
+        _post_json("/api/public/bridge/close_requests",
+                   {"id": rid, "ok": bool(closed),
+                    "error": None if closed else "MT5 close failed"})
 
 
 def _close_position(position, reason: str) -> bool:
@@ -1813,6 +1858,7 @@ def main():
                     for sig in data["signals"]:
                         execute_signal(sig)
                     manage_trailing_stops()
+                    process_close_requests()
                     continue
                 elif reason:
                     _log_server_reason(reason, data)
@@ -1823,6 +1869,7 @@ def main():
                     set_state("RECOVERING", f"poll error: {err[:80]}")
 
             manage_trailing_stops()
+            process_close_requests()
 
             if time.time() - last_closed_sync > 60:
                 sync_closed_trades()
