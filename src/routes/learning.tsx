@@ -11,11 +11,15 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   describePattern, refreshLearning, useLearning, MIN_PATTERN_SAMPLES,
   BLOCK_MIN_SAMPLES, BLOCK_MAX_WIN_RATE, BLOCK_MAX_AVG_R,
-  UNBLOCK_MIN_RECENT, UNBLOCK_MIN_WIN_RATE, type BlockedPattern,
+  UNBLOCK_MIN_RECENT, UNBLOCK_MIN_WIN_RATE,
+  HARD_GATE_MIN_SAMPLES, HARD_GATE_MAX_EXPECTANCY, RECHECK_TRADES, RECHECK_MIN_EXPECTANCY,
+  APPROVE_MIN_SAMPLES, APPROVE_MIN_EXPECTANCY, MAX_APPROVED_SIZE_MULTIPLIER,
+  type BlockedPattern, type ApprovedPattern,
 } from "@/lib/strategyLearning";
 import { reviewClosedTrades, BEHAVIOR_LABEL, type TradeBehavior } from "@/lib/tradeReviewer";
 import { activeCooldowns, humanRemaining, useRejectionCooldown } from "@/lib/rejectionCooldown";
-import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer, Ban } from "lucide-react";
+import { Brain, RefreshCw, TrendingDown, TrendingUp, History, ClipboardList, Timer, Ban, ShieldCheck } from "lucide-react";
+
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/learning")({
