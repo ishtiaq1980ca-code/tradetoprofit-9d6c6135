@@ -562,8 +562,13 @@ function buildDecision(args: {
   };
   breakdown.total = breakdown.trend + breakdown.momentum + breakdown.volatility + breakdown.structure + breakdown.riskReward;
 
-  const lot = side === "FLAT" ? 0 : positionSize(profile.symbol, balance, params.risk.riskPct, slDistance);
-  const riskReason = `Risk ${params.risk.riskPct}% of $${balance.toFixed(2)} → lot ${lot} | BE +${params.risk.breakEvenAtR}R | trail +${params.risk.trailStartAtR}R`;
+  const baseLot = side === "FLAT" ? 0 : positionSize(profile.symbol, balance, params.risk.riskPct, slDistance);
+  // Proven positive-expectancy pair+direction patterns earn a modest size
+  // boost (capped at ×1.25) — sample sizes are moderate, so this stays small.
+  const sizing = args.patternContext ? patternSizeMultiplier(args.patternContext) : { multiplier: 1, reason: "No pattern context" };
+  const lot = baseLot === 0 ? 0 : Math.round(baseLot * sizing.multiplier * 100) / 100;
+  const riskReason = `Risk ${params.risk.riskPct}% of $${balance.toFixed(2)} → lot ${lot}${sizing.multiplier !== 1 ? ` (base ${baseLot}, ${sizing.reason})` : ""} | BE +${params.risk.breakEvenAtR}R | trail +${params.risk.trailStartAtR}R`;
+
 
   const qualityTotal = args.quality?.total ?? 0;
   const scoreOk = side === "FLAT" ? false : qualityTotal >= MIN_TRADE_SCORE;
