@@ -392,12 +392,30 @@ export type BlockedPattern = {
   adjustment: number;
   reason: string;
   since: number;
+  expectancy: number;
+  recentExpectancy: number;
+  recentTrades: number;
+};
+
+export type ApprovedPattern = {
+  key: string;
+  dimension: string;
+  trades: number;
+  winRate: number;
+  expectancy: number;
+  avgWinUsd: number;
+  avgLossUsd: number;
+  pnl: number;
+  adjustment: number;
+  sizeMultiplier: number;
+  since: number;
 };
 
 type LearningStore = {
   patterns: PatternStat[];
   adjustments: Record<string, number>;
   blocked: Record<string, BlockedPattern>;
+  approved: Record<string, ApprovedPattern>;
   history: AdjustmentEvent[];
   reviewCount: number;
   lastRunAt: number | null;
@@ -414,6 +432,7 @@ export const useLearning = create<LearningStore>()(
       patterns: [],
       adjustments: {},
       blocked: {},
+      approved: {},
       history: [],
       reviewCount: 0,
       lastRunAt: null,
@@ -424,7 +443,9 @@ export const useLearning = create<LearningStore>()(
       apply: (patterns, reviewCount, events) => {
         const adjustments: Record<string, number> = {};
         const prevBlocked = get().blocked;
+        const prevApproved = get().approved ?? {};
         const blocked: Record<string, BlockedPattern> = {};
+        const approved: Record<string, ApprovedPattern> = {};
         for (const p of patterns) {
           if (p.adjustment !== 0) adjustments[p.key] = p.adjustment;
           if (p.blocked) {
@@ -438,6 +459,24 @@ export const useLearning = create<LearningStore>()(
               adjustment: p.adjustment,
               reason: p.blockReason,
               since: prevBlocked[p.key]?.since ?? Date.now(),
+              expectancy: p.expectancy,
+              recentExpectancy: p.recentExpectancy,
+              recentTrades: p.recentTrades,
+            };
+          }
+          if (p.approved) {
+            approved[p.key] = {
+              key: p.key,
+              dimension: p.dimension,
+              trades: p.trades,
+              winRate: +p.winRate.toFixed(1),
+              expectancy: p.expectancy,
+              avgWinUsd: p.avgWinUsd,
+              avgLossUsd: p.avgLossUsd,
+              pnl: +p.pnl.toFixed(2),
+              adjustment: p.adjustment,
+              sizeMultiplier: p.sizeMultiplier,
+              since: prevApproved[p.key]?.since ?? Date.now(),
             };
           }
         }
@@ -445,12 +484,14 @@ export const useLearning = create<LearningStore>()(
           patterns,
           adjustments,
           blocked,
+          approved,
           reviewCount,
           lastRunAt: Date.now(),
           history: [...events, ...get().history].slice(0, 300),
         });
       },
     }),
+
     {
       name: "aurum-strategy-learning-v1",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
