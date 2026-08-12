@@ -71,7 +71,7 @@ CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a m
 GRADUATED_TRIGGER_R = 0.9                         # loose ATR trail starts here instead of a flat $0.40 lock
 GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
 GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
-TRAIL_MIN_LOCK_FRACTION = 0.50                    # cap trail distance so it always locks >=35% of the run-up (all symbols)
+TRAIL_MIN_LOCK_FRACTION = 0.50                    # cap trail distance so it always locks >=50% of the run-up (all symbols)
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
