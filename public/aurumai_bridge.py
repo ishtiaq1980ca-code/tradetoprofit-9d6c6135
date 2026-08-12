@@ -68,7 +68,7 @@ CHANDELIER_TRIGGER_R = 1.3                        # full 3.0×ATR chandelier fro
 CHANDELIER_ATR_PERIOD = 14                        # same 14-period ATR used for SL sizing
 CHANDELIER_ATR_TTL_SEC = 60.0                     # cache ATR per symbol for a minute
 # --- Graduated gap-zone trail (0.5R → 1.3R) ---
-GRADUATED_TRIGGER_R = 0.5                         # loose ATR trail starts here instead of a flat $0.40 lock
+GRADUATED_TRIGGER_R = 0.9                         # loose ATR trail starts here instead of a flat $0.40 lock
 GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
 GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
 TRAIL_MIN_LOCK_FRACTION = 0.35                    # cap trail distance so it always locks >=35% of the run-up (all symbols)
