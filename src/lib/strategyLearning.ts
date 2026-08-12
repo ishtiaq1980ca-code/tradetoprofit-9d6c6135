@@ -120,7 +120,21 @@ export type PatternStat = {
   /** Hard block: no new entries on this pattern at all, regardless of score. */
   blocked: boolean;
   blockReason: string;
+  // --- Money-based expectancy (the hard gate operates on these) ---
+  /** Average winning trade in account currency. */
+  avgWinUsd: number;
+  /** Average losing trade magnitude (positive number) in account currency. */
+  avgLossUsd: number;
+  /** Expectancy expressed in R: mean(profit) / mean(|loss|). */
+  expectancy: number;
+  /** Expectancy over the most recent RECHECK_TRADES closes on this pattern. */
+  recentExpectancy: number;
+  /** True when the pattern cleared the positive-expectancy bar. */
+  approved: boolean;
+  /** Lot multiplier granted to approved patterns (1 = unchanged). */
+  sizeMultiplier: number;
 };
+
 
 export type AdjustmentEvent = {
   at: number;
