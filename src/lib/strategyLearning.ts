@@ -545,8 +545,34 @@ export function learningBlock(ctx: PatternContext): { blocked: boolean; reason: 
 
 /** All currently blocked patterns, worst first. */
 export function blockedPatterns(): BlockedPattern[] {
-  return Object.values(useLearning.getState().blocked).sort((a, b) => a.winRate - b.winRate);
+  return Object.values(useLearning.getState().blocked).sort((a, b) => a.expectancy - b.expectancy);
 }
+
+/** All currently approved (positive-expectancy) patterns, best first. */
+export function approvedPatterns(): ApprovedPattern[] {
+  return Object.values(useLearning.getState().approved ?? {}).sort((a, b) => b.expectancy - a.expectancy);
+}
+
+/**
+ * Position-size multiplier for a candidate setup. Only proven positive-
+ * expectancy pair+direction patterns get a boost, and the boost is capped at
+ * MAX_APPROVED_SIZE_MULTIPLIER because the samples are still moderate.
+ */
+export function patternSizeMultiplier(ctx: PatternContext): { multiplier: number; reason: string } {
+  const st = useLearning.getState();
+  if (!st.enabled) return { multiplier: 1, reason: "Learning disabled" };
+  const hit = patternKeys(ctx)
+    .map((k) => (st.approved ?? {})[k])
+    .filter(Boolean)
+    .sort((a, b) => b!.expectancy - a!.expectancy)[0];
+  if (!hit) return { multiplier: 1, reason: "No approved pattern — standard size" };
+  const m = Math.min(MAX_APPROVED_SIZE_MULTIPLIER, Math.max(1, hit.sizeMultiplier));
+  return {
+    multiplier: m,
+    reason: `Approved pattern ${hit.key} (expectancy +${hit.expectancy.toFixed(2)}R over ${hit.trades} trades) → size ×${m.toFixed(2)}`,
+  };
+}
+
 
 // --------------------------- Refresh cycle ---------------------------------
 
