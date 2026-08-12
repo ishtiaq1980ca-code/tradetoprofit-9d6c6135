@@ -145,6 +145,8 @@ function Dashboard() {
 
         <SignalHealthBanner />
 
+        <LearningHealthBanner />
+
         <TradingFilters />
 
         <LiveAccountsPerformance />
