@@ -120,7 +120,21 @@ export type PatternStat = {
   /** Hard block: no new entries on this pattern at all, regardless of score. */
   blocked: boolean;
   blockReason: string;
+  // --- Money-based expectancy (the hard gate operates on these) ---
+  /** Average winning trade in account currency. */
+  avgWinUsd: number;
+  /** Average losing trade magnitude (positive number) in account currency. */
+  avgLossUsd: number;
+  /** Expectancy expressed in R: mean(profit) / mean(|loss|). */
+  expectancy: number;
+  /** Expectancy over the most recent RECHECK_TRADES closes on this pattern. */
+  recentExpectancy: number;
+  /** True when the pattern cleared the positive-expectancy bar. */
+  approved: boolean;
+  /** Lot multiplier granted to approved patterns (1 = unchanged). */
+  sizeMultiplier: number;
 };
+
 
 export type AdjustmentEvent = {
   at: number;
@@ -160,6 +174,35 @@ export const UNBLOCK_MIN_RECENT = 6;
 export const UNBLOCK_MIN_WIN_RATE = 45;
 const RECENT_WINDOW = 12;
 
+// --------------------------- Hard expectancy gate --------------------------
+//
+// The soft score-penalty system was not enough: with 20+ closed trades per
+// pair/direction and money-based expectancy clearly negative, a nudge to the
+// quality score still let the setup through. From here on, a pair+direction
+// with enough evidence and negative real expectancy is refused outright.
+//
+// Expectancy is measured in money, normalised into R by the pattern's own
+// average full loss:   expectancy = mean(profit) / mean(|losing profit|)
+// The stored r_multiple column is NOT used for the gate — a slice of history
+// carries corrupt R values from an earlier exit-price bug.
+
+/** Sample size at which a pair+direction becomes eligible for a hard call. */
+export const HARD_GATE_MIN_SAMPLES = 20;
+/** Expectancy (in R) at or below which the pattern is blocked outright. */
+export const HARD_GATE_MAX_EXPECTANCY = -0.05;
+/** Rolling re-check window: this many fresh closes decide whether it reopens. */
+export const RECHECK_TRADES = 15;
+/** Expectancy the fresh window must reach for the block to lift. */
+export const RECHECK_MIN_EXPECTANCY = 0;
+/** Only pair+direction is hard-gated — blocking a session would stop the bot. */
+export const HARD_GATE_DIMENSION = "pair-side";
+
+/** Evidence bar for calling a pattern "approved" (positive expectancy). */
+export const APPROVE_MIN_SAMPLES = 10;
+export const APPROVE_MIN_EXPECTANCY = 0.05;
+/** Size boost granted to approved patterns — deliberately modest. */
+export const MAX_APPROVED_SIZE_MULTIPLIER = 1.25;
+
 /** Only these dimensions may hard-block. Blocking a whole session or volatility
  *  regime would stop the bot dead; blocking a symbol+direction will not. */
 export const BLOCKABLE_DIMENSIONS = ["pair-side", "session-side", "swing", "zone"];
@@ -171,21 +214,27 @@ export type ReviewRow = {
   pattern_keys: string[] | null;
 };
 
+type Accum = PatternStat & { winUsd: number; lossUsd: number; lossCount: number; recentProfits: number[] };
+
 /** Reviews MUST be passed newest-first so the recent-form window is correct. */
 export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
-  const map = new Map<string, PatternStat>();
+  const map = new Map<string, Accum>();
   for (const r of reviews) {
     // Guard against corrupt R values in history (a few rows carry absurd
     // magnitudes from an earlier exit-price bug) — clamp to a sane range.
     const rmRaw = Number(r.r_multiple ?? 0);
     const rm = Number.isFinite(rmRaw) ? Math.max(-5, Math.min(10, rmRaw)) : 0;
-    const pnl = Number(r.profit ?? 0);
+    const pnlRaw = Number(r.profit ?? 0);
+    const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
     const win = r.outcome === "win";
     for (const key of r.pattern_keys ?? []) {
       const s = map.get(key) ?? {
         key, dimension: dimensionOf(key), trades: 0, wins: 0, losses: 0,
         winRate: 0, avgR: 0, totalR: 0, pnl: 0, adjustment: 0, note: "",
         recentTrades: 0, recentWins: 0, recentWinRate: 0, blocked: false, blockReason: "",
+        avgWinUsd: 0, avgLossUsd: 0, expectancy: 0, recentExpectancy: 0,
+        approved: false, sizeMultiplier: 1,
+        winUsd: 0, lossUsd: 0, lossCount: 0, recentProfits: [],
       };
       s.trades += 1;
       if (win) s.wins += 1;
@@ -194,11 +243,15 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
         s.recentTrades += 1;
         if (win) s.recentWins += 1;
       }
+      if (s.recentProfits.length < RECHECK_TRADES) s.recentProfits.push(pnl);
+      if (pnl > 0) s.winUsd += pnl;
+      else if (pnl < 0) { s.lossUsd += -pnl; s.lossCount += 1; }
       s.totalR += rm;
       s.pnl += pnl;
       map.set(key, s);
     }
   }
+
 
   const out: PatternStat[] = [];
   for (const s of map.values()) {
@@ -206,8 +259,54 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
     s.avgR = s.trades ? s.totalR / s.trades : 0;
     s.recentWinRate = s.recentTrades ? (s.recentWins / s.recentTrades) * 100 : 0;
 
+    // Money-based expectancy, normalised by the pattern's own average loss.
+    s.avgWinUsd = s.wins ? +(s.winUsd / s.wins).toFixed(2) : 0;
+    s.avgLossUsd = s.lossCount ? +(s.lossUsd / s.lossCount).toFixed(2) : 0;
+    const meanProfit = s.trades ? s.pnl / s.trades : 0;
+    s.expectancy = s.avgLossUsd > 0 ? +(meanProfit / s.avgLossUsd).toFixed(3) : 0;
+    if (s.recentProfits.length) {
+      const rLosses = s.recentProfits.filter((p) => p < 0);
+      const rAvgLoss = rLosses.length ? rLosses.reduce((a, b) => a - b, 0) / rLosses.length : 0;
+      const rMean = s.recentProfits.reduce((a, b) => a + b, 0) / s.recentProfits.length;
+      s.recentExpectancy = rAvgLoss > 0 ? +(rMean / rAvgLoss).toFixed(3) : 0;
+    }
+
     const recovering =
       s.recentTrades >= UNBLOCK_MIN_RECENT && s.recentWinRate >= UNBLOCK_MIN_WIN_RATE;
+
+    // --- Hard expectancy gate (pair+direction, 20+ closed trades) ----------
+    if (s.dimension === HARD_GATE_DIMENSION && s.trades >= HARD_GATE_MIN_SAMPLES) {
+      const freshOk =
+        s.recentProfits.length >= RECHECK_TRADES && s.recentExpectancy >= RECHECK_MIN_EXPECTANCY;
+      if (s.expectancy <= HARD_GATE_MAX_EXPECTANCY) {
+        s.adjustment = -MAX_PATTERN_PENALTY;
+        if (freshOk) {
+          s.note = `Negative expectancy ${s.expectancy.toFixed(2)}R over ${s.trades} trades, but the last ${s.recentProfits.length} closes recovered to ${s.recentExpectancy.toFixed(2)}R — block lifted, on probation with a full ${MAX_PATTERN_PENALTY} score penalty.`;
+        } else {
+          s.blocked = true;
+          s.blockReason = `Expectancy ${s.expectancy.toFixed(2)}R over ${s.trades} closed trades (win ${s.winRate.toFixed(0)}%, avg win $${s.avgWinUsd.toFixed(2)} vs avg loss $${s.avgLossUsd.toFixed(2)}, net $${s.pnl.toFixed(2)}) — hard-blocked until ${RECHECK_TRADES} fresh trades show expectancy ≥ ${RECHECK_MIN_EXPECTANCY}R.`;
+          s.note = `HARD BLOCK (expectancy gate). ${s.blockReason}`;
+        }
+        out.push(s);
+        continue;
+      }
+      if (s.expectancy >= APPROVE_MIN_EXPECTANCY) {
+        s.approved = true;
+        s.sizeMultiplier = +Math.min(
+          MAX_APPROVED_SIZE_MULTIPLIER,
+          1 + Math.min(0.25, s.expectancy),
+        ).toFixed(2);
+      }
+    } else if (
+      s.dimension === HARD_GATE_DIMENSION &&
+      s.trades >= APPROVE_MIN_SAMPLES &&
+      s.expectancy >= APPROVE_MIN_EXPECTANCY
+    ) {
+      // Moderate sample, genuinely positive expectancy — approved, but the
+      // size boost is damped because the evidence is thinner.
+      s.approved = true;
+      s.sizeMultiplier = +Math.min(1.15, 1 + Math.min(0.15, s.expectancy)).toFixed(2);
+    }
 
     if (s.trades < MIN_PATTERN_SAMPLES) {
       s.adjustment = 0;
@@ -215,6 +314,15 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       out.push(s);
       continue;
     }
+
+    if (s.approved) {
+      const bonus = Math.min(MAX_PATTERN_BONUS, s.expectancy * 6);
+      s.adjustment = +bonus.toFixed(2);
+      s.note = `APPROVED — expectancy +${s.expectancy.toFixed(2)}R over ${s.trades} trades (win ${s.winRate.toFixed(0)}%, avg win $${s.avgWinUsd.toFixed(2)} vs avg loss $${s.avgLossUsd.toFixed(2)}, net $${s.pnl.toFixed(2)}). Score +${s.adjustment.toFixed(2)}, position size ×${s.sizeMultiplier.toFixed(2)}.`;
+      out.push(s);
+      continue;
+    }
+
 
     // Two separate bars. The penalty bar is wider: any well-sampled pattern
     // with a negative expectancy or a sub-40% win rate earns a score-breaking
@@ -284,12 +392,30 @@ export type BlockedPattern = {
   adjustment: number;
   reason: string;
   since: number;
+  expectancy: number;
+  recentExpectancy: number;
+  recentTrades: number;
+};
+
+export type ApprovedPattern = {
+  key: string;
+  dimension: string;
+  trades: number;
+  winRate: number;
+  expectancy: number;
+  avgWinUsd: number;
+  avgLossUsd: number;
+  pnl: number;
+  adjustment: number;
+  sizeMultiplier: number;
+  since: number;
 };
 
 type LearningStore = {
   patterns: PatternStat[];
   adjustments: Record<string, number>;
   blocked: Record<string, BlockedPattern>;
+  approved: Record<string, ApprovedPattern>;
   history: AdjustmentEvent[];
   reviewCount: number;
   lastRunAt: number | null;
@@ -306,6 +432,7 @@ export const useLearning = create<LearningStore>()(
       patterns: [],
       adjustments: {},
       blocked: {},
+      approved: {},
       history: [],
       reviewCount: 0,
       lastRunAt: null,
@@ -316,7 +443,9 @@ export const useLearning = create<LearningStore>()(
       apply: (patterns, reviewCount, events) => {
         const adjustments: Record<string, number> = {};
         const prevBlocked = get().blocked;
+        const prevApproved = get().approved ?? {};
         const blocked: Record<string, BlockedPattern> = {};
+        const approved: Record<string, ApprovedPattern> = {};
         for (const p of patterns) {
           if (p.adjustment !== 0) adjustments[p.key] = p.adjustment;
           if (p.blocked) {
@@ -330,6 +459,24 @@ export const useLearning = create<LearningStore>()(
               adjustment: p.adjustment,
               reason: p.blockReason,
               since: prevBlocked[p.key]?.since ?? Date.now(),
+              expectancy: p.expectancy,
+              recentExpectancy: p.recentExpectancy,
+              recentTrades: p.recentTrades,
+            };
+          }
+          if (p.approved) {
+            approved[p.key] = {
+              key: p.key,
+              dimension: p.dimension,
+              trades: p.trades,
+              winRate: +p.winRate.toFixed(1),
+              expectancy: p.expectancy,
+              avgWinUsd: p.avgWinUsd,
+              avgLossUsd: p.avgLossUsd,
+              pnl: +p.pnl.toFixed(2),
+              adjustment: p.adjustment,
+              sizeMultiplier: p.sizeMultiplier,
+              since: prevApproved[p.key]?.since ?? Date.now(),
             };
           }
         }
@@ -337,19 +484,23 @@ export const useLearning = create<LearningStore>()(
           patterns,
           adjustments,
           blocked,
+          approved,
           reviewCount,
           lastRunAt: Date.now(),
           history: [...events, ...get().history].slice(0, 300),
         });
       },
     }),
+
     {
       name: "aurum-strategy-learning-v1",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
       partialize: (s) => ({
-        patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, history: s.history,
+        patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, approved: s.approved,
+        history: s.history,
         reviewCount: s.reviewCount, lastRunAt: s.lastRunAt, enabled: s.enabled,
       }) as any,
+
     },
   ),
 );
@@ -394,8 +545,34 @@ export function learningBlock(ctx: PatternContext): { blocked: boolean; reason: 
 
 /** All currently blocked patterns, worst first. */
 export function blockedPatterns(): BlockedPattern[] {
-  return Object.values(useLearning.getState().blocked).sort((a, b) => a.winRate - b.winRate);
+  return Object.values(useLearning.getState().blocked).sort((a, b) => a.expectancy - b.expectancy);
 }
+
+/** All currently approved (positive-expectancy) patterns, best first. */
+export function approvedPatterns(): ApprovedPattern[] {
+  return Object.values(useLearning.getState().approved ?? {}).sort((a, b) => b.expectancy - a.expectancy);
+}
+
+/**
+ * Position-size multiplier for a candidate setup. Only proven positive-
+ * expectancy pair+direction patterns get a boost, and the boost is capped at
+ * MAX_APPROVED_SIZE_MULTIPLIER because the samples are still moderate.
+ */
+export function patternSizeMultiplier(ctx: PatternContext): { multiplier: number; reason: string } {
+  const st = useLearning.getState();
+  if (!st.enabled) return { multiplier: 1, reason: "Learning disabled" };
+  const hit = patternKeys(ctx)
+    .map((k) => (st.approved ?? {})[k])
+    .filter(Boolean)
+    .sort((a, b) => b!.expectancy - a!.expectancy)[0];
+  if (!hit) return { multiplier: 1, reason: "No approved pattern — standard size" };
+  const m = Math.min(MAX_APPROVED_SIZE_MULTIPLIER, Math.max(1, hit.sizeMultiplier));
+  return {
+    multiplier: m,
+    reason: `Approved pattern ${hit.key} (expectancy +${hit.expectancy.toFixed(2)}R over ${hit.trades} trades) → size ×${m.toFixed(2)}`,
+  };
+}
+
 
 // --------------------------- Refresh cycle ---------------------------------
 

@@ -22,7 +22,7 @@ export type RiskParams = {
 // unavailable (e.g. gold, which keeps its existing playbook).
 export const DEFAULT_RISK: RiskParams = {
   riskPct: 1,
-  breakEvenAtR: 0.5,
+  breakEvenAtR: 0.9,   // v4: BE only after +0.9R — a 0.5R BE was capping winners
   trailStartAtR: 1.3,   // chandelier trailing engages at +1.3R
   trailStepR: 3.0,      // trail distance = ATR × 3.0 (chandelier)
   maxDailyLossPct: 3,
@@ -124,10 +124,10 @@ export function dailyLossBreached(dailyPnl: number, startingBalance: number, max
 export const CHANDELIER_ATR_MULT = 3.0;
 export const CHANDELIER_TRIGGER_R = 1.3;
 
-// Graduated gap-zone trail (0.5R → 1.3R): instead of leaving only the tiny
+// Graduated gap-zone trail (0.9R → 1.3R): instead of leaving only the tiny
 // break-even lock in place until the chandelier engages, run a loose ATR trail
 // that starts wide (4.5×ATR) and tightens linearly to the 3.0×ATR chandelier.
-export const GRADUATED_TRIGGER_R = 0.5;
+export const GRADUATED_TRIGGER_R = 0.9;
 export const GRADUATED_ATR_MULT_START = 4.5;
 export const GRADUATED_ATR_MULT_END = 3.0;
 
@@ -136,7 +136,7 @@ export const GRADUATED_ATR_MULT_END = 3.0;
 // run-up, so the raw chandelier level always sits behind entry and the trail
 // never engages. Cap the trail distance so it always locks at least this
 // fraction of the achieved move from entry.
-export const TRAIL_MIN_LOCK_FRACTION = 0.35;
+export const TRAIL_MIN_LOCK_FRACTION = 0.5;
 
 /** ATR multiplier to use for the trail at a given profit in R. */
 export function trailAtrMultForR(moveInR: number): number {
