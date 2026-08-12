@@ -174,6 +174,35 @@ export const UNBLOCK_MIN_RECENT = 6;
 export const UNBLOCK_MIN_WIN_RATE = 45;
 const RECENT_WINDOW = 12;
 
+// --------------------------- Hard expectancy gate --------------------------
+//
+// The soft score-penalty system was not enough: with 20+ closed trades per
+// pair/direction and money-based expectancy clearly negative, a nudge to the
+// quality score still let the setup through. From here on, a pair+direction
+// with enough evidence and negative real expectancy is refused outright.
+//
+// Expectancy is measured in money, normalised into R by the pattern's own
+// average full loss:   expectancy = mean(profit) / mean(|losing profit|)
+// The stored r_multiple column is NOT used for the gate — a slice of history
+// carries corrupt R values from an earlier exit-price bug.
+
+/** Sample size at which a pair+direction becomes eligible for a hard call. */
+export const HARD_GATE_MIN_SAMPLES = 20;
+/** Expectancy (in R) at or below which the pattern is blocked outright. */
+export const HARD_GATE_MAX_EXPECTANCY = -0.05;
+/** Rolling re-check window: this many fresh closes decide whether it reopens. */
+export const RECHECK_TRADES = 15;
+/** Expectancy the fresh window must reach for the block to lift. */
+export const RECHECK_MIN_EXPECTANCY = 0;
+/** Only pair+direction is hard-gated — blocking a session would stop the bot. */
+export const HARD_GATE_DIMENSION = "pair-side";
+
+/** Evidence bar for calling a pattern "approved" (positive expectancy). */
+export const APPROVE_MIN_SAMPLES = 10;
+export const APPROVE_MIN_EXPECTANCY = 0.05;
+/** Size boost granted to approved patterns — deliberately modest. */
+export const MAX_APPROVED_SIZE_MULTIPLIER = 1.25;
+
 /** Only these dimensions may hard-block. Blocking a whole session or volatility
  *  regime would stop the bot dead; blocking a symbol+direction will not. */
 export const BLOCKABLE_DIMENSIONS = ["pair-side", "session-side", "swing", "zone"];
@@ -185,21 +214,27 @@ export type ReviewRow = {
   pattern_keys: string[] | null;
 };
 
+type Accum = PatternStat & { winUsd: number; lossUsd: number; lossCount: number; recentProfits: number[] };
+
 /** Reviews MUST be passed newest-first so the recent-form window is correct. */
 export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
-  const map = new Map<string, PatternStat>();
+  const map = new Map<string, Accum>();
   for (const r of reviews) {
     // Guard against corrupt R values in history (a few rows carry absurd
     // magnitudes from an earlier exit-price bug) — clamp to a sane range.
     const rmRaw = Number(r.r_multiple ?? 0);
     const rm = Number.isFinite(rmRaw) ? Math.max(-5, Math.min(10, rmRaw)) : 0;
-    const pnl = Number(r.profit ?? 0);
+    const pnlRaw = Number(r.profit ?? 0);
+    const pnl = Number.isFinite(pnlRaw) ? pnlRaw : 0;
     const win = r.outcome === "win";
     for (const key of r.pattern_keys ?? []) {
       const s = map.get(key) ?? {
         key, dimension: dimensionOf(key), trades: 0, wins: 0, losses: 0,
         winRate: 0, avgR: 0, totalR: 0, pnl: 0, adjustment: 0, note: "",
         recentTrades: 0, recentWins: 0, recentWinRate: 0, blocked: false, blockReason: "",
+        avgWinUsd: 0, avgLossUsd: 0, expectancy: 0, recentExpectancy: 0,
+        approved: false, sizeMultiplier: 1,
+        winUsd: 0, lossUsd: 0, lossCount: 0, recentProfits: [],
       };
       s.trades += 1;
       if (win) s.wins += 1;
@@ -208,11 +243,15 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
         s.recentTrades += 1;
         if (win) s.recentWins += 1;
       }
+      if (s.recentProfits.length < RECHECK_TRADES) s.recentProfits.push(pnl);
+      if (pnl > 0) s.winUsd += pnl;
+      else if (pnl < 0) { s.lossUsd += -pnl; s.lossCount += 1; }
       s.totalR += rm;
       s.pnl += pnl;
       map.set(key, s);
     }
   }
+
 
   const out: PatternStat[] = [];
   for (const s of map.values()) {
