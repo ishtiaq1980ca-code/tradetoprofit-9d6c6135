@@ -133,35 +133,70 @@ function LearningPage() {
           <Stat label="Last learning pass" value={lastRunAt ? new Date(lastRunAt).toLocaleTimeString() : "—"} />
         </div>
 
-        <Tabs defaultValue="patterns">
+        <Tabs defaultValue="gate">
           <TabsList>
-            <TabsTrigger value="patterns">Patterns</TabsTrigger>
-            <TabsTrigger value="blocked">
-              Blocked {blocked.length > 0 && <span className="ml-1 text-bear">({blocked.length})</span>}
+            <TabsTrigger value="gate">
+              Approved / Blocked
+              {blocked.length > 0 && <span className="ml-1 text-bear">({blocked.length})</span>}
             </TabsTrigger>
+            <TabsTrigger value="patterns">Patterns</TabsTrigger>
             <TabsTrigger value="changes">Adjustments made</TabsTrigger>
             <TabsTrigger value="reviews">Trade reviews</TabsTrigger>
             <TabsTrigger value="cooldowns">Cooldowns</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="blocked" className="mt-4">
-            <Card className="border-border/60 bg-card/70">
+          <TabsContent value="gate" className="mt-4 grid gap-4 lg:grid-cols-2">
+            <Card className="border-bull/40 bg-card/70">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Ban className="h-4 w-4 text-bear" /> Patterns blocked from trading
+                  <ShieldCheck className="h-4 w-4 text-bull" /> Approved patterns ({approved.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  These setups are refused outright — no new entry is allowed on them regardless of how high the
-                  quality score is. A block lifts automatically once the pattern's last {UNBLOCK_MIN_RECENT}+ closed
-                  trades recover to {UNBLOCK_MIN_WIN_RATE}% win rate or better.
+                  Pair + direction combinations whose real money expectancy is positive over at least{" "}
+                  {APPROVE_MIN_SAMPLES} closed trades (expectancy ≥ +{APPROVE_MIN_EXPECTANCY}R). These trade normally and
+                  earn a modest position-size boost, capped at ×{MAX_APPROVED_SIZE_MULTIPLIER}.
+                </p>
+                {approved.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No pattern has cleared the positive-expectancy bar yet.</p>
+                ) : approved.map((a) => (
+                  <div key={a.key} className="rounded border border-bull/40 bg-bull/5 px-3 py-2 text-[12px]">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <span className="font-medium">{describePattern(a.key)}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="outline" className="text-bull border-bull/50 font-mono-tabular">APPROVED</Badge>
+                        <Badge variant="outline" className="text-bull border-bull/40 font-mono-tabular">
+                          ×{a.sizeMultiplier.toFixed(2)} size
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-1 font-mono-tabular text-[11px] text-muted-foreground">
+                      {a.trades} trades · {a.winRate.toFixed(0)}% win · expectancy +{a.expectancy.toFixed(2)}R · avg win $
+                      {a.avgWinUsd.toFixed(2)} vs avg loss ${a.avgLossUsd.toFixed(2)} · net ${a.pnl.toFixed(2)} · score +
+                      {a.adjustment.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-bear/40 bg-card/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Ban className="h-4 w-4 text-bear" /> Blocked patterns ({blocked.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Hard gate: any pair + direction with {HARD_GATE_MIN_SAMPLES}+ closed trades and money expectancy at or
+                  below {HARD_GATE_MAX_EXPECTANCY}R is refused outright — no new entry regardless of quality score. The
+                  block lifts only when a fresh window of {RECHECK_TRADES} closes shows expectancy ≥{" "}
+                  {RECHECK_MIN_EXPECTANCY}R (or, for smaller-sample soft blocks, {UNBLOCK_MIN_RECENT}+ trades at{" "}
+                  {UNBLOCK_MIN_WIN_RATE}% win).
                 </p>
                 {blocked.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Nothing is blocked. A pattern is blocked after {BLOCK_MIN_SAMPLES}+ closed trades with a win rate
-                    under {BLOCK_MAX_WIN_RATE}% or an average below {BLOCK_MAX_AVG_R}R.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Nothing is blocked right now.</p>
                 ) : blocked.map((b) => (
                   <div key={b.key} className="rounded border border-bear/40 bg-bear/5 px-3 py-2 text-[12px]">
                     <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -174,8 +209,9 @@ function LearningPage() {
                       </div>
                     </div>
                     <div className="mt-1 font-mono-tabular text-[11px] text-muted-foreground">
-                      {b.trades} trades · {b.winRate.toFixed(0)}% win · {b.avgR.toFixed(2)}R avg · ${b.pnl.toFixed(2)} ·
-                      blocked since {new Date(b.since).toLocaleString()}
+                      {b.trades} trades · {b.winRate.toFixed(0)}% win · expectancy {b.expectancy.toFixed(2)}R · recent{" "}
+                      {b.recentExpectancy.toFixed(2)}R · ${b.pnl.toFixed(2)} · since{" "}
+                      {new Date(b.since).toLocaleString()}
                     </div>
                     <p className="mt-1 text-muted-foreground leading-snug">{b.reason}</p>
                   </div>
@@ -183,6 +219,8 @@ function LearningPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+
 
 
           <TabsContent value="patterns" className="space-y-4 mt-4">
