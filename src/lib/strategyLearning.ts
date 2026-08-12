@@ -496,9 +496,11 @@ export const useLearning = create<LearningStore>()(
       name: "aurum-strategy-learning-v1",
       storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
       partialize: (s) => ({
-        patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, history: s.history,
+        patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, approved: s.approved,
+        history: s.history,
         reviewCount: s.reviewCount, lastRunAt: s.lastRunAt, enabled: s.enabled,
       }) as any,
+
     },
   ),
 );
