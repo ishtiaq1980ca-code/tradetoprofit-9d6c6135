@@ -26,7 +26,7 @@ import { computeLevels, positionSize, DEFAULT_RISK, type RiskParams } from "./ri
 import { minStopDistance } from "./pairProfiles";
 import { activeSessions } from "./sessions";
 import { describeStructure, evaluateStructure, type StructureRead } from "./marketStructure";
-import { patternKeys, learningBlock, type PatternContext } from "./strategyLearning";
+import { patternKeys, learningBlock, patternSizeMultiplier, type PatternContext } from "./strategyLearning";
 import { strictEntryGate, type GateCheck } from "./entryGate";
 import { computeTradeScore, MIN_TRADE_SCORE, type ScoreComponents } from "./qualityScore";
 export { MIN_TRADE_SCORE } from "./qualityScore";
