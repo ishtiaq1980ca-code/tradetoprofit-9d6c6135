@@ -195,7 +195,17 @@ export function buildReview(
 /** How many new reviews trigger an immediate re-learn. */
 const RELEARN_AFTER = 3;
 
-export async function reviewClosedTrades(): Promise<{ created: number; error?: string }> {
+/** Rows fetched per pass. The backlog is drained across passes. */
+const TRADE_PAGE = 500;
+const INSERT_CHUNK = 50;
+
+function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+export async function reviewClosedTrades(): Promise<{ created: number; skipped?: number; error?: string }> {
   const { data: userData } = await supabase.auth.getUser();
   const uid = userData.user?.id;
   if (!uid) return { created: 0, error: "not signed in" };
@@ -210,18 +220,48 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
     .eq("reconciled", false)
     .gte("opened_at", since)
     .order("closed_at", { ascending: false })
-    .limit(400);
+    .limit(TRADE_PAGE);
   if (error) return { created: 0, error: error.message };
   if (!trades?.length) return { created: 0 };
 
-  const { data: existing } = await supabase
-    .from("trade_reviews")
-    .select("trade_id")
-    .gte("opened_at", since)
-    .limit(1000);
-  const done = new Set((existing ?? []).map((e: any) => e.trade_id).filter(Boolean));
+  const all = trades as ClosedTradeRow[];
 
-  const pending = (trades as ClosedTradeRow[]).filter((t) => !done.has(t.id));
+  // Dedup must be exact. Previously this pulled a *capped* page of existing
+  // reviews, so once the window held more reviews than the cap, already-reviewed
+  // trades leaked through and the whole batch insert died on the unique index
+  // (user_id, trade_id) — silently returning created:0 forever. Now we look up
+  // exactly the ids/tickets we are about to write.
+  const done = new Set<string>();
+  const doneTickets = new Set<number>();
+  for (const ids of chunk(all.map((t) => t.id), 200)) {
+    const { data } = await supabase
+      .from("trade_reviews")
+      .select("trade_id,mt5_ticket")
+      .in("trade_id", ids);
+    for (const r of data ?? []) {
+      if (r.trade_id) done.add(r.trade_id as string);
+      if (r.mt5_ticket != null) doneTickets.add(Number(r.mt5_ticket));
+    }
+  }
+  const tickets = all.map((t) => t.mt5_ticket).filter((t): t is number => t != null);
+  for (const ts of chunk(tickets, 200)) {
+    const { data } = await supabase
+      .from("trade_reviews")
+      .select("mt5_ticket")
+      .in("mt5_ticket", ts);
+    for (const r of data ?? []) if (r.mt5_ticket != null) doneTickets.add(Number(r.mt5_ticket));
+  }
+
+  const seenTicket = new Set<number>();
+  const pending = all.filter((t) => {
+    if (done.has(t.id)) return false;
+    if (t.mt5_ticket != null) {
+      const k = Number(t.mt5_ticket);
+      if (doneTickets.has(k) || seenTicket.has(k)) return false;
+      seenTicket.add(k);
+    }
+    return true;
+  });
   if (!pending.length) return { created: 0 };
 
   const records = useDecisionLog.getState().records;
@@ -233,7 +273,7 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
     .select("mt5_ticket,reason,kind,status")
     .eq("status", "executed")
     .gte("created_at", since)
-    .limit(500);
+    .limit(1000);
   const structureExits = new Map<number, { reason: string }>();
   for (const c of closeReqs ?? []) {
     if (c.mt5_ticket != null) structureExits.set(Number(c.mt5_ticket), { reason: String(c.reason) });
@@ -248,15 +288,23 @@ export async function reviewClosedTrades(): Promise<{ created: number; error?: s
     ),
   );
 
-  const { error: insErr, data: inserted } = await supabase
-    .from("trade_reviews")
-    .insert(rows)
-    .select("id");
-  if (insErr) return { created: 0, error: insErr.message };
+  // Chunked inserts, and a per-row retry if a chunk trips a unique index. One
+  // bad row can no longer wipe out an entire review cycle.
+  let created = 0;
+  let skipped = 0;
+  let lastError: string | undefined;
+  for (const batch of chunk(rows, INSERT_CHUNK)) {
+    const { data: ins, error: insErr } = await supabase.from("trade_reviews").insert(batch).select("id");
+    if (!insErr) { created += ins?.length ?? 0; continue; }
+    for (const row of batch) {
+      const { data: one, error: oneErr } = await supabase.from("trade_reviews").insert(row).select("id");
+      if (oneErr) { skipped += 1; lastError = oneErr.message; continue; }
+      created += one?.length ?? 0;
+    }
+  }
 
-  const created = inserted?.length ?? 0;
   if (created >= RELEARN_AFTER) await refreshLearning();
-  return { created };
+  return { created, skipped, ...(created === 0 && lastError ? { error: lastError } : {}) };
 }
 
 let reviewTimer: ReturnType<typeof setInterval> | null = null;
@@ -266,3 +314,4 @@ export function startReviewLoop(intervalMs = 90_000) {
   void reviewClosedTrades();
   reviewTimer = setInterval(() => { void reviewClosedTrades(); }, intervalMs);
 }
+
