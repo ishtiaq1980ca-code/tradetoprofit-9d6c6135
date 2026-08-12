@@ -259,8 +259,54 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
     s.avgR = s.trades ? s.totalR / s.trades : 0;
     s.recentWinRate = s.recentTrades ? (s.recentWins / s.recentTrades) * 100 : 0;
 
+    // Money-based expectancy, normalised by the pattern's own average loss.
+    s.avgWinUsd = s.wins ? +(s.winUsd / s.wins).toFixed(2) : 0;
+    s.avgLossUsd = s.lossCount ? +(s.lossUsd / s.lossCount).toFixed(2) : 0;
+    const meanProfit = s.trades ? s.pnl / s.trades : 0;
+    s.expectancy = s.avgLossUsd > 0 ? +(meanProfit / s.avgLossUsd).toFixed(3) : 0;
+    if (s.recentProfits.length) {
+      const rLosses = s.recentProfits.filter((p) => p < 0);
+      const rAvgLoss = rLosses.length ? rLosses.reduce((a, b) => a - b, 0) / rLosses.length : 0;
+      const rMean = s.recentProfits.reduce((a, b) => a + b, 0) / s.recentProfits.length;
+      s.recentExpectancy = rAvgLoss > 0 ? +(rMean / rAvgLoss).toFixed(3) : 0;
+    }
+
     const recovering =
       s.recentTrades >= UNBLOCK_MIN_RECENT && s.recentWinRate >= UNBLOCK_MIN_WIN_RATE;
+
+    // --- Hard expectancy gate (pair+direction, 20+ closed trades) ----------
+    if (s.dimension === HARD_GATE_DIMENSION && s.trades >= HARD_GATE_MIN_SAMPLES) {
+      const freshOk =
+        s.recentProfits.length >= RECHECK_TRADES && s.recentExpectancy >= RECHECK_MIN_EXPECTANCY;
+      if (s.expectancy <= HARD_GATE_MAX_EXPECTANCY) {
+        s.adjustment = -MAX_PATTERN_PENALTY;
+        if (freshOk) {
+          s.note = `Negative expectancy ${s.expectancy.toFixed(2)}R over ${s.trades} trades, but the last ${s.recentProfits.length} closes recovered to ${s.recentExpectancy.toFixed(2)}R — block lifted, on probation with a full ${MAX_PATTERN_PENALTY} score penalty.`;
+        } else {
+          s.blocked = true;
+          s.blockReason = `Expectancy ${s.expectancy.toFixed(2)}R over ${s.trades} closed trades (win ${s.winRate.toFixed(0)}%, avg win $${s.avgWinUsd.toFixed(2)} vs avg loss $${s.avgLossUsd.toFixed(2)}, net $${s.pnl.toFixed(2)}) — hard-blocked until ${RECHECK_TRADES} fresh trades show expectancy ≥ ${RECHECK_MIN_EXPECTANCY}R.`;
+          s.note = `HARD BLOCK (expectancy gate). ${s.blockReason}`;
+        }
+        out.push(s);
+        continue;
+      }
+      if (s.expectancy >= APPROVE_MIN_EXPECTANCY) {
+        s.approved = true;
+        s.sizeMultiplier = +Math.min(
+          MAX_APPROVED_SIZE_MULTIPLIER,
+          1 + Math.min(0.25, s.expectancy),
+        ).toFixed(2);
+      }
+    } else if (
+      s.dimension === HARD_GATE_DIMENSION &&
+      s.trades >= APPROVE_MIN_SAMPLES &&
+      s.expectancy >= APPROVE_MIN_EXPECTANCY
+    ) {
+      // Moderate sample, genuinely positive expectancy — approved, but the
+      // size boost is damped because the evidence is thinner.
+      s.approved = true;
+      s.sizeMultiplier = +Math.min(1.15, 1 + Math.min(0.15, s.expectancy)).toFixed(2);
+    }
 
     if (s.trades < MIN_PATTERN_SAMPLES) {
       s.adjustment = 0;
@@ -268,6 +314,15 @@ export function aggregatePatterns(reviews: ReviewRow[]): PatternStat[] {
       out.push(s);
       continue;
     }
+
+    if (s.approved) {
+      const bonus = Math.min(MAX_PATTERN_BONUS, s.expectancy * 6);
+      s.adjustment = +bonus.toFixed(2);
+      s.note = `APPROVED — expectancy +${s.expectancy.toFixed(2)}R over ${s.trades} trades (win ${s.winRate.toFixed(0)}%, avg win $${s.avgWinUsd.toFixed(2)} vs avg loss $${s.avgLossUsd.toFixed(2)}, net $${s.pnl.toFixed(2)}). Score +${s.adjustment.toFixed(2)}, position size ×${s.sizeMultiplier.toFixed(2)}.`;
+      out.push(s);
+      continue;
+    }
+
 
     // Two separate bars. The penalty bar is wider: any well-sampled pattern
     // with a negative expectancy or a sub-40% win rate earns a score-breaking
