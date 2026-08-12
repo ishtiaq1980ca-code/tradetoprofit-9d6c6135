@@ -49,9 +49,15 @@ function LearningPage() {
   const history = useLearning((s) => s.history);
   const blockedMap = useLearning((s) => s.blocked);
   const blocked: BlockedPattern[] = useMemo(
-    () => Object.values(blockedMap ?? {}).sort((a, b) => a.winRate - b.winRate),
+    () => Object.values(blockedMap ?? {}).sort((a, b) => (a.expectancy ?? 0) - (b.expectancy ?? 0)),
     [blockedMap],
   );
+  const approvedMap = useLearning((s) => s.approved);
+  const approved: ApprovedPattern[] = useMemo(
+    () => Object.values(approvedMap ?? {}).sort((a, b) => b.expectancy - a.expectancy),
+    [approvedMap],
+  );
+
   const lastRunAt = useLearning((s) => s.lastRunAt);
   const reviewCount = useLearning((s) => s.reviewCount);
   const running = useLearning((s) => s.running);
