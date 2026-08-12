@@ -10,6 +10,7 @@ import { LiveAccountsPerformance } from "@/components/AccountPerformance";
 import { NewsFilterPanel } from "@/components/NewsFilterPanel";
 import { RiskGuardPanel } from "@/components/RiskGuardPanel";
 import { SignalHealthBanner } from "@/components/SignalHealthBanner";
+import { LearningHealthBanner } from "@/components/LearningHealthBanner";
 
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -144,6 +145,8 @@ function Dashboard() {
         </header>
 
         <SignalHealthBanner />
+
+        <LearningHealthBanner />
 
         <TradingFilters />
 
