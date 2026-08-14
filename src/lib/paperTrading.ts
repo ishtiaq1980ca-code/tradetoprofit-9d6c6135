@@ -29,6 +29,12 @@ export type Position = {
   /** Highest/lowest price seen since entry (chandelier extreme). */
   peakPrice?: number;
   troughPrice?: number;
+  /** Peak unrealized profit (USD) seen on this position — gradual_bleed input. */
+  peakProfitUsd?: number;
+  /** Epoch ms when the position first went into profit. */
+  profitSinceMs?: number;
+  /** Latest ADX reading for the symbol, when available. */
+  adx?: number;
 };
 
 
