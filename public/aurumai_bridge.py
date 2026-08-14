@@ -904,6 +904,8 @@ def _save_trailing_state(force: bool = False) -> None:
             "r": {str(k): v for k, v in _R_BY_TICKET.items()},
             "extreme": {str(k): v for k, v in _EXTREME_BY_TICKET.items()},
             "last_sl": {str(k): v for k, v in _LAST_SL_BY_TICKET.items()},
+            "peak_profit": {str(k): v for k, v in _PEAK_PROFIT_BY_TICKET.items()},
+            "profit_since": {str(k): v for k, v in _PROFIT_SINCE_BY_TICKET.items()},
         }
         tmp = STATE_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
