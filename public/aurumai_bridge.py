@@ -1123,7 +1123,10 @@ def _apply_usd_trailing_stop(position) -> bool:
             dist = max_dist
             capped = True
     raw_sl = (extreme - dist) if is_buy else (extreme + dist)
-    mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}{' capped' if capped else ''}"
+    mode = (f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}"
+            f"{' capped' if capped else ''}"
+            + (f" bleed(peak=${peak_profit:.2f} cur=${cur_profit:.2f} give={giveback*100:.0f}% "
+               f"age={profit_age_min:.0f}m adx={adx_now if adx_now is None else round(adx_now, 1)})" if bleeding else ""))
 
 
     # A wide Chandelier level can legitimately remain behind entry near +0.5R.
