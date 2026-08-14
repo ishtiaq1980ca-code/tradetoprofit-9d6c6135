@@ -919,7 +919,8 @@ def _load_trailing_state() -> None:
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        for key, target in (("r", _R_BY_TICKET), ("extreme", _EXTREME_BY_TICKET), ("last_sl", _LAST_SL_BY_TICKET)):
+        for key, target in (("r", _R_BY_TICKET), ("extreme", _EXTREME_BY_TICKET), ("last_sl", _LAST_SL_BY_TICKET),
+                            ("peak_profit", _PEAK_PROFIT_BY_TICKET), ("profit_since", _PROFIT_SINCE_BY_TICKET)):
             for ticket, value in (payload.get(key) or {}).items():
                 target[int(ticket)] = float(value)
         print(f"Loaded persistent trailing state for {len(_R_BY_TICKET)} ticket(s)")
