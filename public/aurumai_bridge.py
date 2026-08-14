@@ -1053,7 +1053,31 @@ def _apply_usd_trailing_stop(position) -> bool:
 
     moved = (cur_price - entry) if is_buy else (entry - cur_price)
     move_r = (moved / r_dist) if (r_dist and r_dist > 0) else 0.0
-    if move_r < float(GRADUATED_TRIGGER_R):
+
+    # ---- gradual_bleed detection -------------------------------------------
+    # Track peak unrealized profit and how long the trade has been in profit so
+    # we can recognise the slow-reversal signature (hours in profit, quietly
+    # giving the peak back). Fast winners never reach the age gate.
+    cur_profit = float(position.profit or 0)
+    peak_profit = max(_PEAK_PROFIT_BY_TICKET.get(ticket, 0.0), cur_profit)
+    _PEAK_PROFIT_BY_TICKET[ticket] = peak_profit
+    if cur_profit > 0 and ticket not in _PROFIT_SINCE_BY_TICKET:
+        _PROFIT_SINCE_BY_TICKET[ticket] = now
+    profit_age_min = ((now - _PROFIT_SINCE_BY_TICKET[ticket]) / 60.0) if ticket in _PROFIT_SINCE_BY_TICKET else 0.0
+    giveback = ((peak_profit - cur_profit) / peak_profit) if peak_profit > 0 else 0.0
+    adx_now = _current_adx(position.symbol)
+    momentum_supports = (adx_now is not None and adx_now >= float(BLEED_ADX_SUPPORT)
+                         and _structure_flipped(position.symbol, is_buy) is None)
+    bleeding = bool(
+        BLEED_ENABLED
+        and cur_profit > 0
+        and peak_profit >= float(BLEED_MIN_PEAK_USD)
+        and profit_age_min >= float(BLEED_MIN_PROFIT_MINUTES)
+        and giveback >= float(BLEED_GIVEBACK_FRACTION)
+        and not momentum_supports
+    )
+
+    if move_r < float(GRADUATED_TRIGGER_R) and not bleeding:
         _save_trailing_state()
         _trail_diag(position, "trail_skip", f"reason=below-trigger move_r={move_r:.4f} r={r_dist or 0:.{digits}f} price={cur_price} entry={entry} sl={old_sl}")
         return False
@@ -1076,19 +1100,25 @@ def _apply_usd_trailing_stop(position) -> bool:
             float(GRADUATED_ATR_MULT_END) - float(GRADUATED_ATR_MULT_START)
         )
         label = "graduated"
-    adx_now = _current_adx(position.symbol)
     if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
         mult = mult * 1.25      # strong trend → give the runner more room
+    lock_fraction = float(TRAIL_MIN_LOCK_FRACTION)
+    if bleeding:
+        # Slow reversal: clamp the trail hard and lock most of the peak,
+        # regardless of whether +0.9R was ever reached.
+        mult = min(mult, float(BLEED_ATR_MULT))
+        lock_fraction = max(lock_fraction, float(BLEED_LOCK_FRACTION))
+        label = "bleed-rescue"
     dist = atr_now * mult
     # Symbol-agnostic cap: on pairs where ATR is large relative to the R
     # distance (most crosses/JPY pairs), mult x ATR exceeds the whole run-up,
     # so the raw level always sits behind entry and the trail never engages.
-    # Cap the distance so we always lock at least TRAIL_MIN_LOCK_FRACTION of
+    # Cap the distance so we always lock at least lock_fraction of
     # the achieved move from entry.
     run = abs(extreme - entry)
     capped = False
     if run > 0:
-        max_dist = run * (1.0 - float(TRAIL_MIN_LOCK_FRACTION))
+        max_dist = run * (1.0 - lock_fraction)
         if max_dist < dist:
             dist = max_dist
             capped = True
