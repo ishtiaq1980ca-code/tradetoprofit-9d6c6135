@@ -72,6 +72,18 @@ GRADUATED_TRIGGER_R = 0.9                         # loose ATR trail starts here 
 GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
 GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
 TRAIL_MIN_LOCK_FRACTION = 0.50                    # cap trail distance so it always locks >=50% of the run-up (all symbols)
+# --- Gradual-bleed rescue (slow reversal signature: 241 trades / -$1,870) ---
+# A trade that has been in profit for hours and is quietly giving back its peak
+# without momentum support is the "gradual_bleed" loser. Fast winners
+# (clean_run ~38 min) never satisfy the age gate, so they keep the normal
+# 0.9R / 50% behaviour untouched.
+BLEED_ENABLED = True
+BLEED_MIN_PROFIT_MINUTES = 90.0                   # must have been in profit this long before the rescue can arm
+BLEED_MIN_PEAK_USD = 0.75                         # ignore noise trades that never made real money
+BLEED_GIVEBACK_FRACTION = 0.35                    # peak→current giveback that flags a slow reversal
+BLEED_ADX_SUPPORT = 22.0                          # ADX at/above this still counts as momentum support → no rescue
+BLEED_ATR_MULT = 1.2                              # tight ATR trail once the bleed signature is confirmed
+BLEED_LOCK_FRACTION = 0.75                        # lock >=75% of the run-up on bleeding trades
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
