@@ -138,6 +138,39 @@ export const GRADUATED_ATR_MULT_END = 3.0;
 // fraction of the achieved move from entry.
 export const TRAIL_MIN_LOCK_FRACTION = 0.5;
 
+// ---------------------------------------------------------------------------
+// gradual_bleed rescue. Trades that sit in profit for hours and quietly give
+// the peak back (241 trades, -$1,870 over 20 days) get a much tighter trail,
+// independent of the normal 0.9R trigger. Fast winners (clean_run ~38 min)
+// never satisfy the age gate, so their 0.9R / 50%-lock behaviour is unchanged.
+// ---------------------------------------------------------------------------
+export const BLEED_MIN_PROFIT_MINUTES = 90;
+export const BLEED_MIN_PEAK_USD = 0.75;
+export const BLEED_GIVEBACK_FRACTION = 0.35;
+export const BLEED_ADX_SUPPORT = 22;
+export const BLEED_ATR_MULT = 1.2;
+export const BLEED_LOCK_FRACTION = 0.75;
+
+/** True when an open trade shows the slow-reversal (gradual bleed) signature. */
+export function isGradualBleed(opts: {
+  currentProfitUsd: number;
+  peakProfitUsd: number;
+  minutesInProfit: number;
+  /** Latest ADX; undefined = unknown (treated as no momentum support). */
+  adx?: number;
+  /** True when market structure still supports the trade direction. */
+  structureSupports?: boolean;
+}): boolean {
+  const { currentProfitUsd, peakProfitUsd, minutesInProfit, adx, structureSupports } = opts;
+  if (currentProfitUsd <= 0) return false;
+  if (peakProfitUsd < BLEED_MIN_PEAK_USD) return false;
+  if (minutesInProfit < BLEED_MIN_PROFIT_MINUTES) return false;
+  const giveback = (peakProfitUsd - currentProfitUsd) / peakProfitUsd;
+  if (giveback < BLEED_GIVEBACK_FRACTION) return false;
+  const momentumSupports = (adx !== undefined && adx >= BLEED_ADX_SUPPORT) && structureSupports !== false;
+  return !momentumSupports;
+}
+
 /** ATR multiplier to use for the trail at a given profit in R. */
 export function trailAtrMultForR(moveInR: number): number {
   if (moveInR >= CHANDELIER_TRIGGER_R) return CHANDELIER_ATR_MULT;

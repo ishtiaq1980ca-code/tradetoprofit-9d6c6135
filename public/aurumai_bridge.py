@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026080602                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026081401                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -72,6 +72,18 @@ GRADUATED_TRIGGER_R = 0.9                         # loose ATR trail starts here 
 GRADUATED_ATR_MULT_START = 4.5                    # wide at +0.5R
 GRADUATED_ATR_MULT_END = 3.0                      # tightens linearly to the chandelier mult by +1.3R
 TRAIL_MIN_LOCK_FRACTION = 0.50                    # cap trail distance so it always locks >=50% of the run-up (all symbols)
+# --- Gradual-bleed rescue (slow reversal signature: 241 trades / -$1,870) ---
+# A trade that has been in profit for hours and is quietly giving back its peak
+# without momentum support is the "gradual_bleed" loser. Fast winners
+# (clean_run ~38 min) never satisfy the age gate, so they keep the normal
+# 0.9R / 50% behaviour untouched.
+BLEED_ENABLED = True
+BLEED_MIN_PROFIT_MINUTES = 90.0                   # must have been in profit this long before the rescue can arm
+BLEED_MIN_PEAK_USD = 0.75                         # ignore noise trades that never made real money
+BLEED_GIVEBACK_FRACTION = 0.35                    # peak→current giveback that flags a slow reversal
+BLEED_ADX_SUPPORT = 22.0                          # ADX at/above this still counts as momentum support → no rescue
+BLEED_ATR_MULT = 1.2                              # tight ATR trail once the bleed signature is confirmed
+BLEED_LOCK_FRACTION = 0.75                        # lock >=75% of the run-up on bleeding trades
 MAX_SEND_RETRIES = 3                              # retry MT5 order_send on REQUOTE/PRICE_OFF/TIMEOUT
 PARTIAL_TP_R = 1.0                                # (unused when PARTIAL_TP_PCT = 0)
 PARTIAL_TP_PCT = 0.0                              # DISABLED — ride full lot to TP / trailing SL
@@ -105,6 +117,8 @@ try:
         "CHANDELIER_ATR_MULT", "CHANDELIER_TRIGGER_R", "CHANDELIER_ATR_PERIOD",
         "GRADUATED_TRIGGER_R", "GRADUATED_ATR_MULT_START", "GRADUATED_ATR_MULT_END",
         "TRAIL_MIN_LOCK_FRACTION",
+        "BLEED_ENABLED", "BLEED_MIN_PROFIT_MINUTES", "BLEED_MIN_PEAK_USD",
+        "BLEED_GIVEBACK_FRACTION", "BLEED_ADX_SUPPORT", "BLEED_ATR_MULT", "BLEED_LOCK_FRACTION",
         "MIN_RISK_REWARD", "MIN_TP_SPREAD_MULT", "MIN_SL_SPREAD_MULT",
         "MAX_ADVERSE_ENTRY_DRIFT_PCT", "MAX_FAVORABLE_ENTRY_DRIFT_PCT", "PRICE_SOURCE_MISMATCH_BYPASS_PCT",
         "PARTIAL_TP_R", "PARTIAL_TP_PCT", "MAX_SEND_RETRIES",
@@ -869,6 +883,8 @@ def _report_trailing_update(position) -> None:
 _LAST_SL_BY_TICKET: dict[int, float] = {}         # remembers the SL we last successfully moved to
 _R_BY_TICKET: dict[int, float] = {}               # original 1R distance (entry → initial SL) per ticket
 _EXTREME_BY_TICKET: dict[int, float] = {}         # highest (BUY) / lowest (SELL) price since entry
+_PEAK_PROFIT_BY_TICKET: dict[int, float] = {}     # peak unrealized USD profit seen on this ticket
+_PROFIT_SINCE_BY_TICKET: dict[int, float] = {}    # epoch seconds when the ticket first went meaningfully into profit
 _ATR_CACHE: dict[str, tuple] = {}                 # symbol -> (timestamp, atr)
 _LAST_TRAIL_DIAG_TS: dict[int, float] = {}
 _LAST_STATE_SAVE_TS = 0.0
@@ -888,6 +904,8 @@ def _save_trailing_state(force: bool = False) -> None:
             "r": {str(k): v for k, v in _R_BY_TICKET.items()},
             "extreme": {str(k): v for k, v in _EXTREME_BY_TICKET.items()},
             "last_sl": {str(k): v for k, v in _LAST_SL_BY_TICKET.items()},
+            "peak_profit": {str(k): v for k, v in _PEAK_PROFIT_BY_TICKET.items()},
+            "profit_since": {str(k): v for k, v in _PROFIT_SINCE_BY_TICKET.items()},
         }
         tmp = STATE_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -901,7 +919,8 @@ def _load_trailing_state() -> None:
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        for key, target in (("r", _R_BY_TICKET), ("extreme", _EXTREME_BY_TICKET), ("last_sl", _LAST_SL_BY_TICKET)):
+        for key, target in (("r", _R_BY_TICKET), ("extreme", _EXTREME_BY_TICKET), ("last_sl", _LAST_SL_BY_TICKET),
+                            ("peak_profit", _PEAK_PROFIT_BY_TICKET), ("profit_since", _PROFIT_SINCE_BY_TICKET)):
             for ticket, value in (payload.get(key) or {}).items():
                 target[int(ticket)] = float(value)
         print(f"Loaded persistent trailing state for {len(_R_BY_TICKET)} ticket(s)")
@@ -1034,7 +1053,31 @@ def _apply_usd_trailing_stop(position) -> bool:
 
     moved = (cur_price - entry) if is_buy else (entry - cur_price)
     move_r = (moved / r_dist) if (r_dist and r_dist > 0) else 0.0
-    if move_r < float(GRADUATED_TRIGGER_R):
+
+    # ---- gradual_bleed detection -------------------------------------------
+    # Track peak unrealized profit and how long the trade has been in profit so
+    # we can recognise the slow-reversal signature (hours in profit, quietly
+    # giving the peak back). Fast winners never reach the age gate.
+    cur_profit = float(position.profit or 0)
+    peak_profit = max(_PEAK_PROFIT_BY_TICKET.get(ticket, 0.0), cur_profit)
+    _PEAK_PROFIT_BY_TICKET[ticket] = peak_profit
+    if cur_profit > 0 and ticket not in _PROFIT_SINCE_BY_TICKET:
+        _PROFIT_SINCE_BY_TICKET[ticket] = now
+    profit_age_min = ((now - _PROFIT_SINCE_BY_TICKET[ticket]) / 60.0) if ticket in _PROFIT_SINCE_BY_TICKET else 0.0
+    giveback = ((peak_profit - cur_profit) / peak_profit) if peak_profit > 0 else 0.0
+    adx_now = _current_adx(position.symbol)
+    momentum_supports = (adx_now is not None and adx_now >= float(BLEED_ADX_SUPPORT)
+                         and _structure_flipped(position.symbol, is_buy) is None)
+    bleeding = bool(
+        BLEED_ENABLED
+        and cur_profit > 0
+        and peak_profit >= float(BLEED_MIN_PEAK_USD)
+        and profit_age_min >= float(BLEED_MIN_PROFIT_MINUTES)
+        and giveback >= float(BLEED_GIVEBACK_FRACTION)
+        and not momentum_supports
+    )
+
+    if move_r < float(GRADUATED_TRIGGER_R) and not bleeding:
         _save_trailing_state()
         _trail_diag(position, "trail_skip", f"reason=below-trigger move_r={move_r:.4f} r={r_dist or 0:.{digits}f} price={cur_price} entry={entry} sl={old_sl}")
         return False
@@ -1057,24 +1100,33 @@ def _apply_usd_trailing_stop(position) -> bool:
             float(GRADUATED_ATR_MULT_END) - float(GRADUATED_ATR_MULT_START)
         )
         label = "graduated"
-    adx_now = _current_adx(position.symbol)
     if adx_now is not None and adx_now > WIDE_TRAIL_ADX:
         mult = mult * 1.25      # strong trend → give the runner more room
+    lock_fraction = float(TRAIL_MIN_LOCK_FRACTION)
+    if bleeding:
+        # Slow reversal: clamp the trail hard and lock most of the peak,
+        # regardless of whether +0.9R was ever reached.
+        mult = min(mult, float(BLEED_ATR_MULT))
+        lock_fraction = max(lock_fraction, float(BLEED_LOCK_FRACTION))
+        label = "bleed-rescue"
     dist = atr_now * mult
     # Symbol-agnostic cap: on pairs where ATR is large relative to the R
     # distance (most crosses/JPY pairs), mult x ATR exceeds the whole run-up,
     # so the raw level always sits behind entry and the trail never engages.
-    # Cap the distance so we always lock at least TRAIL_MIN_LOCK_FRACTION of
+    # Cap the distance so we always lock at least lock_fraction of
     # the achieved move from entry.
     run = abs(extreme - entry)
     capped = False
     if run > 0:
-        max_dist = run * (1.0 - float(TRAIL_MIN_LOCK_FRACTION))
+        max_dist = run * (1.0 - lock_fraction)
         if max_dist < dist:
             dist = max_dist
             capped = True
     raw_sl = (extreme - dist) if is_buy else (extreme + dist)
-    mode = f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}{' capped' if capped else ''}"
+    mode = (f"{label} {mult:.2f}xATR @ {move_r:.2f}R ATR={atr_now:.{digits}f}"
+            f"{' capped' if capped else ''}"
+            + (f" bleed(peak=${peak_profit:.2f} cur=${cur_profit:.2f} give={giveback*100:.0f}% "
+               f"age={profit_age_min:.0f}m adx={adx_now if adx_now is None else round(adx_now, 1)})" if bleeding else ""))
 
 
     # A wide Chandelier level can legitimately remain behind entry near +0.5R.
@@ -1403,6 +1455,13 @@ def manage_trailing_stops() -> int:
                 moved += 1
         except Exception as e:
             print(f"trailing failed ticket={getattr(p, 'ticket', '?')}: {e}")
+    # Prune per-ticket trailing state for positions that are no longer open so
+    # peak-profit / profit-age tracking cannot leak across tickets.
+    live = {int(p.ticket) for p in positions}
+    for store in (_PEAK_PROFIT_BY_TICKET, _PROFIT_SINCE_BY_TICKET, _EXTREME_BY_TICKET,
+                  _R_BY_TICKET, _LAST_SL_BY_TICKET):
+        for dead in [t for t in store if t not in live]:
+            store.pop(dead, None)
     return moved
 
 
