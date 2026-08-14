@@ -166,9 +166,35 @@ export const useAccount = create<Store>()(
           updated.peakPrice = Math.max(p.peakPrice ?? p.entry, price);
           updated.troughPrice = Math.min(p.troughPrice ?? p.entry, price);
 
+          // Track peak unrealized profit + time-in-profit (gradual_bleed inputs).
+          const profitNow = pnlOf(p, price);
+          updated.peakProfitUsd = Math.max(p.peakProfitUsd ?? 0, profitNow);
+          if (profitNow > 0 && !updated.profitSinceMs) updated.profitSinceMs = Date.now();
+          const minutesInProfit = updated.profitSinceMs ? (Date.now() - updated.profitSinceMs) / 60_000 : 0;
+          const bleeding = isGradualBleed({
+            currentProfitUsd: profitNow,
+            peakProfitUsd: updated.peakProfitUsd ?? 0,
+            minutesInProfit,
+            adx: p.adx,
+          });
+
           if (s.useUsdTrail) {
             const atrVal = p.atr && p.atr > 0 ? p.atr : r / 2.2; // SL was built as ATR × 2.2
-            if (moveInR >= CHANDELIER_TRIGGER_R && atrVal > 0) {
+            if (bleeding && atrVal > 0) {
+              // Slow reversal: tighten immediately, regardless of the 0.9R gate.
+              const extreme = dir === 1 ? (updated.peakPrice as number) : (updated.troughPrice as number);
+              const run = Math.abs(extreme - p.entry);
+              const dist = Math.min(atrVal * BLEED_ATR_MULT, run * (1 - BLEED_LOCK_FRACTION));
+              const candidateSl = dir === 1 ? extreme - dist : extreme + dist;
+              const buffer = Math.max(atrVal * 0.05, Math.abs(p.entry) * 1e-5);
+              const safe = dir === 1 ? candidateSl > p.entry + buffer : candidateSl < p.entry - buffer;
+              const better = dir === 1 ? candidateSl > updated.stopLoss : candidateSl < updated.stopLoss;
+              if (safe && better) {
+                updated.stopLoss = candidateSl;
+                updated.breakEvenTriggered = true;
+                touched = true;
+              }
+            } else if (moveInR >= CHANDELIER_TRIGGER_R && atrVal > 0) {
               // Chandelier Exit: extreme since entry ∓ ATR × 3.0, forward only.
               const extreme = dir === 1 ? (updated.peakPrice as number) : (updated.troughPrice as number);
               const candidateSl = chandelierLevel(p.side, extreme, atrVal, CHANDELIER_ATR_MULT);
