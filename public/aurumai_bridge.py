@@ -883,6 +883,8 @@ def _report_trailing_update(position) -> None:
 _LAST_SL_BY_TICKET: dict[int, float] = {}         # remembers the SL we last successfully moved to
 _R_BY_TICKET: dict[int, float] = {}               # original 1R distance (entry → initial SL) per ticket
 _EXTREME_BY_TICKET: dict[int, float] = {}         # highest (BUY) / lowest (SELL) price since entry
+_PEAK_PROFIT_BY_TICKET: dict[int, float] = {}     # peak unrealized USD profit seen on this ticket
+_PROFIT_SINCE_BY_TICKET: dict[int, float] = {}    # epoch seconds when the ticket first went meaningfully into profit
 _ATR_CACHE: dict[str, tuple] = {}                 # symbol -> (timestamp, atr)
 _LAST_TRAIL_DIAG_TS: dict[int, float] = {}
 _LAST_STATE_SAVE_TS = 0.0
