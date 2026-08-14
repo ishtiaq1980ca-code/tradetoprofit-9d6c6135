@@ -1455,6 +1455,13 @@ def manage_trailing_stops() -> int:
                 moved += 1
         except Exception as e:
             print(f"trailing failed ticket={getattr(p, 'ticket', '?')}: {e}")
+    # Prune per-ticket trailing state for positions that are no longer open so
+    # peak-profit / profit-age tracking cannot leak across tickets.
+    live = {int(p.ticket) for p in positions}
+    for store in (_PEAK_PROFIT_BY_TICKET, _PROFIT_SINCE_BY_TICKET, _EXTREME_BY_TICKET,
+                  _R_BY_TICKET, _LAST_SL_BY_TICKET):
+        for dead in [t for t in store if t not in live]:
+            store.pop(dead, None)
     return moved
 
 
