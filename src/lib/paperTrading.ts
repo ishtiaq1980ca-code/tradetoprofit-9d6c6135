@@ -5,7 +5,10 @@ import { isGoldSymbol, isJpyQuoted } from "./pairProfiles";
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD, CHANDELIER_ATR_MULT, CHANDELIER_TRIGGER_R, chandelierLevel } from "./riskEngine";
+import {
+  lockedProfitUsd, BREAK_EVEN_USD, TRAIL_STEP_USD, CHANDELIER_ATR_MULT, CHANDELIER_TRIGGER_R, chandelierLevel,
+  isGradualBleed, BLEED_ATR_MULT, BLEED_LOCK_FRACTION,
+} from "./riskEngine";
 
 export type Position = {
   id: string;
