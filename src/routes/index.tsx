@@ -212,8 +212,8 @@ function Dashboard() {
 
 
 
-        <section className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2 border-border/60 bg-card/70 backdrop-blur">
+        <section className="grid gap-4">
+          <Card className="border-border/60 bg-card/70 backdrop-blur">
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
                 <CardTitle className="text-base font-medium">XAUUSD — Gold</CardTitle>
