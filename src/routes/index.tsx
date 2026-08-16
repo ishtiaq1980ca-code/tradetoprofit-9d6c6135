@@ -343,6 +343,8 @@ function Dashboard() {
           </Card>
         </section>
 
+        <RecentTradesPanel />
+
       </div>
     </AppShell>
   );
