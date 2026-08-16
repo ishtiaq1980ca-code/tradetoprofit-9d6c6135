@@ -253,37 +253,6 @@ function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/60 bg-card/70 backdrop-blur">
-            <CardHeader>
-              <CardTitle className="text-base font-medium">Equity Curve</CardTitle>
-              <p className="text-xs text-muted-foreground">From closed trades</p>
-            </CardHeader>
-            <CardContent className="h-72 px-0">
-              {equityCurve.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-6 text-center">
-                  No closed trades yet. Take a quick trade or queue a signal to start the curve.
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={equityCurve}>
-                    <defs>
-                      <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--bull)" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="var(--bull)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="t" hide />
-                    <YAxis domain={["dataMin", "dataMax"]} hide />
-                    <Tooltip
-                      contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                      formatter={(v: number) => fmt.money(v)}
-                    />
-                    <Area type="monotone" dataKey="equity" stroke="var(--bull)" strokeWidth={2} fill="url(#g2)" isAnimationActive={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
         </section>
 
         <section>
