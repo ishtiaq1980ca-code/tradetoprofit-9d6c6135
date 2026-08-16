@@ -148,7 +148,44 @@ function Dashboard() {
 
         <LearningHealthBanner />
 
+        <section className="grid gap-4 lg:grid-cols-[minmax(280px,380px)_1fr]">
+          <BotHealthCompass drawdownPct={drawdown} />
+          <Card className="border-border/60 bg-card/70 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="text-base font-medium">Equity Curve</CardTitle>
+              <p className="text-xs text-muted-foreground">From closed trades</p>
+            </CardHeader>
+            <CardContent className="h-[320px] px-0">
+              {equityCurve.length === 0 ? (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                  No closed trades yet. Take a quick trade or queue a signal to start the curve.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={equityCurve}>
+                    <defs>
+                      <linearGradient id="gEquity" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.28} />
+                        <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="t" hide />
+                    <YAxis domain={["dataMin", "dataMax"]} hide />
+                    <Tooltip
+                      contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: number) => fmt.money(v)}
+                    />
+                    <Area type="monotone" dataKey="equity" stroke="var(--gold)" strokeWidth={1.5} fill="url(#gEquity)" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
         <TradingFilters />
+
+        <PairPerformanceGrid />
 
         <LiveAccountsPerformance />
 
