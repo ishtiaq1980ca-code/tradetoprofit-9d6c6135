@@ -84,7 +84,7 @@ export function RecentTradesPanel() {
                   return (
                     <tr key={r.id} className="border-b border-border/40">
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
-                        {r.closed_at ? new Date(r.closed_at).toLocaleString undefined : "—"}
+                        {r.closed_at ? new Date(r.closed_at).toLocaleString() : "—"}
                       </td>
                       <td className="px-3 py-2">{r.symbol}</td>
                       <td className={cn("px-3 py-2 font-medium", r.side === "BUY" ? "text-bull" : "text-bear")}>{r.side}</td>
