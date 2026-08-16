@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BarChart3, Brain, ClipboardCheck, Coins, KeyRound, LayoutDashboard, LineChart, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal, SlidersHorizontal } from "lucide-react";
+import { Compass, BarChart3, Brain, ClipboardCheck, Coins, KeyRound, LayoutDashboard, LineChart, ListChecks, LogOut, Menu, PlugZap, ScrollText, Settings, ShieldCheck, Signal, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useBot } from "@/lib/tradingBot";
@@ -68,12 +68,12 @@ function NavList({ pathname, onNavigate, items }: { pathname: string; onNavigate
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 px-2">
-      <div className="grid h-9 w-9 place-items-center rounded-md bg-gold text-primary-foreground glow-gold">
-        <Activity className="h-5 w-5" />
+      <div className="grid h-9 w-9 place-items-center rounded-full border border-gold/50 bg-gold/10 text-gold glow-gold">
+        <Compass className="h-5 w-5" />
       </div>
       <div>
-        <div className="text-sm font-semibold tracking-tight">AurumAI</div>
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Forex Bot</div>
+        <div className="text-sm font-semibold tracking-tight">Golden Compass</div>
+        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Gold &amp; FX Bot</div>
       </div>
     </Link>
   );
