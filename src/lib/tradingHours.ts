@@ -42,6 +42,7 @@ export async function loadBlockedHours(force = false): Promise<number[]> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
+      const { supabase } = await import("@/integrations/supabase/client");
       const { data } = await supabase
         .from("bot_settings")
         .select("blocked_hours_utc")
