@@ -112,20 +112,17 @@ export function evaluateInvalidation(
     !closedBeyond && (buy ? Math.min(...c.slice(-2).map((x) => x.low)) < level : Math.max(...c.slice(-2).map((x) => x.high)) > level);
   if (wickOnly) return none(`Only a wick beyond ${levelKind} ${fmt(level)} — held on close, position kept`);
 
-  const structuralBreak = twoClosesBeyond;
-  const flipBreak = closedBeyond && trendFlipped;
-
-  if (!structuralBreak && !flipBreak) {
+  // BOTH must hold now: two confirmed HTF closes past the buffered level AND a
+  // trend flip on that same higher timeframe. Either one alone is noise.
+  if (!(twoClosesBeyond && trendFlipped)) {
     return {
       invalidated: false,
-      reason: `Structure intact: ${levelKind} ${fmt(level)} not broken on close${trendFlipped ? " (trend flipped but level held)" : ""}`,
+      reason: `Structure intact on ${CONFIRM_TF_FACTOR}x timeframe: ${levelKind} ${fmt(level)} ${twoClosesBeyond ? "broken but trend not flipped" : "not broken by 2 confirmed closes"}`,
       level, levelKind, trendFlipped, checks,
     };
   }
 
-  const why = structuralBreak
-    ? `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} (two confirmed closes, last ${fmt(price)})`
-    : `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} on a confirmed close and the EMA${TREND_FAST}/${TREND_SLOW} trend flipped ${buy ? "bearish" : "bullish"}`;
+  const why = `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} with two confirmed ${CONFIRM_TF_FACTOR}x-timeframe closes past a ${BREAK_ATR_BUFFER}×ATR buffer (last ${fmt(price)}) and the EMA${TREND_FAST}/${TREND_SLOW} trend flipped ${buy ? "bearish" : "bullish"}`;
 
   return {
     invalidated: true,
