@@ -1219,16 +1219,11 @@ export function BotEngine() {
               lastWorkerReadyAt = Date.now();
               workerBootFailures = 0;
               break;
-            case "tick": {
-              const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
-              if (!enabled) return;
-              if (Date.now() - lastScanAt < scanIntervalMs) return;
-              // Scanning is server-side now (see /api/public/hooks/engine-scan).
+            case "tick":
+              // Scanning is server-side now (/api/public/hooks/engine-scan).
               // The worker tick only keeps price anchors + UI status fresh.
               break;
 
-              break;
-            }
             case "anchor":
               priceFeed.applyAnchorData({ rates: msg.rates ?? null, xau: msg.xau ?? null });
               break;
