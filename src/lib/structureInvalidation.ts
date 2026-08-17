@@ -63,10 +63,13 @@ export function evaluateInvalidation(
     invalidated: false, reason, level: null, levelKind: null, trendFlipped: false, checks,
   });
 
-  if (candles.length < 90) return none(`Not enough history (${candles.length} bars) for a structure read`);
+  if (candles.length < 300) return none(`Not enough history (${candles.length} bars) for a structure read`);
 
-  // Closed candles only — never act on the still-forming bar.
-  const c = candles.slice(0, -1);
+  // Confirmation runs on a higher timeframe (M1 -> M5) so a couple of noisy
+  // 1-minute candles can never invalidate a trade. Closed candles only.
+  const htf = aggregate(candles.slice(0, -1), CONFIRM_TF_FACTOR);
+  if (htf.length < 60) return none(`Not enough ${CONFIRM_TF_FACTOR}x-timeframe bars (${htf.length}) for a structure read`);
+  const c = htf;
   const closes = c.map((x) => x.close);
   const last = closes.length - 1;
   const price = closes[last];
