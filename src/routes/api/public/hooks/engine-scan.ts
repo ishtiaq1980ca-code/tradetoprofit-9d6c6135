@@ -13,15 +13,13 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import {
-  applyAnchors, fetchAnchors, loadFeed, saveFeed, tick,
-} from "@/lib/serverEngine/feed.server";
+import { loadFeed, refreshMarketData, saveFeed } from "@/lib/serverEngine/feed.server";
 import { runServerScan, type ScanSummary } from "@/lib/serverEngine/scan.server";
 
 const LOCK_TTL_MS = 110_000;
-const TICK_MS = 5_000;
-const TICKS = 10;
-const SCAN_EVERY_TICKS = 5;
+/** Two passes per invocation, ~30s apart, so a fresh 1m bar is picked up. */
+const PASSES = 2;
+const PASS_GAP_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,19 +47,20 @@ async function handle() {
   const summaries: ScanSummary[] = [];
   try {
     const feed = await loadFeed(admin);
-    applyAnchors(feed, await fetchAnchors());
+    let refresh = await refreshMarketData(feed);
 
-    for (let i = 0; i < TICKS; i++) {
-      tick(feed);
-      if (i % SCAN_EVERY_TICKS === 0) {
-        try {
-          summaries.push(await runServerScan(admin, feed));
-        } catch (e: any) {
-          summaries.push({ ran: false, reason: `scan error: ${e?.message ?? e}`, queued: 0, evaluated: 0, closesQueued: 0, notes: [] });
-        }
+    for (let i = 0; i < PASSES; i++) {
+      if (i > 0) {
+        await sleep(PASS_GAP_MS);
+        refresh = await refreshMarketData(feed);
       }
-      if (i < TICKS - 1) await sleep(TICK_MS);
+      try {
+        summaries.push(await runServerScan(admin, feed));
+      } catch (e: any) {
+        summaries.push({ ran: false, reason: `scan error: ${e?.message ?? e}`, queued: 0, evaluated: 0, closesQueued: 0, notes: [] });
+      }
     }
+    const feedNote = `market data: ${refresh.live} live${refresh.failed.length ? `, ${refresh.failed.length} failed (${refresh.failed.slice(0, 5).map((f) => `${f.symbol}: ${f.error}`).join("; ")})` : ""}`;
 
     await saveFeed(admin, feed);
 
@@ -69,7 +68,10 @@ async function handle() {
       queued: summaries.reduce((a, s) => a + s.queued, 0),
       closesQueued: summaries.reduce((a, s) => a + s.closesQueued, 0),
       evaluated: summaries.reduce((a, s) => a + s.evaluated, 0),
-      reasons: summaries.map((s) => s.reason).filter(Boolean),
+      reasons: [feedNote, ...summaries.map((s) => s.reason).filter(Boolean)],
+      // Rejection reasons from the most recent inner scan — this is what makes
+      // "queued: 0" explainable instead of silent.
+      notes: (summaries[summaries.length - 1]?.notes ?? []).slice(0, 60),
     };
     await admin.from("engine_lock").update({
       last_run_at: new Date().toISOString(),
