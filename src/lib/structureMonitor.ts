@@ -71,9 +71,13 @@ export async function monitorStructureInvalidation(): Promise<MonitorOutcome> {
       if (now - (lastCheckedAt.get(ticket) ?? 0) < CHECK_INTERVAL_MS) continue;
       lastCheckedAt.set(ticket, now);
 
+      // Minimum holding period — let the trade breathe past entry noise.
+      const openedAt = t.opened_at ? Date.parse(t.opened_at as string) : NaN;
+      if (Number.isFinite(openedAt) && now - openedAt < MIN_HOLD_MS) continue;
+
       const side = String(t.side).toUpperCase() === "BUY" ? "BUY" : "SELL";
       const candles = candlesFor(t.symbol);
-      if (!candles || candles.length < 90) continue;
+      if (!candles || candles.length < 300) continue;
       out.checked++;
 
       const res = evaluateInvalidation(side, candles, Number(t.entry));
