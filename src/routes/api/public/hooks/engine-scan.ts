@@ -47,19 +47,20 @@ async function handle() {
   const summaries: ScanSummary[] = [];
   try {
     const feed = await loadFeed(admin);
-    applyAnchors(feed, await fetchAnchors());
+    let refresh = await refreshMarketData(feed);
 
-    for (let i = 0; i < TICKS; i++) {
-      tick(feed);
-      if (i % SCAN_EVERY_TICKS === 0) {
-        try {
-          summaries.push(await runServerScan(admin, feed));
-        } catch (e: any) {
-          summaries.push({ ran: false, reason: `scan error: ${e?.message ?? e}`, queued: 0, evaluated: 0, closesQueued: 0, notes: [] });
-        }
+    for (let i = 0; i < PASSES; i++) {
+      if (i > 0) {
+        await sleep(PASS_GAP_MS);
+        refresh = await refreshMarketData(feed);
       }
-      if (i < TICKS - 1) await sleep(TICK_MS);
+      try {
+        summaries.push(await runServerScan(admin, feed));
+      } catch (e: any) {
+        summaries.push({ ran: false, reason: `scan error: ${e?.message ?? e}`, queued: 0, evaluated: 0, closesQueued: 0, notes: [] });
+      }
     }
+    const feedNote = `market data: ${refresh.live} live${refresh.failed.length ? `, ${refresh.failed.length} failed (${refresh.failed.slice(0, 5).map((f) => `${f.symbol}: ${f.error}`).join("; ")})` : ""}`;
 
     await saveFeed(admin, feed);
 
