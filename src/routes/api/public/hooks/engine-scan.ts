@@ -13,15 +13,13 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import {
-  applyAnchors, fetchAnchors, loadFeed, saveFeed, tick,
-} from "@/lib/serverEngine/feed.server";
+import { loadFeed, refreshMarketData, saveFeed } from "@/lib/serverEngine/feed.server";
 import { runServerScan, type ScanSummary } from "@/lib/serverEngine/scan.server";
 
 const LOCK_TTL_MS = 110_000;
-const TICK_MS = 5_000;
-const TICKS = 10;
-const SCAN_EVERY_TICKS = 5;
+/** Two passes per invocation, ~30s apart, so a fresh 1m bar is picked up. */
+const PASSES = 2;
+const PASS_GAP_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
