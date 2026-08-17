@@ -308,6 +308,48 @@ export type Database = {
         }
         Relationships: []
       }
+      engine_candles: {
+        Row: {
+          candles: Json
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          candles: Json
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          candles?: Json
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      engine_lock: {
+        Row: {
+          holder: string | null
+          id: number
+          last_result: Json | null
+          last_run_at: string | null
+          locked_until: string
+        }
+        Insert: {
+          holder?: string | null
+          id: number
+          last_result?: Json | null
+          last_run_at?: string | null
+          locked_until?: string
+        }
+        Update: {
+          holder?: string | null
+          id?: number
+          last_result?: Json | null
+          last_run_at?: string | null
+          locked_until?: string
+        }
+        Relationships: []
+      }
       execution_log: {
         Row: {
           action: string
