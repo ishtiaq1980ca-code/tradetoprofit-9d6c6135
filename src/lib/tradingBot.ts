@@ -1223,7 +1223,10 @@ export function BotEngine() {
               const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
               if (!enabled) return;
               if (Date.now() - lastScanAt < scanIntervalMs) return;
-              void runScan();
+              // Scanning is server-side now (see /api/public/hooks/engine-scan).
+              // The worker tick only keeps price anchors + UI status fresh.
+              break;
+
               break;
             }
             case "anchor":
