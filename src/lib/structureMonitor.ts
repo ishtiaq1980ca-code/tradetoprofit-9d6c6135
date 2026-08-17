@@ -80,7 +80,14 @@ export async function monitorStructureInvalidation(): Promise<MonitorOutcome> {
       if (!candles || candles.length < 300) continue;
       out.checked++;
 
-      const res = evaluateInvalidation(side, candles, Number(t.entry));
+      let res;
+      try {
+        res = evaluateInvalidation(side, candles, Number(t.entry));
+      } catch (e: any) {
+        // One bad symbol must never abort the whole monitor pass.
+        out.errors.push(`${t.symbol}: ${e?.message ?? "invalidation check failed"}`);
+        continue;
+      }
       if (!res.invalidated) continue;
 
       const closed = candles.slice(0, -1);
