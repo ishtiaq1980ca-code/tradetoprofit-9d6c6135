@@ -36,6 +36,14 @@ function SettingsPage() {
 
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
 
+  const parseHours = (v: any): number[] =>
+    Array.from(new Set(String(Array.isArray(v) ? v.join(",") : (v ?? ""))
+      .split(/[,\s]+/)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n <= 23)))
+      .sort((a, b) => a - b);
+
+
   const save = async () => {
     if (!form) return;
     try {
