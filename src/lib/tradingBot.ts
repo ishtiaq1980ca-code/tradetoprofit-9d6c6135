@@ -1219,13 +1219,11 @@ export function BotEngine() {
               lastWorkerReadyAt = Date.now();
               workerBootFailures = 0;
               break;
-            case "tick": {
-              const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
-              if (!enabled) return;
-              if (Date.now() - lastScanAt < scanIntervalMs) return;
-              void runScan();
+            case "tick":
+              // Scanning is server-side now (/api/public/hooks/engine-scan).
+              // The worker tick only keeps price anchors + UI status fresh.
               break;
-            }
+
             case "anchor":
               priceFeed.applyAnchorData({ rates: msg.rates ?? null, xau: msg.xau ?? null });
               break;
@@ -1316,19 +1314,18 @@ export function BotEngine() {
       }
     }, 2_500);
 
-    // Fallback timer: also serves as safety net if the worker fails silently.
+    // NOTE: the browser no longer runs the scan loop at all. Signal generation
+    // and structure-exit monitoring run server-side on a schedule
+    // (/api/public/hooks/engine-scan, driven by pg_cron every minute). This
+    // timer only refreshes the engine status shown in the dashboard.
     const id = setInterval(() => {
-      const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
-      if (!enabled) return;
-      if (Date.now() - lastScanAt < scanIntervalMs) return;
-      void runScan();
-    }, 500);
+      void refreshEngineStatus();
+    }, 30_000);
+    void refreshEngineStatus();
 
-    // When the tab returns to foreground, force an immediate refresh + scan.
+    // When the tab returns to foreground, refresh live status (no scan).
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      scanInFlight = false;
-      useBot.setState({ lastScanAt: 0 });
       // If the worker went silent while hidden, restart it now.
       if (!tickWorker || Date.now() - lastWorkerTickAt > WORKER_STALL_MS) {
         teardownWorker();
@@ -1338,9 +1335,10 @@ export function BotEngine() {
       hydrateAccessToken(true).finally(() => {
         pushTokenToWorker();
         refreshMt5Heartbeat();
-        if (useBot.getState().enabled) void runScan();
+        void refreshEngineStatus();
       });
     };
+
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
@@ -1388,4 +1386,20 @@ export function BotEngine() {
 
 export function triggerManualScan() {
   void runScan();
+}
+
+/**
+ * Poll the scheduled server engine's status so the dashboard can show when the
+ * last server-side scan ran. Purely informational — the browser never scans.
+ */
+export async function refreshEngineStatus() {
+  try {
+    const res = await fetch("/api/public/hooks/engine-scan", { method: "GET" });
+    if (!res.ok) return;
+    const body = (await res.json()) as { status?: { last_run_at?: string | null } };
+    const at = body?.status?.last_run_at ? Date.parse(body.status.last_run_at) : NaN;
+    if (Number.isFinite(at)) useBot.setState({ lastScanAt: at });
+  } catch {
+    /* status polling is best-effort */
+  }
 }

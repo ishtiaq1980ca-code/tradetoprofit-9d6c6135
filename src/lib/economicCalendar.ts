@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { safeStorage } from "./memoryStorage";
 import { normalizeSymbol } from "./pairProfiles";
 
 export type NewsImpact = "high" | "medium";
@@ -141,7 +142,7 @@ export const useEconomicCalendar = create<Store>()(
         feedUrl: s.feedUrl,
         events: s.events.filter((e) => e.source === "manual"),
       }),
-      storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
+      storage: createJSONStorage(() => safeStorage()),
     },
   ),
 );
