@@ -16,6 +16,7 @@
 //     flipped against the trade on the entry timeframe
 
 import { atr as atrSeries, detectLevels, ema, type Candle } from "./indicators";
+import { aggregate } from "./marketStructure";
 
 export type InvalidationCheck = { name: string; pass: boolean; detail: string };
 
