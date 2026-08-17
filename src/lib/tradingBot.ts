@@ -1387,3 +1387,19 @@ export function BotEngine() {
 export function triggerManualScan() {
   void runScan();
 }
+
+/**
+ * Poll the scheduled server engine's status so the dashboard can show when the
+ * last server-side scan ran. Purely informational — the browser never scans.
+ */
+export async function refreshEngineStatus() {
+  try {
+    const res = await fetch("/api/public/hooks/engine-scan", { method: "GET" });
+    if (!res.ok) return;
+    const body = (await res.json()) as { status?: { last_run_at?: string | null } };
+    const at = body?.status?.last_run_at ? Date.parse(body.status.last_run_at) : NaN;
+    if (Number.isFinite(at)) useBot.setState({ lastScanAt: at });
+  } catch {
+    /* status polling is best-effort */
+  }
+}
