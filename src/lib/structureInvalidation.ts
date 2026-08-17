@@ -16,6 +16,7 @@
 //     flipped against the trade on the entry timeframe
 
 import { atr as atrSeries, detectLevels, ema, type Candle } from "./indicators";
+import { aggregate } from "./marketStructure";
 
 export type InvalidationCheck = { name: string; pass: boolean; detail: string };
 
@@ -31,7 +32,11 @@ export type InvalidationResult = {
 };
 
 /** Break must clear the level by this fraction of ATR to count as real. */
-export const BREAK_ATR_BUFFER = 0.10;
+export const BREAK_ATR_BUFFER = 0.5;
+/** Base (entry-timeframe) candles aggregated into one confirmation candle (M1 -> M5). */
+export const CONFIRM_TF_FACTOR = 5;
+/** A position must be at least this old before a structure exit may fire. */
+export const MIN_HOLD_MS = 5 * 60_000;
 /** EMA pair used for the short-term trend read on the entry timeframe. */
 export const TREND_FAST = 50;
 export const TREND_SLOW = 200;
@@ -58,10 +63,13 @@ export function evaluateInvalidation(
     invalidated: false, reason, level: null, levelKind: null, trendFlipped: false, checks,
   });
 
-  if (candles.length < 90) return none(`Not enough history (${candles.length} bars) for a structure read`);
+  if (candles.length < 300) return none(`Not enough history (${candles.length} bars) for a structure read`);
 
-  // Closed candles only — never act on the still-forming bar.
-  const c = candles.slice(0, -1);
+  // Confirmation runs on a higher timeframe (M1 -> M5) so a couple of noisy
+  // 1-minute candles can never invalidate a trade. Closed candles only.
+  const htf = aggregate(candles.slice(0, -1), CONFIRM_TF_FACTOR);
+  if (htf.length < 60) return none(`Not enough ${CONFIRM_TF_FACTOR}x-timeframe bars (${htf.length}) for a structure read`);
+  const c = htf;
   const closes = c.map((x) => x.close);
   const last = closes.length - 1;
   const price = closes[last];
@@ -104,20 +112,17 @@ export function evaluateInvalidation(
     !closedBeyond && (buy ? Math.min(...c.slice(-2).map((x) => x.low)) < level : Math.max(...c.slice(-2).map((x) => x.high)) > level);
   if (wickOnly) return none(`Only a wick beyond ${levelKind} ${fmt(level)} — held on close, position kept`);
 
-  const structuralBreak = twoClosesBeyond;
-  const flipBreak = closedBeyond && trendFlipped;
-
-  if (!structuralBreak && !flipBreak) {
+  // BOTH must hold now: two confirmed HTF closes past the buffered level AND a
+  // trend flip on that same higher timeframe. Either one alone is noise.
+  if (!(twoClosesBeyond && trendFlipped)) {
     return {
       invalidated: false,
-      reason: `Structure intact: ${levelKind} ${fmt(level)} not broken on close${trendFlipped ? " (trend flipped but level held)" : ""}`,
+      reason: `Structure intact on ${CONFIRM_TF_FACTOR}x timeframe: ${levelKind} ${fmt(level)} ${twoClosesBeyond ? "broken but trend not flipped" : "not broken by 2 confirmed closes"}`,
       level, levelKind, trendFlipped, checks,
     };
   }
 
-  const why = structuralBreak
-    ? `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} (two confirmed closes, last ${fmt(price)})`
-    : `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} on a confirmed close and the EMA${TREND_FAST}/${TREND_SLOW} trend flipped ${buy ? "bearish" : "bullish"}`;
+  const why = `broke ${buy ? "below" : "above"} ${levelKind} at ${fmt(level)} with two confirmed ${CONFIRM_TF_FACTOR}x-timeframe closes past a ${BREAK_ATR_BUFFER}×ATR buffer (last ${fmt(price)}) and the EMA${TREND_FAST}/${TREND_SLOW} trend flipped ${buy ? "bearish" : "bullish"}`;
 
   return {
     invalidated: true,
