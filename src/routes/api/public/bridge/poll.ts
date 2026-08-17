@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { checkBridgeAuth } from "@/lib/bridge-auth.server";
+import { blockedHourReason, isBlockedHour, parseBlockedHours } from "@/lib/tradingHours";
 
 // Matches the built-in ATR SL 2.2 / ATR TP 2.8 strategy (RR ≈ 1.27).
 const MIN_BRIDGE_RR = 1.25;
 const MIN_BRIDGE_VERSION = 2026073102;
+
 
 function signalRiskError(signal: any): string | null {
   const side = signal.side;
@@ -55,7 +57,39 @@ export const Route = createFileRoute("/api/public/bridge/poll")({
           return Response.json({ enabled: false, reason: "mt5_stale", signals: [] });
         }
 
+        // ---- Time-of-day filter (bot_settings.blocked_hours_utc) ----------
+        // NEW entries only. Position management (trailing stop, break-even,
+        // structure exits, close requests) is handled by the bridge and other
+        // endpoints and is intentionally NOT gated here.
+        const blockedHours = parseBlockedHours((settings as any).blocked_hours_utc);
+        if (isBlockedHour(blockedHours)) {
+          const reason = blockedHourReason(blockedHours);
+          const { data: pending } = await supabaseAdmin
+            .from("signals")
+            .select("id,symbol,side")
+            .eq("status", "pending")
+            .gte("created_at", new Date(Date.now() - 120_000).toISOString());
+          if (pending?.length) {
+            await supabaseAdmin
+              .from("signals")
+              .update({ status: "rejected", reason: `SERVER-REJECT ${reason}` })
+              .in("id", pending.map((s) => s.id));
+            await supabaseAdmin.from("execution_log").insert(
+              pending.map((s) => ({
+                signal_id: s.id,
+                symbol: s.symbol,
+                side: s.side,
+                action: "skipped_blocked_hour",
+                error: reason,
+              })),
+            );
+          }
+          return Response.json({ enabled: false, reason: "blocked_hour", message: reason, blockedHours, signals: [] });
+        }
+
         // Daily loss kill switch: DISABLED by user request.
+
+
 
 
         const freshCutoff = new Date(Date.now() - 20_000).toISOString();

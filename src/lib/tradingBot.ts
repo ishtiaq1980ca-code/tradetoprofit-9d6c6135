@@ -31,6 +31,8 @@ import {
   classBlock, computeOpenSlots, normalizeOrderPlan, useExecutionStats,
 } from "./execution";
 import { detectBreach, pruneStaleBreach, sendBreachWebhook, useCircuitBreaker } from "./circuitBreaker";
+import { blockedHourReason, cachedBlockedHours, isBlockedHour, loadBlockedHours } from "./tradingHours";
+
 
 
 
@@ -751,6 +753,16 @@ async function runScan() {
     bot.pushLog({ t: Date.now(), level: "info", msg: "Market closed (weekend) — waiting" });
     return;
   }
+
+  // Time-of-day filter (bot_settings.blocked_hours_utc). Blocks NEW entries
+  // only; open positions keep being managed (trail / BE / structure exits).
+  void loadBlockedHours();
+  const blockedHours = cachedBlockedHours();
+  if (isBlockedHour(blockedHours)) {
+    logThrottled("blocked-hour", "info", blockedHourReason(blockedHours), 300_000);
+    return;
+  }
+
 
   // No daily trade cap — concurrent open trades are limited by `maxOpenTrades`
   // and the tier lot cap. Once trades close, new ones can be opened immediately.

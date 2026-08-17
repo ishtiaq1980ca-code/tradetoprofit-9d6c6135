@@ -36,6 +36,14 @@ function SettingsPage() {
 
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
 
+  const parseHours = (v: any): number[] =>
+    Array.from(new Set(String(Array.isArray(v) ? v.join(",") : (v ?? ""))
+      .split(/[,\s]+/)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n <= 23)))
+      .sort((a, b) => a - b);
+
+
   const save = async () => {
     if (!form) return;
     try {
@@ -48,7 +56,9 @@ function SettingsPage() {
           atr_tp_mult: +form.atr_tp_mult, trailing_atr_mult: +form.trailing_atr_mult,
           min_confidence: +form.min_confidence, max_spread_pips: +form.max_spread_pips,
           partial_close_pct: +form.partial_close_pct,
+          blocked_hours_utc: parseHours(form.blocked_hours_utc),
         },
+
       });
       toast.success("Settings saved");
       qc.invalidateQueries({ queryKey: ["bot_settings"] });
@@ -232,6 +242,19 @@ function SettingsPage() {
             <F label="Min confidence (%)"><N v={form.min_confidence} on={(v) => set("min_confidence", v)} /></F>
             <F label="Max spread (pips)"><N v={form.max_spread_pips} on={(v) => set("max_spread_pips", v)} /></F>
             <F label="Partial close (%)"><N v={form.partial_close_pct} on={(v) => set("partial_close_pct", v)} /></F>
+            <div className="md:col-span-3">
+              <F label="Blocked trading hours (UTC, comma-separated) — new entries only">
+                <Input
+                  value={Array.isArray(form.blocked_hours_utc) ? form.blocked_hours_utc.join(", ") : (form.blocked_hours_utc ?? "")}
+                  onChange={(e) => set("blocked_hours_utc", e.target.value)}
+                  placeholder="2, 14, 18, 19, 20, 21"
+                />
+              </F>
+              <p className="mt-1 text-xs text-muted-foreground">
+                No new trades open during these UTC hours. Open positions keep being managed (trailing stop, break-even, exits).
+              </p>
+            </div>
+
           </CardContent>
         </Card>
 
