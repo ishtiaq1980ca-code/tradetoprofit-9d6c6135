@@ -48,7 +48,9 @@ function SettingsPage() {
           atr_tp_mult: +form.atr_tp_mult, trailing_atr_mult: +form.trailing_atr_mult,
           min_confidence: +form.min_confidence, max_spread_pips: +form.max_spread_pips,
           partial_close_pct: +form.partial_close_pct,
+          blocked_hours_utc: parseHours(form.blocked_hours_utc),
         },
+
       });
       toast.success("Settings saved");
       qc.invalidateQueries({ queryKey: ["bot_settings"] });
