@@ -7,7 +7,7 @@
 //
 // The hour list lives in bot_settings.blocked_hours_utc so it can be tuned
 // from the Settings page without a redeploy.
-import { supabase } from "@/integrations/supabase/client";
+
 
 export const DEFAULT_BLOCKED_HOURS_UTC = [2, 14, 18, 19, 20, 21];
 
