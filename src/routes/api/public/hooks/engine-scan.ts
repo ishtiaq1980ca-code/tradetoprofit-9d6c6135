@@ -70,6 +70,9 @@ async function handle() {
       closesQueued: summaries.reduce((a, s) => a + s.closesQueued, 0),
       evaluated: summaries.reduce((a, s) => a + s.evaluated, 0),
       reasons: summaries.map((s) => s.reason).filter(Boolean),
+      // Rejection reasons from the most recent inner scan — this is what makes
+      // "queued: 0" explainable instead of silent.
+      notes: (summaries[summaries.length - 1]?.notes ?? []).slice(0, 60),
     };
     await admin.from("engine_lock").update({
       last_run_at: new Date().toISOString(),
