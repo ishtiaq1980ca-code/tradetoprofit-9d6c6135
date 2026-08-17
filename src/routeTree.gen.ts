@@ -25,6 +25,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsPairsRouteImport } from './routes/settings.pairs'
 import { Route as ApiPublicCalendarRouteImport } from './routes/api/public/calendar'
+import { Route as ApiPublicHooksEngineScanRouteImport } from './routes/api/public/hooks/engine-scan'
 import { Route as ApiPublicBridgeTradesRouteImport } from './routes/api/public/bridge/trades'
 import { Route as ApiPublicBridgeReconcileRouteImport } from './routes/api/public/bridge/reconcile'
 import { Route as ApiPublicBridgePollRouteImport } from './routes/api/public/bridge/poll'
@@ -112,6 +113,12 @@ const ApiPublicCalendarRoute = ApiPublicCalendarRouteImport.update({
   path: '/api/public/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksEngineScanRoute =
+  ApiPublicHooksEngineScanRouteImport.update({
+    id: '/api/public/hooks/engine-scan',
+    path: '/api/public/hooks/engine-scan',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicBridgeTradesRoute = ApiPublicBridgeTradesRouteImport.update({
   id: '/api/public/bridge/trades',
   path: '/api/public/bridge/trades',
@@ -169,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
+  '/api/public/hooks/engine-scan': typeof ApiPublicHooksEngineScanRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -193,6 +201,7 @@ export interface FileRoutesByTo {
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
+  '/api/public/hooks/engine-scan': typeof ApiPublicHooksEngineScanRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -218,6 +227,7 @@ export interface FileRoutesById {
   '/api/public/bridge/poll': typeof ApiPublicBridgePollRoute
   '/api/public/bridge/reconcile': typeof ApiPublicBridgeReconcileRoute
   '/api/public/bridge/trades': typeof ApiPublicBridgeTradesRoute
+  '/api/public/hooks/engine-scan': typeof ApiPublicHooksEngineScanRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/poll'
     | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
+    | '/api/public/hooks/engine-scan'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -268,6 +279,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/poll'
     | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
+    | '/api/public/hooks/engine-scan'
   id:
     | '__root__'
     | '/'
@@ -292,6 +304,7 @@ export interface FileRouteTypes {
     | '/api/public/bridge/poll'
     | '/api/public/bridge/reconcile'
     | '/api/public/bridge/trades'
+    | '/api/public/hooks/engine-scan'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -316,6 +329,7 @@ export interface RootRouteChildren {
   ApiPublicBridgePollRoute: typeof ApiPublicBridgePollRoute
   ApiPublicBridgeReconcileRoute: typeof ApiPublicBridgeReconcileRoute
   ApiPublicBridgeTradesRoute: typeof ApiPublicBridgeTradesRoute
+  ApiPublicHooksEngineScanRoute: typeof ApiPublicHooksEngineScanRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -432,6 +446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/engine-scan': {
+      id: '/api/public/hooks/engine-scan'
+      path: '/api/public/hooks/engine-scan'
+      fullPath: '/api/public/hooks/engine-scan'
+      preLoaderRoute: typeof ApiPublicHooksEngineScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/bridge/trades': {
       id: '/api/public/bridge/trades'
       path: '/api/public/bridge/trades'
@@ -511,6 +532,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicBridgePollRoute: ApiPublicBridgePollRoute,
   ApiPublicBridgeReconcileRoute: ApiPublicBridgeReconcileRoute,
   ApiPublicBridgeTradesRoute: ApiPublicBridgeTradesRoute,
+  ApiPublicHooksEngineScanRoute: ApiPublicHooksEngineScanRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
