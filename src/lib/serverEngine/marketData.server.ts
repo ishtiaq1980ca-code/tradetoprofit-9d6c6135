@@ -4,7 +4,7 @@
 // once-per-day FX rate feed. That produced trendless price history: ADX sat at
 // 7-16 for every symbol, so every candidate was rejected as "sideways" and no
 // signal could ever be generated. This module replaces that with genuine
-// 1-minute OHLC candles per symbol.
+// M15 OHLC candles per symbol.
 //
 // Nothing about the MT5 path changes — this only supplies price history to the
 // strategy.
@@ -18,8 +18,10 @@ export function providerSymbol(sym: string): string {
 }
 
 const ENDPOINT = "https://query1.finance.yahoo.com/v8/finance/chart";
-const RANGE = "2d";
-const INTERVAL = "1m";
+// The strategy's entry timeframe is M15 (its "H1" confirmation aggregates 4
+// bars), so M15 is the correct base series.
+const RANGE = "1mo";
+const INTERVAL = "15m";
 export const MAX_BARS = 500;
 
 export type FetchResult = { symbol: string; candles: Candle[] | null; error?: string };
@@ -57,7 +59,7 @@ async function fetchOne(sym: string): Promise<FetchResult> {
   }
 }
 
-/** Fetch real 1-minute candles for many symbols with bounded concurrency. */
+/** Fetch real M15 candles for many symbols with bounded concurrency. */
 export async function fetchMarketCandles(symbols: string[], concurrency = 8): Promise<FetchResult[]> {
   const results: FetchResult[] = [];
   let cursor = 0;

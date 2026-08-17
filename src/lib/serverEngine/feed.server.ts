@@ -14,7 +14,7 @@ import type { Candle } from "../indicators";
 import { SYMBOLS } from "../format";
 import { fetchMarketCandles, MAX_BARS } from "./marketData.server";
 
-export const INTERVAL_MS = 60_000; // 1-minute candles
+export const INTERVAL_MS = 15 * 60_000; // M15 candles
 export const HISTORY = MAX_BARS;
 
 export type ServerFeedState = {
@@ -69,7 +69,7 @@ export async function saveFeed(admin: SupabaseClient<any>, state: ServerFeedStat
 
 export type RefreshSummary = { live: number; failed: Array<{ symbol: string; error: string }> };
 
-/** Pull real 1-minute candles for every symbol and apply them to the feed. */
+/** Pull real M15 candles for every symbol and apply them to the feed. */
 export async function refreshMarketData(state: ServerFeedState): Promise<RefreshSummary> {
   const results = await fetchMarketCandles([...SYMBOLS]);
   const at = Date.now();
@@ -93,7 +93,7 @@ export async function refreshMarketData(state: ServerFeedState): Promise<Refresh
  * A symbol is tradeable only when we applied fresh real data for it this run
  * AND the newest bar is recent enough that the market is genuinely moving.
  */
-export function hasLiveAnchor(state: ServerFeedState, symbol: string, maxAgeMs = 300_000): boolean {
+export function hasLiveAnchor(state: ServerFeedState, symbol: string, maxAgeMs = 60 * 60_000): boolean {
   const at = state.anchoredAt[symbol] ?? 0;
   if (!(at > 0 && Date.now() - at < 120_000)) return false;
   const candles = state.candles[symbol];
