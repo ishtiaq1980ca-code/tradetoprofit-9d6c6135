@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDecisionLog } from "./decisionLog";
 import { normalizeSymbol } from "./pairProfiles";
 import { priceFeed } from "./priceFeed";
-import { evaluateInvalidation, MIN_HOLD_MS, CONFIRM_TF_FACTOR } from "./structureInvalidation";
+import { evaluateInvalidation, MIN_HOLD_MS } from "./structureInvalidation";
 import { describeStructure } from "./marketStructure";
 import { atr as atrSeries } from "./indicators";
 
