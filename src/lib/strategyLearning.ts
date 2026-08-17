@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { safeStorage } from "./memoryStorage";
 import { supabase } from "@/integrations/supabase/client";
 
 // --------------------------- Pattern vocabulary ----------------------------
@@ -494,7 +495,7 @@ export const useLearning = create<LearningStore>()(
 
     {
       name: "aurum-strategy-learning-v1",
-      storage: createJSONStorage(() => (typeof window !== "undefined" ? window.localStorage : (undefined as any))),
+      storage: createJSONStorage(() => safeStorage()),
       partialize: (s) => ({
         patterns: s.patterns, adjustments: s.adjustments, blocked: s.blocked, approved: s.approved,
         history: s.history,
