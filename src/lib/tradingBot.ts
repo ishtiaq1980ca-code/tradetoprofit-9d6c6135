@@ -1314,19 +1314,18 @@ export function BotEngine() {
       }
     }, 2_500);
 
-    // Fallback timer: also serves as safety net if the worker fails silently.
+    // NOTE: the browser no longer runs the scan loop at all. Signal generation
+    // and structure-exit monitoring run server-side on a schedule
+    // (/api/public/hooks/engine-scan, driven by pg_cron every minute). This
+    // timer only refreshes the engine status shown in the dashboard.
     const id = setInterval(() => {
-      const { enabled, lastScanAt, scanIntervalMs } = useBot.getState();
-      if (!enabled) return;
-      if (Date.now() - lastScanAt < scanIntervalMs) return;
-      void runScan();
-    }, 500);
+      void refreshEngineStatus();
+    }, 30_000);
+    void refreshEngineStatus();
 
-    // When the tab returns to foreground, force an immediate refresh + scan.
+    // When the tab returns to foreground, refresh live status (no scan).
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      scanInFlight = false;
-      useBot.setState({ lastScanAt: 0 });
       // If the worker went silent while hidden, restart it now.
       if (!tickWorker || Date.now() - lastWorkerTickAt > WORKER_STALL_MS) {
         teardownWorker();
@@ -1336,9 +1335,10 @@ export function BotEngine() {
       hydrateAccessToken(true).finally(() => {
         pushTokenToWorker();
         refreshMt5Heartbeat();
-        if (useBot.getState().enabled) void runScan();
+        void refreshEngineStatus();
       });
     };
+
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
