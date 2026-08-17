@@ -32,7 +32,11 @@ export type InvalidationResult = {
 };
 
 /** Break must clear the level by this fraction of ATR to count as real. */
-export const BREAK_ATR_BUFFER = 0.10;
+export const BREAK_ATR_BUFFER = 0.5;
+/** Base (entry-timeframe) candles aggregated into one confirmation candle (M1 -> M5). */
+export const CONFIRM_TF_FACTOR = 5;
+/** A position must be at least this old before a structure exit may fire. */
+export const MIN_HOLD_MS = 5 * 60_000;
 /** EMA pair used for the short-term trend read on the entry timeframe. */
 export const TREND_FAST = 50;
 export const TREND_SLOW = 200;
