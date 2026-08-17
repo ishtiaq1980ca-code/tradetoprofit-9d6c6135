@@ -17,6 +17,7 @@ const SettingsSchema = z.object({
   min_confidence: z.number().min(0).max(100),
   max_spread_pips: z.number().min(0).max(1000),
   partial_close_pct: z.number().min(0).max(100),
+  blocked_hours_utc: z.array(z.number().int().min(0).max(23)).max(24).optional(),
 });
 
 export const updateBotSettings = createServerFn({ method: "POST" })
