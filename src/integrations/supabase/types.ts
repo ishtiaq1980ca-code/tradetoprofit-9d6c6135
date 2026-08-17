@@ -135,6 +135,7 @@ export type Database = {
           atr_period: number
           atr_sl_mult: number
           atr_tp_mult: number
+          blocked_hours_utc: number[]
           created_at: string
           daily_profit_target: number
           ema_fast: number
@@ -157,6 +158,7 @@ export type Database = {
           atr_period?: number
           atr_sl_mult?: number
           atr_tp_mult?: number
+          blocked_hours_utc?: number[]
           created_at?: string
           daily_profit_target?: number
           ema_fast?: number
@@ -179,6 +181,7 @@ export type Database = {
           atr_period?: number
           atr_sl_mult?: number
           atr_tp_mult?: number
+          blocked_hours_utc?: number[]
           created_at?: string
           daily_profit_target?: number
           ema_fast?: number
