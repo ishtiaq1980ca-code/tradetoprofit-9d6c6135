@@ -14,6 +14,7 @@ import { LearningHealthBanner } from "@/components/LearningHealthBanner";
 import { BotHealthCompass } from "@/components/BotHealthCompass";
 import { PairPerformanceGrid } from "@/components/PairPerformanceGrid";
 import { RecentTradesPanel } from "@/components/RecentTradesPanel";
+import { EngineStatusBadge } from "@/components/EngineStatusBadge";
 
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
