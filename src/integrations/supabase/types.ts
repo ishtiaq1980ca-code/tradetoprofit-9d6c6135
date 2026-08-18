@@ -695,6 +695,7 @@ export type Database = {
           rsi: number | null
           session: string | null
           side: string
+          source: string
           stop_loss: number | null
           strategy: string | null
           structure_note: string | null
@@ -732,6 +733,7 @@ export type Database = {
           rsi?: number | null
           session?: string | null
           side: string
+          source?: string
           stop_loss?: number | null
           strategy?: string | null
           structure_note?: string | null
@@ -769,6 +771,7 @@ export type Database = {
           rsi?: number | null
           session?: string | null
           side?: string
+          source?: string
           stop_loss?: number | null
           strategy?: string | null
           structure_note?: string | null
@@ -805,6 +808,7 @@ export type Database = {
           reconciled: boolean
           side: string
           signal_id: string | null
+          source: string
           status: string
           stop_loss: number | null
           symbol: string
@@ -826,6 +830,7 @@ export type Database = {
           reconciled?: boolean
           side: string
           signal_id?: string | null
+          source?: string
           status?: string
           stop_loss?: number | null
           symbol: string
@@ -847,6 +852,7 @@ export type Database = {
           reconciled?: boolean
           side?: string
           signal_id?: string | null
+          source?: string
           status?: string
           stop_loss?: number | null
           symbol?: string

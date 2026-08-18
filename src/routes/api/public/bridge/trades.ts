@@ -16,6 +16,15 @@ const Schema = z.object({
   profit: z.number().nullable().optional(),
   pips: z.number().nullable().optional(),
   status: z.enum(["open", "closed", "cancelled"]).default("open"),
+  // 'manual' = position opened by hand in MT5 (magic 0). Managed by the bridge
+  // exactly like bot trades, but excluded from strategy learning.
+  source: z.enum(["bot", "manual"]).default("bot"),
+  opened_at: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((v) => v == null || !Number.isNaN(Date.parse(v)), "invalid timestamp")
+    .transform((v) => (v == null ? v : new Date(v).toISOString())),
   // Bridges report Python `datetime.isoformat()`, which carries a "+00:00"
   // offset (and microseconds) rather than a "Z" suffix. Zod's strict
   // `.datetime()` rejected exactly that, so EVERY close report was 400'd and
@@ -64,7 +73,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const d = parsed.data;
-        const { failure_reason: failureReason, ...tradeBase } = d;
+        const { failure_reason: failureReason, opened_at: openedAt, ...tradeBase } = d;
 
         // HARD SERVER-SIDE GUARD — a stop-loss parked on the entry price turns
         // every retrace into a 0.00 round-trip close. An older bridge process
@@ -84,6 +93,7 @@ export const Route = createFileRoute("/api/public/bridge/trades")({
         // bridge so SELECT RLS can scope trades to their owner.
         const tradeRow = {
           ...tradeBase,
+          ...(openedAt ? { opened_at: openedAt } : {}),
           ...(degenerateStop ? { stop_loss: undefined } : {}),
           user_id: auth.userId,
         };
