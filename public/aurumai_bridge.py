@@ -41,7 +41,7 @@ import requests
 #         "XAUUSD": "XAUUSD.i",
 #         "EURUSD": "EURUSD.i",
 #     }
-BRIDGE_VERSION = 2026081401                       # server rejects older scripts to prevent unsafe SL/TP execution
+BRIDGE_VERSION = 2026081801                       # server rejects older scripts to prevent unsafe SL/TP execution
 BASE_URL     = "https://tradetoprofit.lovable.app" # paste only the Base URL from the MT5 Bridge page
 BRIDGE_TOKEN = ""                                 # paste your active Bridge token / license token
 MT5_LOGIN    = 0                                  # your MT5 demo account number (or leave 0 to use whichever account is already logged in on the MT5 terminal)
@@ -50,6 +50,24 @@ MT5_SERVER   = ""                                 # your broker server (leave bl
 POLL_SEC     = 0.2                                # turbo polling; server also rejects stale fills
 SLIPPAGE     = 3                                  # in points; keep low so late/bad fills are rejected
 MAGIC        = 770077                             # unique magic number for AurumAI trades
+MANUAL_MAGIC = 0                                  # magic MT5 stamps on trades opened by hand in the terminal
+MANAGE_MANUAL_TRADES = True                       # apply the same trailing/BE/structure-exit rules to manual trades
+MANAGED_MAGICS = (MAGIC, MANUAL_MAGIC) if MANAGE_MANUAL_TRADES else (MAGIC,)
+
+
+def _is_managed(position) -> bool:
+    """True when this bridge is allowed to manage the position.
+
+    Bot trades carry MAGIC. Manual trades placed by the user directly in the
+    MT5 terminal carry magic 0 — they get the exact same trailing / break-even
+    / structure-exit treatment, no special-cased thresholds.
+    """
+    return int(getattr(position, "magic", -1)) in MANAGED_MAGICS
+
+
+def _source_of(position_or_magic) -> str:
+    m = position_or_magic if isinstance(position_or_magic, int) else int(getattr(position_or_magic, "magic", 0))
+    return "bot" if m == MAGIC else "manual"
 TRAILING_ATR_MULT = 1.0                           # trailing stop in ATR units
 MAX_ADVERSE_ENTRY_DRIFT_PCT = 0.0020              # 0.20% adverse move allowed — signals execute immediately, rarely rejected as "stale"
 MAX_FAVORABLE_ENTRY_DRIFT_PCT = 0.0060            # 0.60% favorable move allowed; SL/TP are rebuilt around live MT5 fill
@@ -1002,7 +1020,7 @@ def _apply_usd_trailing_stop(position) -> bool:
          travelled TRAIL_TP_PROGRESS_GATE of the way from entry toward TP.
       4. Print only when SL is actually moved (handled at the bottom).
     """
-    if position.magic != MAGIC:
+    if not _is_managed(position):
         return False
     ticket = int(position.ticket)
 
@@ -1191,7 +1209,7 @@ def _apply_partial_tp(position) -> bool:
     Uses the position's original SL distance as 1R."""
     if PARTIAL_TP_PCT <= 0:
         return False  # partial-close disabled
-    if position.magic != MAGIC:
+    if not _is_managed(position):
         return False
     ticket = int(position.ticket)
     if ticket in _PARTIAL_TAKEN:
@@ -1420,7 +1438,7 @@ def _structure_flipped(symbol: str, is_buy: bool) -> str | None:
 def _apply_structure_exit(position) -> bool:
     """Smart Trailing v2 §3: if setup is invalidated, take the small loss now
     instead of waiting for the full stop loss."""
-    if not STRUCTURE_EXIT_ENABLED or position.magic != MAGIC:
+    if not STRUCTURE_EXIT_ENABLED or not _is_managed(position):
         return False
     ticket = int(position.ticket)
     now = time.time()
@@ -1810,10 +1828,11 @@ def sync_closed_trades():
     # Aggregate exit deals per position: partial closes produce several.
     exits: dict[int, dict] = {}
     for d in deals:
-        if d.magic != MAGIC or d.entry != mt5.DEAL_ENTRY_OUT:
+        if d.magic not in MANAGED_MAGICS or d.entry != mt5.DEAL_ENTRY_OUT:
             continue
         pid = int(d.position_id)
         agg = exits.setdefault(pid, {
+            "source": _source_of(int(d.magic)),
             "symbol": d.symbol, "volume": 0.0, "profit": 0.0,
             "price": float(d.price), "time": int(d.time),
             "side": "BUY" if d.type == mt5.DEAL_TYPE_SELL else "SELL",
@@ -1841,6 +1860,7 @@ def sync_closed_trades():
             "lot": max(0.01, round(agg["volume"], 2)),
             "profit": round(agg["profit"], 2),
             "status": "closed",
+            "source": agg.get("source", "bot"),
             "closed_at": closed_at.isoformat().replace("+00:00", "Z"),
         })
         if ok:
@@ -1885,6 +1905,45 @@ def discover_all_symbols() -> None:
         print(f"  ✗ NOT available on this broker ({len(missing)}): {', '.join(missing)}")
         print("    (Signals for these will be reported as unavailable; no action needed.)")
     print("─" * 72)
+
+
+_MANUAL_REGISTERED: set[int] = set()
+
+
+def register_manual_positions() -> int:
+    """Mirror hand-opened MT5 positions (magic 0) into the dashboard.
+
+    Without this a manual trade has no `trades` row, so it is invisible on the
+    dashboard and to the app-side structure monitor. Rows are tagged
+    source='manual' so the strategy-learning loop can ignore them.
+    """
+    if not MANAGE_MANUAL_TRADES:
+        return 0
+    created = 0
+    for p in (mt5.positions_get() or []):
+        if int(getattr(p, "magic", -1)) != MANUAL_MAGIC:
+            continue
+        ticket = int(p.ticket)
+        if ticket in _MANUAL_REGISTERED:
+            continue
+        opened_at = dt.datetime.fromtimestamp(int(p.time), dt.UTC).replace(microsecond=0)
+        ok = _post_json("/api/public/bridge/trades", {
+            "mt5_ticket": ticket,
+            "symbol": p.symbol,
+            "side": "BUY" if p.type == mt5.POSITION_TYPE_BUY else "SELL",
+            "entry": float(p.price_open),
+            "stop_loss": float(p.sl) or None,
+            "take_profit": float(p.tp) or None,
+            "lot": float(p.volume),
+            "status": "open",
+            "source": "manual",
+            "opened_at": opened_at.isoformat().replace("+00:00", "Z"),
+        })
+        if ok:
+            _MANUAL_REGISTERED.add(ticket)
+            created += 1
+            print(f"manual position registered ticket={ticket} {p.symbol} — now managed by trailing/structure exit")
+    return created
 
 
 def reconcile_open_trades():
@@ -1986,6 +2045,7 @@ def main():
     last_closed_sync = 0.0
     last_reconcile = 0.0
     try:
+        register_manual_positions()
         reconcile_open_trades()
         last_reconcile = time.time()
     except Exception as e:
@@ -2030,6 +2090,7 @@ def main():
             process_close_requests()
 
             if time.time() - last_closed_sync > 60:
+                register_manual_positions()
                 sync_closed_trades()
                 last_closed_sync = time.time()
 
