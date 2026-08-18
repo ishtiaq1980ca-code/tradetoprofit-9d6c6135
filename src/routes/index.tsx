@@ -118,7 +118,8 @@ function Dashboard() {
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">Trading Dashboard</h1>
             <p className="text-sm text-muted-foreground">XAUUSD · EURUSD · GBPUSD · USDJPY · AUDUSD · USDCAD · USDCHF</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <EngineStatusBadge />
             <Button
               size="sm"
               variant={botEnabled ? "outline" : "default"}
