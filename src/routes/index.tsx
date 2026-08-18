@@ -14,6 +14,7 @@ import { LearningHealthBanner } from "@/components/LearningHealthBanner";
 import { BotHealthCompass } from "@/components/BotHealthCompass";
 import { PairPerformanceGrid } from "@/components/PairPerformanceGrid";
 import { RecentTradesPanel } from "@/components/RecentTradesPanel";
+import { EngineStatusBadge } from "@/components/EngineStatusBadge";
 
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,7 +119,8 @@ function Dashboard() {
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">Trading Dashboard</h1>
             <p className="text-sm text-muted-foreground">XAUUSD · EURUSD · GBPUSD · USDJPY · AUDUSD · USDCAD · USDCHF</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <EngineStatusBadge />
             <Button
               size="sm"
               variant={botEnabled ? "outline" : "default"}
