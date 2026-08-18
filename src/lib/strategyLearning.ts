@@ -587,6 +587,8 @@ export async function refreshLearning(): Promise<{ ok: boolean; reviews: number;
     const { data, error } = await supabase
       .from("trade_reviews")
       .select("outcome,r_multiple,profit,pattern_keys")
+      // Only the bot's own signal-driven trades shape strategy adjustments.
+      .eq("source", "bot")
       .order("closed_at", { ascending: false })
       .limit(1000);
     if (error) return { ok: false, reviews: 0, changed: 0, error: error.message };

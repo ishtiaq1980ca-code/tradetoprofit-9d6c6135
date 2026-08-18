@@ -213,8 +213,11 @@ export async function reviewClosedTrades(): Promise<{ created: number; skipped?:
   const since = new Date(Date.now() - 21 * 86400_000).toISOString();
   const { data: trades, error } = await supabase
     .from("trades")
-    .select("id,mt5_ticket,symbol,side,entry,exit,stop_loss,take_profit,lot,profit,pips,opened_at,closed_at")
+    .select("id,mt5_ticket,symbol,side,entry,exit,stop_loss,take_profit,lot,profit,pips,opened_at,closed_at,source")
     .eq("status", "closed")
+    // Manual (hand-placed) trades are managed by the bridge but must never
+    // feed the bot's own pattern learning / auto-blocking.
+    .eq("source", "bot")
     // Reconciled rows were closed by cleanup with unknown P/L — they carry no
     // learnable outcome and must never enter trade_reviews.
     .eq("reconciled", false)
