@@ -26,12 +26,35 @@ type TradeRow = {
   mt5_ticket: number | null;
   opened_at: string;
   closed_at: string | null;
+  source?: string | null;
 };
+
+type SourceFilter = "all" | "bot" | "manual";
+
+/** Small pill marking trades opened by hand in MT5 (magic 0) vs bot signals. */
+function SourceBadge({ source }: { source?: string | null }) {
+  const manual = source === "manual";
+  return (
+    <span
+      className={cn(
+        "ml-2 rounded-full border px-1.5 py-0.5 text-[9px] uppercase tracking-wider",
+        manual
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-border/60 bg-muted/40 text-muted-foreground",
+      )}
+    >
+      {manual ? "Manual" : "Bot"}
+    </span>
+  );
+}
 
 function PositionsPage() {
   const [open, setOpen] = useState<TradeRow[]>([]);
   const [history, setHistory] = useState<TradeRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [filter, setFilter] = useState<SourceFilter>("all");
+  const bySource = (rows: TradeRow[]) =>
+    filter === "all" ? rows : rows.filter((r) => (r.source ?? "bot") === filter);
 
   useEffect(() => {
     let alive = true;
@@ -58,14 +81,29 @@ function PositionsPage() {
         <header>
           <h1 className="text-3xl font-semibold tracking-tight">Positions</h1>
           <p className="text-sm text-muted-foreground">Live MT5 open positions and full trade history from your connected MT5 account.</p>
+          <div className="mt-3 inline-flex rounded-lg border border-border/60 bg-card/60 p-0.5">
+            {(["all", "bot", "manual"] as SourceFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs capitalize transition-colors",
+                  filter === f ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {f === "all" ? "All trades" : f === "bot" ? "Bot" : "Manual"}
+              </button>
+            ))}
+          </div>
         </header>
 
         <Card className="border-border/60 bg-card/70">
-          <CardHeader><CardTitle className="text-base font-medium">Open ({open.length})</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base font-medium">Open ({bySource(open).length})</CardTitle></CardHeader>
           <CardContent className="p-0">
             {!loaded ? (
               <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">Loading…</div>
-            ) : open.length === 0 ? (
+            ) : bySource(open).length === 0 ? (
               <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No open MT5 positions. Ensure <code>aurumai_bridge.py</code> is running.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -84,11 +122,11 @@ function PositionsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {open.map((p) => (
+                    {bySource(open).map((p) => (
                       <tr key={p.id} className="border-b border-border/40">
                         <td className="px-3 py-2 text-muted-foreground">{new Date(p.opened_at).toLocaleTimeString()}</td>
                         <td className="px-3 py-2 text-muted-foreground">{p.mt5_ticket ?? "—"}</td>
-                        <td className="px-3 py-2">{p.symbol}</td>
+                        <td className="px-3 py-2">{p.symbol}<SourceBadge source={p.source} /></td>
                         <td className={cn("px-3 py-2 font-medium", p.side === "BUY" ? "text-bull" : "text-bear")}>{p.side}</td>
                         <td className="px-3 py-2 text-right">{p.lot.toFixed(2)}</td>
                         <td className="px-3 py-2 text-right">{fmt.price(p.entry, p.symbol)}</td>
@@ -105,9 +143,9 @@ function PositionsPage() {
         </Card>
 
         <Card className="border-border/60 bg-card/70">
-          <CardHeader><CardTitle className="text-base font-medium">History ({history.length})</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base font-medium">History ({bySource(history).length})</CardTitle></CardHeader>
           <CardContent className="p-0">
-            {history.length === 0 ? (
+            {bySource(history).length === 0 ? (
               <div className="px-6 pb-6 pt-2 text-sm text-muted-foreground">No closed MT5 trades yet.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -127,11 +165,11 @@ function PositionsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((t) => (
+                    {bySource(history).map((t) => (
                       <tr key={t.id} className="border-b border-border/40">
                         <td className="px-3 py-2 text-muted-foreground">{t.closed_at ? new Date(t.closed_at).toLocaleString() : "—"}</td>
                         <td className="px-3 py-2 text-muted-foreground">{t.mt5_ticket ?? "—"}</td>
-                        <td className="px-3 py-2">{t.symbol}</td>
+                        <td className="px-3 py-2">{t.symbol}<SourceBadge source={t.source} /></td>
                         <td className={cn("px-3 py-2 font-medium", t.side === "BUY" ? "text-bull" : "text-bear")}>{t.side}</td>
                         <td className="px-3 py-2 text-right">{t.lot.toFixed(2)}</td>
                         <td className="px-3 py-2 text-right">{fmt.price(t.entry, t.symbol)}</td>
