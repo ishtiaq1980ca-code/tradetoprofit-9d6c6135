@@ -40,7 +40,7 @@ export type GateContext = {
 };
 
 /** ADX floor for every instrument (PHASE 10 §8: below 25 → no new trades). */
-export const GLOBAL_ADX_MIN = 23;
+export const GLOBAL_ADX_MIN = 22;
 
 /** Higher-timeframe (H1 ≈ 4× M15) trend confirmation. */
 export function htfTrend(candles: Candle[]): { dir: "up" | "down" | "flat"; detail: string } {
