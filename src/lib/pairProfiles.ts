@@ -66,7 +66,14 @@ export type PairProfile = {
   minAtrPct: number;
   maxAtrPct: number;
   preferredSessions: Session[];
+  /** Optional per-pair overrides sourced from pair_settings (DB). */
+  minConfidence?: number;
+  riskPct?: number;
+  maxLot?: number;
+  /** True when one or more fields came from pair_settings. */
+  fromDb?: boolean;
 };
+
 
 const COMMON = {
   emaFast: 50, emaMid: 100, emaSlow: 200,
