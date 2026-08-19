@@ -166,13 +166,23 @@ export async function runServerScan(
 ): Promise<ScanSummary> {
   const out: ScanSummary = { ran: true, queued: 0, evaluated: 0, closesQueued: 0, notes: [] };
 
-  // ---- bot enabled + configuration ----
-  const { data: settings } = await admin
-    .from("bot_settings")
-    .select("enabled,blocked_hours_utc")
-    .eq("id", 1)
-    .maybeSingle();
+  // ---- live DB-driven configuration (bot_settings + pair_settings) ----
+  // Loaded FIRST so every gate below (confidence floors, ADX floors, per-pair
+  // indicator params, symbol list, risk) sees the current database values.
+  const cfg = await loadLiveConfig(admin);
+  out.notes.push(...cfg.notes);
+  const settings = cfg.settings;
   if (!settings?.enabled) return { ...out, ran: false, reason: "bot disabled (bot_settings.enabled = false)" };
+
+  const eng = getEngineOverrides();
+  const riskPct = eng.riskPct ?? ENGINE_DEFAULTS.riskPct;
+  // Daily-loss circuit breaker: use the MORE RESTRICTIVE of the code default
+  // (3%) and bot_settings.max_daily_loss, so a loose DB value can't widen risk.
+  const maxDailyLossPct = Math.min(
+    ENGINE_DEFAULTS.maxDailyLossPct,
+    eng.maxDailyLossPct ?? ENGINE_DEFAULTS.maxDailyLossPct,
+  );
+
 
   // ---- live MT5 account snapshot (heartbeat, balance, open count, daily P/L) ----
   const { data: snapRows } = await admin
