@@ -9,6 +9,9 @@
 import { ema, type Candle } from "./indicators";
 import { aggregate } from "./marketStructure";
 import type { PairProfile } from "./pairProfiles";
+import { GLOBAL_ADX_MIN_DEFAULT } from "./engineConfig";
+import { globalAdxMin } from "./liveConfig";
+
 
 export type GateCheck = { name: string; pass: boolean; reason: string };
 export type GateResult = { pass: boolean; checks: GateCheck[]; firstFailure?: string };
@@ -39,8 +42,10 @@ export type GateContext = {
   recentStopCooldown?: boolean;
 };
 
-/** ADX floor for every instrument (PHASE 10 §8: below 25 → no new trades). */
-export const GLOBAL_ADX_MIN = 22;
+/** ADX floor for every instrument. Code default is 22; bot_settings.adx_min
+ *  overrides it at runtime (see liveConfig.globalAdxMin()). */
+export const GLOBAL_ADX_MIN = GLOBAL_ADX_MIN_DEFAULT;
+
 
 /** Higher-timeframe (H1 ≈ 4× M15) trend confirmation. */
 export function htfTrend(candles: Candle[]): { dir: "up" | "down" | "flat"; detail: string } {
