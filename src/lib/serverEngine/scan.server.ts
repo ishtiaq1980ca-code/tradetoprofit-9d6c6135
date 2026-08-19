@@ -25,6 +25,9 @@ import { aggregatePatterns, useLearning } from "../strategyLearning";
 import { useEconomicCalendar, type CalendarEvent } from "../economicCalendar";
 import { evaluateInvalidation, MIN_HOLD_MS } from "../structureInvalidation";
 import { hasLiveAnchor, type ServerFeedState } from "./feed.server";
+import { loadLiveConfig } from "./liveConfig.server";
+import { getEngineOverrides } from "../liveConfig";
+
 
 export type ScanSummary = {
   ran: boolean;
