@@ -232,6 +232,7 @@ let workerStalledLoggedAt = 0;
 let workerSignalFallbackLoggedAt = 0;
 let workerBootFailures = 0;
 let workerDisabled = false;
+let workerDisabledLogged = false;
 const WORKER_STALL_MS = 5_000;
 const MAX_WORKER_BOOT_FAILURES = 3;
 let nextSignalReqId = 1;
@@ -1238,19 +1239,22 @@ export function BotEngine() {
           }
         };
         w.onerror = (ev) => {
-          // A worker that never reached "ready" cannot be fixed by retrying
-          // forever — give up after a few attempts and use main-thread timers
-          // instead of flooding the audit log once per second.
-          if (lastWorkerReadyAt === 0) workerBootFailures++;
+          // Count EVERY consecutive failure, even if the worker once reached
+          // "ready" — a load failure repeating forever must not keep the
+          // restart loop (and its log spam) alive. The counter is only reset
+          // by a successful "ready" message.
+          workerBootFailures++;
           if (workerBootFailures >= MAX_WORKER_BOOT_FAILURES) {
             workerDisabled = true;
             teardownWorker();
-            logThrottled(
-              "worker-disabled",
-              "warn",
-              "Background worker unavailable — running on main-thread timers (bot keeps trading)",
-              5 * 60_000,
-            );
+            if (!workerDisabledLogged) {
+              workerDisabledLogged = true;
+              useBot.getState().pushLog({
+                t: Date.now(),
+                level: "info",
+                msg: "Background worker unavailable — using main-thread price polling (server-side engine unaffected)",
+              });
+            }
             return;
           }
           logThrottled("worker-error", "warn", `Worker error: ${ev.message ?? "unknown"} — will auto-restart`, 30_000);
