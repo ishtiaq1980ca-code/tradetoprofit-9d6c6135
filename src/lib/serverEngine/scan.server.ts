@@ -25,6 +25,9 @@ import { aggregatePatterns, useLearning } from "../strategyLearning";
 import { useEconomicCalendar, type CalendarEvent } from "../economicCalendar";
 import { evaluateInvalidation, MIN_HOLD_MS } from "../structureInvalidation";
 import { hasLiveAnchor, type ServerFeedState } from "./feed.server";
+import { loadLiveConfig } from "./liveConfig.server";
+import { getEngineOverrides } from "../liveConfig";
+
 
 export type ScanSummary = {
   ran: boolean;
@@ -166,13 +169,23 @@ export async function runServerScan(
 ): Promise<ScanSummary> {
   const out: ScanSummary = { ran: true, queued: 0, evaluated: 0, closesQueued: 0, notes: [] };
 
-  // ---- bot enabled + configuration ----
-  const { data: settings } = await admin
-    .from("bot_settings")
-    .select("enabled,blocked_hours_utc")
-    .eq("id", 1)
-    .maybeSingle();
+  // ---- live DB-driven configuration (bot_settings + pair_settings) ----
+  // Loaded FIRST so every gate below (confidence floors, ADX floors, per-pair
+  // indicator params, symbol list, risk) sees the current database values.
+  const cfg = await loadLiveConfig(admin);
+  out.notes.push(...cfg.notes);
+  const settings = cfg.settings;
   if (!settings?.enabled) return { ...out, ran: false, reason: "bot disabled (bot_settings.enabled = false)" };
+
+  const eng = getEngineOverrides();
+  const riskPct = eng.riskPct ?? ENGINE_DEFAULTS.riskPct;
+  // Daily-loss circuit breaker: use the MORE RESTRICTIVE of the code default
+  // (3%) and bot_settings.max_daily_loss, so a loose DB value can't widen risk.
+  const maxDailyLossPct = Math.min(
+    ENGINE_DEFAULTS.maxDailyLossPct,
+    eng.maxDailyLossPct ?? ENGINE_DEFAULTS.maxDailyLossPct,
+  );
+
 
   // ---- live MT5 account snapshot (heartbeat, balance, open count, daily P/L) ----
   const { data: snapRows } = await admin
@@ -209,8 +222,9 @@ export async function runServerScan(
   out.closesQueued = await runStructureExits(admin, feed, open, out.notes);
 
   // ---- circuit breaker: daily loss limit on live MT5 P/L ----
-  if (balance > 0 && dailyPnl < 0 && Math.abs(dailyPnl) >= (balance * ENGINE_DEFAULTS.maxDailyLossPct) / 100) {
-    return { ...out, ran: false, reason: `circuit breaker: daily loss ${dailyPnl.toFixed(2)} >= ${ENGINE_DEFAULTS.maxDailyLossPct}% of ${balance.toFixed(2)}` };
+  if (balance > 0 && dailyPnl < 0 && Math.abs(dailyPnl) >= (balance * maxDailyLossPct) / 100) {
+    return { ...out, ran: false, reason: `circuit breaker: daily loss ${dailyPnl.toFixed(2)} >= ${maxDailyLossPct}% of ${balance.toFixed(2)}` };
+
   }
 
   // ---- weekend pause ----
@@ -287,7 +301,11 @@ export async function runServerScan(
   const stoppedRecently = (sym: string) =>
     (recentClosed ?? []).some((h: any) => normalizeSymbol(h.symbol) === sym && Number(h.profit) < 0);
 
-  const allowed = new Set(ENGINE_DEFAULTS.enabledSymbols);
+  // bot_settings.symbols is the authoritative enabled-symbol list; the code
+  // list (ENGINE_DEFAULTS.enabledSymbols) is only the fallback when it is empty.
+  const allowedList = (eng.enabledSymbols ?? ENGINE_DEFAULTS.enabledSymbols).map((s) => normalizeSymbol(s));
+  const allowed = new Set(allowedList);
+
   const scanOrder = ["XAUUSD", ...SYMBOLS.filter((s) => s !== "XAUUSD")];
 
   for (const sym of scanOrder) {
@@ -304,10 +322,14 @@ export async function runServerScan(
     if (!candles || candles.length < 220) { out.notes.push(`${sym}: warming up (${candles?.length ?? 0}/220)`); continue; }
 
     out.evaluated++;
+    // Confidence floor: pair_settings.min_confidence > bot_settings.min_confidence
+    // > code default (gold 85 / FX 80). Per-symbol risk % from pair_settings.
     const symbolFloor = minConfidenceFor(sym);
+    const symRiskPct = getPairProfile(sym)?.riskPct ?? riskPct;
     const decision = generateTradeDecision(sym, candles, balance, {
-      minConfidence: Math.max(ENGINE_DEFAULTS.minConfidence, symbolFloor),
-      risk: { ...DEFAULT_RISK, riskPct: ENGINE_DEFAULTS.riskPct, maxDailyLossPct: ENGINE_DEFAULTS.maxDailyLossPct },
+      minConfidence: symbolFloor,
+      risk: { ...DEFAULT_RISK, riskPct: symRiskPct, maxDailyLossPct },
+
       context: {
         duplicate: (perSymCount[sym] ?? 0) >= ENGINE_DEFAULTS.maxTradesPerSymbol,
         recentStopCooldown: stoppedRecently(sym),
@@ -337,7 +359,14 @@ export async function runServerScan(
 
     if (Math.abs(decision.entry - decision.stopLoss) <= 0) continue;
 
-    const lot = ENGINE_DEFAULTS.useTierLimits ? perTradeLot : decision.lot;
+    // pair_settings.max_lot caps the sized lot for this symbol when present.
+    const pairMaxLot = getPairProfile(sym)?.maxLot;
+    let lot = ENGINE_DEFAULTS.useTierLimits ? perTradeLot : decision.lot;
+    if (pairMaxLot != null && lot > pairMaxLot) {
+      out.notes.push(`${sym}: lot ${lot} capped to pair_settings.max_lot ${pairMaxLot}`);
+      lot = pairMaxLot;
+    }
+
     if (ENGINE_DEFAULTS.useTierLimits && usedLot + lot > lotCap + 1e-9) {
       out.notes.push(`${sym}: would exceed tier cap`);
       continue;

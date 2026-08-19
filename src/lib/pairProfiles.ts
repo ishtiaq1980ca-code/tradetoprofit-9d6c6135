@@ -5,6 +5,8 @@
 //
 // MT5 bridge / execution layer is NOT touched by this file.
 
+import { getPairOverride } from "./liveConfig";
+
 export type StrategyKind =
   | "trend_pullback"
   | "breakout"
@@ -66,7 +68,14 @@ export type PairProfile = {
   minAtrPct: number;
   maxAtrPct: number;
   preferredSessions: Session[];
+  /** Optional per-pair overrides sourced from pair_settings (DB). */
+  minConfidence?: number;
+  riskPct?: number;
+  maxLot?: number;
+  /** True when one or more fields came from pair_settings. */
+  fromDb?: boolean;
 };
+
 
 const COMMON = {
   emaFast: 50, emaMid: 100, emaSlow: 200,
@@ -261,9 +270,43 @@ export function unresolvedSymbols(symbols: readonly string[]): string[] {
   return [...bad].sort();
 }
 
+/** Resolve the effective profile for a symbol: hardcoded PAIR_PROFILES base,
+ *  with any validated pair_settings (DB) values layered on top. A missing DB
+ *  row simply means "use the hardcoded profile" — it never disables a pair. */
 export function getPairProfile(symbol: string): PairProfile | null {
-  return PAIR_PROFILES[normalizeSymbol(symbol)] ?? null;
+  const key = normalizeSymbol(symbol);
+  const base = PAIR_PROFILES[key];
+  if (!base) return null;
+  const ov = getPairOverride(key);
+  if (!ov || Object.keys(ov).length === 0) return base;
+
+  const p: PairProfile = { ...base, fromDb: true };
+  if (ov.emaFast != null) p.emaFast = ov.emaFast;
+  if (ov.emaSlow != null) p.emaSlow = ov.emaSlow;
+  if (ov.emaFast != null && ov.emaSlow != null) {
+    p.emaMid = Math.round((ov.emaFast + ov.emaSlow) / 2);
+  }
+  if (ov.rsiPeriod != null) p.rsiPeriod = ov.rsiPeriod;
+  if (ov.rsiOversold != null) p.rsiOversold = ov.rsiOversold;
+  if (ov.rsiOverbought != null) p.rsiOverbought = ov.rsiOverbought;
+  if (ov.adxMin != null) p.adxMin = ov.adxMin;
+  if (ov.atrPeriod != null) p.atrPeriod = ov.atrPeriod;
+  if (ov.atrSlMult != null) p.atrSlMult = ov.atrSlMult;
+  if (ov.rrTarget != null) p.rrTarget = ov.rrTarget;
+  if (ov.maxSpreadPct != null) p.maxSpreadPct = ov.maxSpreadPct;
+  if (ov.minConfidence != null) p.minConfidence = ov.minConfidence;
+  if (ov.riskPct != null) p.riskPct = ov.riskPct;
+  if (ov.maxLot != null) p.maxLot = ov.maxLot;
+  if (ov.enabled === true) {
+    p.disabled = false;
+    p.disabledReason = undefined;
+  } else if (ov.enabled === false) {
+    p.disabled = true;
+    p.disabledReason = "Disabled in pair_settings (DB)";
+  }
+  return p;
 }
+
 
 /** True when the (normalized) pair is paused for new entries. */
 export function isPairDisabled(symbol: string): boolean {
