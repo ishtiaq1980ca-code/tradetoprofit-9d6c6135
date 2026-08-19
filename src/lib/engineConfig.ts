@@ -19,6 +19,11 @@ export const ENGINE_DEFAULTS = {
   enabledSymbols: [...SYMBOLS] as string[],
 } as const;
 
+/** Code default for the global ADX floor. bot_settings.adx_min overrides it
+ *  at runtime via liveConfig.globalAdxMin(). */
+export const GLOBAL_ADX_MIN_DEFAULT = 22;
+
+
 /** Duplicate-suppression window for the same symbol + direction. */
 export const DUP_WINDOW_MS = 2 * 60_000;
 /** Cooldown after a stop-loss on the same symbol. */
