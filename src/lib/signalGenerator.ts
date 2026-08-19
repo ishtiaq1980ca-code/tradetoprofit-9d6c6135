@@ -223,8 +223,10 @@ function playbook(ctx: PlaybookCtx): PlaybookOutput {
       //   BUY when RSI 55–65 in an up-trend pullback to EMA50,
       //   SELL when RSI 35–45 in a down-trend pullback to EMA50,
       //   ATR SL 1.5×, RR 1:2.
-      const macdBull = ind.macdHist > 0 && ind.macdHist >= ind.macdPrev;
-      const macdBear = ind.macdHist < 0 && ind.macdHist <= ind.macdPrev;
+      // Sign-only MACD confirmation (slope/"not contracting" requirement removed —
+      // it rejected valid trends on normal minor histogram wobble).
+      const macdBull = ind.macdHist > 0;
+      const macdBear = ind.macdHist < 0;
       const atrPct = (ind.atr / price) * 100;
       const atrActive = ind.atr > 0 && atrPct >= profile.minAtrPct;
       const notSideways = ind.adx >= profile.adxMin;

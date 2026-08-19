@@ -77,9 +77,9 @@ const COMMON = {
 
 // Tier defaults for entry RSI zones (v3 §3)
 const TIER_RSI = {
-  1: { buy: [56, 64] as [number, number], sell: [36, 44] as [number, number] },
-  2: { buy: [55, 65] as [number, number], sell: [35, 45] as [number, number] },
-  3: { buy: [50, 68] as [number, number], sell: [30, 50] as [number, number] },
+  1: { buy: [53, 67] as [number, number], sell: [33, 47] as [number, number] },
+  2: { buy: [52, 68] as [number, number], sell: [32, 48] as [number, number] },
+  3: { buy: [47, 71] as [number, number], sell: [27, 53] as [number, number] },
 };
 
 /** Exit-engine parameters per volatility tier (v3 §4). */
