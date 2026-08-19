@@ -95,22 +95,15 @@ export const Route = createFileRoute("/api/public/hooks/engine-scan")({
   server: {
     handlers: {
       POST: async () => {
-        // pg_net has a 5s client timeout, so never make it wait for the scan:
-        // acknowledge immediately and let the ~50-60s run finish in the
-        // background. Lock/scan logic itself is unchanged.
-        const work = handle().catch((e: any) => {
-          console.error("[engine-scan]", e);
-        });
         try {
-          const { waitUntil } = (await import("cloudflare:workers" as any)) as any;
-          if (typeof waitUntil === "function") waitUntil(work);
-        } catch {
-          // Non-Worker runtime (dev/node): the promise keeps running on its own.
+          return await handle();
+        } catch (e: any) {
+          console.error("[engine-scan]", e);
+          return new Response(JSON.stringify({ ok: false, error: e?.message ?? String(e) }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
         }
-        return new Response(JSON.stringify({ ok: true, started: true }), {
-          status: 202,
-          headers: { "content-type": "application/json" },
-        });
       },
       GET: async () => {
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
