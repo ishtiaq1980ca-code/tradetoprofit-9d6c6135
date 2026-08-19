@@ -317,7 +317,7 @@ function Dashboard() {
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base font-medium">Bot Activity</CardTitle>
               <span className="text-xs text-muted-foreground">
-                {botEnabled ? `Scanning every ${Math.round(useBot.getState().scanIntervalMs / 1000)}s` : "Bot idle"}
+                {botEnabled ? "Server-side scan · every ~1 min" : "Bot idle"}
               </span>
             </CardHeader>
             <CardContent className="p-0">

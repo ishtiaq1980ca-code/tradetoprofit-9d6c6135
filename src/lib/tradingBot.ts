@@ -232,6 +232,7 @@ let workerStalledLoggedAt = 0;
 let workerSignalFallbackLoggedAt = 0;
 let workerBootFailures = 0;
 let workerDisabled = false;
+let workerDisabledLogged = false;
 const WORKER_STALL_MS = 5_000;
 const MAX_WORKER_BOOT_FAILURES = 3;
 let nextSignalReqId = 1;
