@@ -91,8 +91,10 @@ export function strictEntryGate(ctx: GateContext): GateResult {
     `MACD hist ${ind.macdHist.toFixed(5)} (prev ${ind.macdPrev.toFixed(5)}) ${macdOk ? "confirms" : "does not confirm"}`);
 
   // 5. ADX > 25.
-  const adxOk = ind.adx > GLOBAL_ADX_MIN;
-  add("ADX", adxOk, `ADX ${ind.adx.toFixed(1)} ${adxOk ? ">" : "≤"} ${GLOBAL_ADX_MIN}`);
+  const adxFloor = globalAdxMin();
+  const adxOk = ind.adx > adxFloor;
+  add("ADX", adxOk, `ADX ${ind.adx.toFixed(1)} ${adxOk ? ">" : "≤"} ${adxFloor} (global floor)`);
+
 
   // 6. ATR above minimum volatility threshold.
   const atrPct = price > 0 ? (ind.atr / price) * 100 : 0;

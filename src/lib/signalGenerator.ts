@@ -30,14 +30,22 @@ import { patternKeys, learningBlock, patternSizeMultiplier, type PatternContext 
 import { strictEntryGate, type GateCheck } from "./entryGate";
 import { computeTradeScore, MIN_TRADE_SCORE, type ScoreComponents } from "./qualityScore";
 export { MIN_TRADE_SCORE } from "./qualityScore";
+import { getEngineOverrides, getPairOverride } from "./liveConfig";
 
-// Confidence gates: gold requires 85%, FX currencies 80%.
+
+// Confidence gates: gold requires 85%, FX currencies 80% — these are the CODE
+// DEFAULTS. bot_settings.min_confidence (FX) and pair_settings.min_confidence
+// (per symbol) override them at runtime via liveConfig.
 export const MIN_CONFIDENCE_GOLD = 85;
 export const MIN_CONFIDENCE_FX = 80;
 export const MIN_CONFIDENCE = MIN_CONFIDENCE_FX; // back-compat: lowest floor
 export function minConfidenceFor(symbol: string): number {
-  return isGoldSymbol(symbol) ? MIN_CONFIDENCE_GOLD : MIN_CONFIDENCE_FX;
+  const pairFloor = getPairOverride(normalizeSymbol(symbol))?.minConfidence;
+  if (pairFloor != null) return pairFloor;
+  if (isGoldSymbol(symbol)) return MIN_CONFIDENCE_GOLD;
+  return getEngineOverrides().minConfidence ?? MIN_CONFIDENCE_FX;
 }
+
 
 export type ConfidenceBreakdown = {
   trend: number;       // 0..25
