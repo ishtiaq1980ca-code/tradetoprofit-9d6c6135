@@ -5,6 +5,8 @@
 //
 // MT5 bridge / execution layer is NOT touched by this file.
 
+import { getPairOverride } from "./liveConfig";
+
 export type StrategyKind =
   | "trend_pullback"
   | "breakout"
