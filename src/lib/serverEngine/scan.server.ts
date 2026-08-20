@@ -395,7 +395,7 @@ export async function runServerScan(
       take_profit: norm.takeProfit,
       lot: norm.lot,
       confidence: decision.confidence,
-      risk_pct: ENGINE_DEFAULTS.riskPct,
+      risk_pct: symRiskPct,
       reason:
         decision.reason +
         (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") +
