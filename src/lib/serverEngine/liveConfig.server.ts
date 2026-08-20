@@ -30,6 +30,7 @@ export async function loadLiveConfig(admin: SupabaseClient<any>): Promise<Loaded
 
   const parsed = parseBotSettings(settings ?? {});
   setEngineOverrides(parsed.overrides, parsed.notes);
+  notes.push(...parsed.notes);
 
   const { data: pairRows, error: pErr } = await admin
     .from("pair_settings")

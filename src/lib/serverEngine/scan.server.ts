@@ -312,20 +312,25 @@ export async function runServerScan(
     if (remainingBudget <= 0) break;
     if (slotInfo.fxAvailable === 0 && slotInfo.xauAvailable === 0) break;
     if (!allowed.has(sym)) continue;
-    if (!getPairProfile(sym)) continue;
-    if (isPairDisabled(sym)) continue;
+    const profile = getPairProfile(sym);
+    if (!profile) { out.notes.push(`${sym}: no configured pair profile`); continue; }
+    if (isPairDisabled(sym)) { out.notes.push(`${sym}: disabled in pair settings`); continue; }
     if (!hasLiveAnchor(feed, sym)) { out.notes.push(`${sym}: no live anchor`); continue; }
     if (classBlock(sym, slotInfo)) continue;
     if ((perSymCount[sym] ?? 0) >= ENGINE_DEFAULTS.maxTradesPerSymbol) continue;
 
     const candles = feed.candles[sym];
-    if (!candles || candles.length < 220) { out.notes.push(`${sym}: warming up (${candles?.length ?? 0}/220)`); continue; }
+    const requiredCandles = Math.max(220, profile.emaSlow + 5);
+    if (!candles || candles.length < requiredCandles) {
+      out.notes.push(`${sym}: warming up (${candles?.length ?? 0}/${requiredCandles})`);
+      continue;
+    }
 
     out.evaluated++;
     // Confidence floor: pair_settings.min_confidence > bot_settings.min_confidence
     // > code default (gold 85 / FX 80). Per-symbol risk % from pair_settings.
     const symbolFloor = minConfidenceFor(sym);
-    const symRiskPct = getPairProfile(sym)?.riskPct ?? riskPct;
+    const symRiskPct = profile.riskPct ?? riskPct;
     const decision = generateTradeDecision(sym, candles, balance, {
       minConfidence: symbolFloor,
       risk: { ...DEFAULT_RISK, riskPct: symRiskPct, maxDailyLossPct },
@@ -335,7 +340,11 @@ export async function runServerScan(
         recentStopCooldown: stoppedRecently(sym),
       },
     });
-    if (!decision || !decision.accepted || decision.side === "FLAT") {
+    if (!decision) {
+      out.notes.push(`${sym}: no decision (invalid indicator data)`);
+      continue;
+    }
+    if (!decision.accepted || decision.side === "FLAT") {
       if (decision?.rejectionReason) out.notes.push(`${sym}: ${decision.rejectionReason}`);
       continue;
     }
@@ -360,8 +369,10 @@ export async function runServerScan(
     if (Math.abs(decision.entry - decision.stopLoss) <= 0) continue;
 
     // pair_settings.max_lot caps the sized lot for this symbol when present.
-    const pairMaxLot = getPairProfile(sym)?.maxLot;
-    let lot = ENGINE_DEFAULTS.useTierLimits ? perTradeLot : decision.lot;
+    const pairMaxLot = profile.maxLot;
+    // The decision lot is risk-based and uses the live bot/pair risk override.
+    // Tier limits remain active as an aggregate account-level safety cap below.
+    let lot = decision.lot;
     if (pairMaxLot != null && lot > pairMaxLot) {
       out.notes.push(`${sym}: lot ${lot} capped to pair_settings.max_lot ${pairMaxLot}`);
       lot = pairMaxLot;
@@ -395,7 +406,7 @@ export async function runServerScan(
       take_profit: norm.takeProfit,
       lot: norm.lot,
       confidence: decision.confidence,
-      risk_pct: ENGINE_DEFAULTS.riskPct,
+      risk_pct: symRiskPct,
       reason:
         decision.reason +
         (norm.adjusted ? `\n  EXEC-ADJUSTED ${norm.notes.join("; ")}` : "") +
